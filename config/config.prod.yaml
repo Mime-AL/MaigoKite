@@ -1,0 +1,34 @@
+# NanamiGopher Production Environment Configuration
+# This file overrides config.yaml for production.
+
+app:
+  environment: "production"
+
+models:
+  prefer_local: false
+  # Production: model names are configured via Settings page or environment variables
+  chat:
+    default: ""
+    fallback: ""
+  embedding:
+    provider: ""
+    bge:
+      model: ""
+      device: "cuda"
+
+permissions:
+  default_mode: "manual"
+  circuit_breaker:
+    enabled: true
+
+observability:
+  enabled: true
+  console_output: true
+  debug: false
+  langfuse:
+    enabled: true
+    endpoint: "https://langfuse.nanamigopher.io"
+
+inspector:
+  save_history: true
+  polling_interval_ms: 5000

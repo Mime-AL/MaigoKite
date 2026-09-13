@@ -1,0 +1,63 @@
+# NanamiGopher Application Configuration
+
+# App settings
+app:
+  name: "NanamiGopher"
+  version: "1.0.0"
+  environment: "development"
+
+# Model configuration
+# NOTE: Actual model names and API Keys are configured by the user in the Settings page.
+# Leave these blank/null — they serve as structural templates only.
+models:
+  prefer_local: true
+  local_fallback_order:
+    - ollama
+    - lm_studio
+    - vllm
+  chat:
+    default: ""
+    fallback: ""
+  embedding:
+    provider: ""
+    bge:
+      model: ""
+      device: "cpu"
+
+# Permission settings
+permissions:
+  default_mode: "manual"
+  circuit_breaker:
+    enabled: true
+    blocked_patterns:
+      - "rm -rf /"
+      - "dd if="
+
+# Memory configuration
+memory:
+  storage:
+    sqlite_path: "~/.nanamigopher/data/memories.db"
+    vector_db: "chromadb"
+
+# Credential management
+credentials:
+  storage: "os_keychain"
+
+# Skill scanning
+skills:
+  scan_directories:
+    - "~/.nanamigopher/skills/"
+    - "./skills/"
+
+# Observability
+observability:
+  enabled: true
+  console_output: true
+  langfuse:
+    enabled: false
+    endpoint: "http://localhost:3000"
+
+# Inspector
+inspector:
+  save_history: false
+  polling_interval_ms: 3000

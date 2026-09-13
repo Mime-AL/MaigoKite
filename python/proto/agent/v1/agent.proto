@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package nanamigopher.agent.v1;
+
+option py_generic_services = true;
+option go_package = nanamigopher/grpc; // Go package for the generated code
+
+// AgentService defines the gRPC interface between Go Gateway and Python Agent Core.
+service AgentService {
+  // ProcessMessage sends a user message and returns a stream of agent responses.
+  rpc ProcessMessage(ProcessRequest) returns (stream AgentResponse);
+
+  // Session management
+  rpc CreateSession(SessionRequest) returns (SessionResponse);
+  rpc SwitchSession(SessionRequest) returns (SessionResponse);
+  rpc ListSessions(Empty) returns (SessionListResponse);
+  rpc DeleteSession(SessionRequest) returns (SessionResponse);
+
+  // Memory management
+  rpc SearchMemories(MemorySearchRequest) returns (MemorySearchResponse);
+  rpc UpdateMemory(MemoryUpdateRequest) returns (MemoryUpdateResponse);
+
+  // Model routing
+  rpc RouteModel(ModelRouteRequest) returns (ModelRouteResponse);
+
+  // Permission check
+  rpc CheckPermission(PermissionCheckRequest) returns (PermissionCheckResponse);
+}
+
+message ProcessRequest {
+  string session_id = 1;
+  string content = 2;
+  repeated Attachment attachments = 3;
+}
+
+message Attachment {
+  string type = 1; // file, image, url
+  string path = 2;
+  string url = 3;
+}
+
+message AgentResponse {
+  string type = 1; // step_start, step_complete, message_chunk, error, tool_call
+  StepData step = 2;
+  MessageChunk chunk = 3;
+  ErrorInfo error = 4;
+  ToolCallData tool_call = 5;
+}
+
+message StepData {
+  string step_name = 1;
+  string status = 2; // running, completed, failed, skipped
+}
+
+message MessageChunk {
+  string content = 1;
+}
+
+message ToolCallData {
+  string tool_name = 1;
+  string tool_args = 2;
+  string result_summary = 3;
+  string status = 4; // pending, running, completed, failed
+}
+
+message ErrorInfo {
+  string level = 1; // P0 (critical), P1 (error), P2 (warning)
+  string code = 2;
+  string message = 3;
+  string suggestion = 4;
+  bool retryable = 5;
+}
+
+message SessionRequest {
+  string id = 1;
+  string title = 2;
+  string model_id = 3;
+  string permission_mode = 4;
+}
+
+message SessionResponse {
+  string id = 1;
+  string title = 2;
+  string created_at = 3;
+  string updated_at = 4;
+  string permission_mode = 5;
+  int32 message_count = 6;
+}
+
+message SessionListResponse {
+  repeated SessionResponse sessions = 1;
+}
+
+message MemorySearchRequest {
+  string query = 1;
+  string type = 2; // short_term, conversation, user_memory, long_term
+  repeated string tags = 3;
+  int32 top_k = 4;
+  bool use_vector_search = 5;
+}
+
+message MemorySearchResponse {
+  repeated MemoryResult results = 1;
+}
+
+message MemoryResult {
+  string id = 1;
+  string content = 2;
+  float similarity = 3;
+  string type = 4;
+  repeated string tags = 5;
+  bool is_pinned = 6;
+}
+
+message MemoryUpdateRequest {
+  string id = 1;
+  string content = 2;
+  repeated string tags = 3;
+  bool is_pinned = 4;
+}
+
+message MemoryUpdateResponse {
+  string id = 1;
+  string updated_at = 2;
+}
+
+message ModelRouteRequest {
+  string task_type = 1; // code, writing, research, general
+  string complexity = 2; // low, medium, high
+  bool prefer_local = 3;
+}
+
+message ModelRouteResponse {
+  string selected_model = 1;
+  string provider = 2;
+  string reason = 3;
+  repeated string fallback_models = 4;
+  repeated string fallback_providers = 5;
+}
+
+message PermissionCheckRequest {
+  string operation = 1; // file_read, file_write, bash, web_search, etc.
+  string resource = 2; // target resource identifier
+}
+
+message PermissionCheckResponse {
+  bool allowed = 1;
+  string reason = 2;
+  string required_level = 3; // L1-L5 or auto/manual
+}
+
+message Empty {}

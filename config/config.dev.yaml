@@ -1,0 +1,36 @@
+# NanamiGopher Development Environment Configuration
+# This file overrides config.yaml for development.
+
+app:
+  environment: "development"
+
+models:
+  prefer_local: true
+  local_fallback_order:
+    - ollama
+    - lm_studio
+    - vllm
+  chat:
+    default: ""
+    fallback: ""
+  embedding:
+    provider: ""
+    bge:
+      model: ""
+      device: "cpu"
+
+permissions:
+  default_mode: "auto"
+  circuit_breaker:
+    enabled: false
+
+observability:
+  enabled: true
+  console_output: true
+  debug: true
+  langfuse:
+    enabled: false
+
+inspector:
+  save_history: true
+  polling_interval_ms: 1000

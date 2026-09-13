@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package nanamigopher.agent.v1;
+
+option go_package = "pkg/proto/agent";
+
+// AgentService defines the gRPC interface between Go Gateway and Python Agent Core.
+service AgentService {
+  // ProcessMessage sends a user message and returns a stream of agent responses.
+  rpc ProcessMessage(ProcessRequest) returns (stream AgentResponse);
+
+  // Session management
+  rpc CreateSession(SessionRequest) returns (SessionResponse);
+  rpc SwitchSession(SessionRequest) returns (SessionResponse);
+  rpc ListSessions(Empty) returns (SessionListResponse);
+  rpc DeleteSession(SessionRequest) returns (SessionResponse);
+
+  // Memory management
+  rpc SearchMemories(MemorySearchRequest) returns (MemorySearchResponse);
+  rpc UpdateMemory(MemoryUpdateRequest) returns (MemoryUpdateResponse);
+
+  // Model routing
+  rpc RouteModel(ModelRouteRequest) returns (ModelRouteResponse);
+
+  // Permission check
+  rpc CheckPermission(PermissionCheckRequest) returns (PermissionCheckResponse);
+}
+
+// ProcessRequest carries a user message for processing.
+message ProcessRequest {
+  string session_id = 1;
+  string content = 2;
+  repeated Attachment attachments = 3;
+}
+
+message Attachment {
+  string type = 1; // file, image, url
+  string path = 2;
+  string url = 3;
+}
+
+// AgentResponse is the streamed response from the Python Agent.
+message AgentResponse {
+  string type = 1; // step_start, step_complete, message_chunk, error
+  StepData step = 2;
+  MessageChunk chunk = 3;
+  ErrorInfo error = 4;
+}
+
+message StepData {
+  string step = 1;
+  string status = 2; // running, completed, failed
+}
+
+message MessageChunk {
+  string content = 1;
+}
+
+message ErrorInfo {
+  string level = 1; // P0, P1, P2
+  string code = 2;
+  string message = 3;
+  string suggestion = 4;
+  bool retryable = 5;
+}
+
+// Session messages
+message SessionRequest {
+  string id = 1;
+  string title = 2;
+  string model_id = 3;
+  string permission_mode = 4;
+}
+
+message SessionResponse {
+  string id = 1;
+  string title = 2;
+  string created_at = 3;
+  string updated_at = 4;
+  string permission_mode = 5;
+  int32 message_count = 6;
+}
+
+message SessionListResponse {
+  repeated SessionResponse sessions = 1;
+}
+
+// Memory messages
+message MemorySearchRequest {
+  string query = 1;
+  string type = 2;
+  repeated string tags = 3;
+  int32 top_k = 4;
+  bool use_vector_search = 5;
+}
+
+message MemorySearchResponse {
+  repeated MemoryResult results = 1;
+}
+
+message MemoryResult {
+  string id = 1;
+  string content = 2;
+  float similarity = 3;
+  string type = 4;
+}
+
+message MemoryUpdateRequest {
+  string id = 1;
+  string content = 2;
+  repeated string tags = 3;
+  bool is_pinned = 4;
+}
+
+message MemoryUpdateResponse {
+  string id = 1;
+  string updated_at = 2;
+}
+
+// Model routing messages
+message ModelRouteRequest {
+  string task_type = 1;
+  string complexity = 2;
+  bool prefer_local = 3;
+}
+
+message ModelRouteResponse {
+  string selected_model = 1;
+  string reason = 2;
+  repeated string fallback_models = 3;
+}
+
+// Permission messages
+message PermissionCheckRequest {
+  string operation = 1;
+  string resource = 2;
+}
+
+message PermissionCheckResponse {
+  bool allowed = 1;
+  string reason = 2;
+  string required_level = 3;
+}
+
+// Empty message for unary calls that don't need parameters
+message Empty {}

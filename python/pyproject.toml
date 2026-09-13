@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanami-agent-core"
+version = "0.1.0"
+description = "NanamiGopher Python Agent Core"
+requires-python = ">=3.11"
+dependencies = [
+    # === LangChain 生态（LLM 适配层 + Tool 定义 + Prompt + Embedding）===
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.2.0",
+    "langchain-community>=0.3.0",
+    "langgraph>=0.2.0",
+
+    # === BGE Embedding（本地向量）===
+    "langchain-bge>=0.0.3",
+
+    # === gRPC 通信 ===
+    "grpcio>=1.65.0",
+    "grpcio-tools>=1.65.0",
+    "protobuf>=5.0.0",
+
+    # === HTTP / 网络 ===
+    "httpx>=0.27.0",
+    "aiohttp>=3.9.0",
+
+    # === 配置 / 数据模型 ===
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pyyaml>=6.0",
+
+    # === 日志 / 可观测性 ===
+    "structlog>=24.0.0",
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-exporter-otlp>=1.28.0",
+
+    # === 异步 / 并发 ===
+    "asyncio-throttle>=1.0.2",
+
+    # === 重试 / 容错 ===
+    "tenacity>=9.0.0",
+
+    # === 终端美化 ===
+    "rich>=13.0.0",
+    "click>=8.0.0",
+
+    # === 文件操作 ===
+    "aiofiles>=24.0.0",
+
+    # === 搜索工具 ===
+    "duckduckgo-search>=6.0.0",
+
+    # === Markdown 转换 ===
+    "markdownify>=0.11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+vectorstores = [
+    "chromadb>=0.5.0",
+    "qdrant-client>=1.11.0",
+]
+sandbox = [
+    "docker>=7.0.0",
+]
+
+[project.scripts]
+nanami-agent = "agent.main:main_cli"
+
+[tool.setuptools.packages.find]
+include = ["agent*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

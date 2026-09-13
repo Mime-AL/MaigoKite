@@ -1,0 +1,58 @@
+/**
+ * 布局样式
+ *
+ * 三栏布局的基础样式。
+ */
+
+@import './variables';
+
+.app-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.layout-sidebar {
+  flex-shrink: 0;
+  width: $sidebar-width;
+  background-color: $color-dark-bg;
+  color: $color-dark-text;
+  display: flex;
+  flex-direction: column;
+
+  &.collapsed {
+    width: $sidebar-collapsed-width;
+  }
+}
+
+.layout-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.layout-file-explorer {
+  flex-shrink: 0;
+  width: $file-explorer-width;
+  border-left: 1px solid $color-border;
+  display: flex;
+  flex-direction: column;
+
+  &.collapsed {
+    width: $file-explorer-collapsed-width;
+  }
+}
+
+.layout-divider {
+  width: $divider-width;
+  cursor: col-resize;
+  background-color: $color-border;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: $color-primary;
+  }
+}
