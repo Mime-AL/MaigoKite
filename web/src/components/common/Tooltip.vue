@@ -33,25 +33,17 @@ const isVisible = ref(false)
 
 .tooltip {
   position: absolute;
-  bottom: 100%;
+  bottom: calc(100% + 7px);
   left: 50%;
   transform: translateX(-50%);
-  padding: 4px 8px;
-  background-color: #333;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
   color: #fff;
-  font-size: 12px;
-  border-radius: 4px;
+  background: rgba(32, 32, 36, 0.92);
+  box-shadow: var(--shadow-float);
+  font-size: 10px;
   white-space: nowrap;
   z-index: 100;
-}
-
-.tooltip::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 4px solid transparent;
-  border-top-color: #333;
 }
 </style>

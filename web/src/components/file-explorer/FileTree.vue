@@ -1,35 +1,11 @@
-/**
- * 文件树组件
- *
- * 递归渲染文件目录树。
- */
-
 <script setup lang="ts">
+import type { FileTreeNode } from '@/composables/useFileTree'
 import FileNode from './FileNode.vue'
-import { useFileTree } from '@/composables/useFileTree'
 
-const { toggleExpand, selectNode } = useFileTree()
-
-defineProps<{
-  nodes?: Array<{
-    name: string
-    path: string
-    type: 'file' | 'directory'
-    children?: any[]
-  }>
-}>()
+defineProps<{ nodes?: FileTreeNode[] }>()
+const emit = defineEmits<{ (event: 'expand' | 'select', node: FileTreeNode): void }>()
 </script>
 
-<template>
-  <div class="file-tree">
-    <template v-for="node in nodes" :key="node.path">
-      <FileNode :node="node" :depth="0" @expand="toggleExpand" @select="selectNode" />
-    </template>
-  </div>
-</template>
+<template><div class="file-tree"><FileNode v-for="node in nodes" :key="node.path" :node="node" :depth="0" @expand="emit('expand', $event)" @select="emit('select', $event)" /></div></template>
 
-<style scoped lang="scss">
-.file-tree {
-  padding: 8px 0;
-}
-</style>
+<style scoped>.file-tree { padding: 7px; }</style>

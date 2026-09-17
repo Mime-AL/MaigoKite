@@ -33,4 +33,12 @@ interface CodeChange {
   diff?: string
 }
 
+export interface SkillInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  enabled: boolean
+}
+
 export {}

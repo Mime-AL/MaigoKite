@@ -1,89 +1,116 @@
-/**
- * 三栏主布局组件
- *
- * 左侧导航栏 + 中间工作区 + 右侧文件管理器，
- * 分隔线支持拖拽调整宽度。
- */
-
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useLayoutStore } from '@/stores/layout'
+import { useSettingsStore } from '@/stores/settings'
+import { useLayout } from '@/composables/useLayout'
 import Sidebar from './Sidebar.vue'
 import MainContent from './MainContent.vue'
 import FileExplorer from './FileExplorer.vue'
-import { useLayout } from '@/composables/useLayout'
 
 const layoutStore = useLayoutStore()
+const settingsStore = useSettingsStore()
 const { isDragging, startDrag } = useLayout()
+
+onMounted(() => { void settingsStore.loadPreferences() })
 </script>
 
 <template>
-  <div class="app-layout">
-    <!-- 左侧导航栏 -->
-    <div
-      class="sidebar-container"
-      :style="{ width: layoutStore.sidebarCollapsed ? '64px' : layoutStore.sidebarWidth + 'px' }"
-    >
-      <Sidebar />
-    </div>
+  <div class="desktop-stage">
+    <div class="app-layout" :class="{ dragging: isDragging }">
+      <aside
+        class="sidebar-container"
+        :style="{ width: layoutStore.sidebarCollapsed ? '64px' : `${layoutStore.sidebarWidth}px` }"
+      >
+        <Sidebar />
+      </aside>
 
-    <!-- 左侧分隔线 -->
-    <div
-      class="divider divider-left"
-      :class="{ dragging: isDragging }"
-      @mousedown="startDrag('left', $event.clientX, layoutStore.sidebarWidth)"
-    />
+      <button
+        class="divider divider-left"
+        type="button"
+        aria-label="调整侧边栏宽度"
+        @mousedown="startDrag('left', $event.clientX, layoutStore.sidebarWidth)"
+      />
 
-    <!-- 中间工作区 -->
-    <div class="main-content-container">
-      <MainContent />
-    </div>
+      <section class="main-content-container">
+        <MainContent />
+      </section>
 
-    <!-- 右侧分隔线 -->
-    <div
-      class="divider divider-right"
-      :class="{ dragging: isDragging }"
-      @mousedown="startDrag('right', $event.clientX, layoutStore.fileExplorerWidth)"
-    />
+      <button
+        class="divider divider-right"
+        type="button"
+        aria-label="调整文件栏宽度"
+        @mousedown="startDrag('right', $event.clientX, layoutStore.fileExplorerWidth)"
+      />
 
-    <!-- 右侧文件管理器 -->
-    <div
-      class="file-explorer-container"
-      :style="{ width: layoutStore.fileExplorerCollapsed ? '48px' : layoutStore.fileExplorerWidth + 'px' }"
-    >
-      <FileExplorer />
+      <aside
+        class="file-explorer-container"
+        :style="{ width: layoutStore.fileExplorerCollapsed ? '48px' : `${layoutStore.fileExplorerWidth}px` }"
+      >
+        <FileExplorer />
+      </aside>
     </div>
   </div>
 </template>
 
 <style scoped lang="scss">
-.app-layout {
-  display: flex;
-  height: 100vh;
+.desktop-stage {
   width: 100vw;
-  overflow: hidden;
+  height: 100vh;
+  padding: 12px;
 }
 
-.sidebar-container,
-.file-explorer-container {
-  flex-shrink: 0;
+.app-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--shadow-window);
+
+  &.dragging { cursor: col-resize; user-select: none; }
+  &.dragging .sidebar-container { transition: none; }
+}
+
+.sidebar-container {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .main-content-container {
-  flex: 1;
   min-width: 0;
+  flex: 1;
   overflow: hidden;
+  background: var(--surface-solid);
 }
 
-.divider {
-  width: 4px;
-  cursor: col-resize;
-  background-color: #e0e0e0;
-  transition: background-color 0.2s;
+.file-explorer-container { flex: none; min-width: 0; overflow: hidden; transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1); }
 
-  &:hover,
-  &.dragging {
-    background-color: #0066cc;
+.divider {
+  position: relative;
+  z-index: 4;
+  width: 1px;
+  flex: 0 0 1px;
+  padding: 0;
+  border: 0;
+  background: var(--border-color);
+  cursor: col-resize;
+
+  &::after {
+    position: absolute;
+    inset: 0 -4px;
+    content: '';
   }
+
+  &:hover { background: var(--primary-color); }
+}
+
+@media (max-width: 760px) {
+  .desktop-stage { padding: 0; }
+  .app-layout { border: 0; border-radius: 0; }
+  .file-explorer-container,.divider-right { display: none; }
 }
 </style>

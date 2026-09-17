@@ -1,33 +1,4 @@
-/**
- * Skill 管理页
- *
- * 查看、安装和配置 Agent Skills。
- */
-
 <script setup lang="ts">
-import { useSkillStore } from '@/stores/skill'
-import { onMounted } from 'vue'
-
-const skillStore = useSkillStore()
-
-onMounted(() => {
-  skillStore.loadSkills()
-})
+import FeaturePlaceholder from '@/components/common/FeaturePlaceholder.vue'
 </script>
-
-<template>
-  <div class="skill-manager-page">
-    <h1>Skill 管理</h1>
-    <ul>
-      <li v-for="skill in skillStore.skills" :key="skill.id">
-        {{ skill.name }} v{{ skill.version }}
-      </li>
-    </ul>
-  </div>
-</template>
-
-<style scoped lang="scss">
-.skill-manager-page {
-  padding: 24px;
-}
-</style>
+<template><FeaturePlaceholder eyebrow="Extensions" title="Skills" description="发现、安装并控制助手可以使用的扩展能力。" icon="sparkles" /></template>

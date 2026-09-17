@@ -1,12 +1,12 @@
 FROM golang:1.22-alpine AS go-builder
 
-WORKDIR /build
+WORKDIR /build/gateway
 
-COPY go.mod go.sum ./
+COPY gateway/go.mod gateway/go.sum ./
 RUN go mod download
 
-COPY go/ ./go/
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/nanamigopher-api ./go/cmd/api/
+COPY gateway/ ./
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/nanamigopher-api ./cmd/gateway
 
 FROM python:3.12-slim AS python-builder
 

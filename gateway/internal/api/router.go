@@ -1,0 +1,141 @@
+package api
+
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/nanamigopher/nanamigopher/gateway/internal/config"
+	"github.com/nanamigopher/nanamigopher/gateway/internal/credentialstore"
+	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
+	"github.com/nanamigopher/nanamigopher/gateway/internal/observability"
+	ws "github.com/nanamigopher/nanamigopher/gateway/internal/websocket"
+	"net"
+	"net/http"
+	"strings"
+)
+
+type Router struct {
+	engine *gin.Engine
+	cfg    *config.Config
+	obs    observability.ConsoleObserver
+	client *agentgrpc.AgentClient
+	hub    *ws.Hub
+}
+
+func NewRouter(cfg *config.Config, obs observability.ConsoleObserver, client *agentgrpc.AgentClient) *gin.Engine {
+	if cfg.App.Env == "development" {
+		gin.SetMode(gin.DebugMode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
+	engine := gin.New()
+	engine.Use(gin.Recovery())
+	engine.Use(localOriginBoundary())
+	r := &Router{engine: engine, cfg: cfg, obs: obs, client: client, hub: ws.NewHub()}
+	r.routes()
+	return engine
+}
+
+func localOriginBoundary() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		remoteHost, _, _ := net.SplitHostPort(c.Request.RemoteAddr)
+		loopback := net.ParseIP(remoteHost) != nil && net.ParseIP(remoteHost).IsLoopback()
+		trusted := origin == "" || (loopback && (origin == "null" || strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:")))
+		if !trusted {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "ORIGIN_DENIED", "message": "origin is not allowed"}})
+			return
+		}
+		if origin != "" {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Idempotency-Key")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
+}
+func (r *Router) routes() {
+	r.engine.GET("/health", func(c *gin.Context) {
+		health, err := r.client.Health(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "agent_core": health.Status, "version": health.Version})
+	})
+	v1 := r.engine.Group("/api/v1")
+	workspaces := v1.Group("/workspaces/:workspaceID")
+	workspaces.Use(r.requireWorkspaceAccess())
+	s := &SessionHandler{client: r.client}
+	credentialManager := credentialstore.NewManager(credentialstore.NewOSStore())
+	m := &MessageHandler{client: r.client, hub: r.hub, mgr: credentialManager}
+	workspaces.GET("/conversations", s.List)
+	workspaces.POST("/conversations", s.Create)
+	workspaces.GET("/conversations/:conversationID", s.Get)
+	workspaces.PATCH("/conversations/:conversationID", s.Update)
+	workspaces.DELETE("/conversations/:conversationID", s.Delete)
+	workspaces.GET("/conversations/:conversationID/messages", s.Messages)
+	workspaces.POST("/conversations/:conversationID/messages", m.Send)
+	workspaces.GET("/events", m.Stream)
+	approvals := &ApprovalHandler{client: r.client, hub: r.hub}
+	workspaces.GET("/approvals", approvals.List)
+	workspaces.POST("/approvals/:approvalID/decision", approvals.Decide)
+	workspaces.GET("/audit-events", (&AuditHandler{client: r.client}).List)
+	credentials := &CredentialHandler{mgr: credentialManager, client: r.client}
+	models := &ModelHandler{mgr: credentialManager, client: r.client}
+	preferences := &PreferenceHandler{client: r.client}
+	workspaces.GET("/settings", r.requireWorkspaceOwner(), models.GetSettings)
+	workspaces.PATCH("/settings", r.requireWorkspaceOwner(), models.UpdateSettings)
+	workspaces.GET("/models", models.List)
+	workspaces.POST("/models", r.requireWorkspaceOwner(), models.Upsert)
+	workspaces.PUT("/models/:modelID", r.requireWorkspaceOwner(), models.Upsert)
+	workspaces.DELETE("/models/:modelID", r.requireWorkspaceOwner(), models.Delete)
+	workspaces.POST("/models/:modelID/default", r.requireWorkspaceOwner(), models.SetDefault)
+	workspaces.POST("/models/actions/validate", r.requireWorkspaceOwner(), models.Validate)
+	workspaces.POST("/models/actions/discover", r.requireWorkspaceOwner(), models.Discover)
+	workspaces.GET("/credential-references", r.requireWorkspaceOwner(), credentials.Status)
+	workspaces.POST("/credential-references", r.requireWorkspaceOwner(), credentials.Save)
+	workspaces.PUT("/credential-references/:id", r.requireWorkspaceOwner(), credentials.Update)
+	workspaces.DELETE("/credential-references/:id", r.requireWorkspaceOwner(), credentials.Delete)
+	workspaces.GET("/preferences", preferences.Get)
+	workspaces.PATCH("/preferences", preferences.Update)
+	permissions := &PermissionHandler{client: r.client}
+	workspaces.GET("/permissions", permissions.Get)
+	workspaces.PATCH("/permissions", r.requireWorkspaceOwner(), permissions.Update)
+	workspace := newWorkspaceHandler(r.cfg.Workspace.Root)
+	workspaces.GET("/files", workspace.ListFiles)
+	workspaces.GET("/files/content", workspace.ReadFile)
+	workspaces.GET("/changes", workspace.Changes)
+	workspaces.GET("/changes/diff", workspace.ChangeDiff)
+}
+
+func (r *Router) requireWorkspaceOwner() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("workspace_role") != "owner" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "ACCESS_DENIED", "message": "workspace owner access is required"}})
+			return
+		}
+		c.Next()
+	}
+}
+
+func (r *Router) requireWorkspaceAccess() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		decision, err := r.client.CheckWorkspaceAccess(c.Request.Context(), c.Param("workspaceID"), "local-user")
+		if err != nil {
+			grpcError(c, err)
+			c.Abort()
+			return
+		}
+		if !decision.Allowed {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "NOT_FOUND", "message": "workspace not found"}})
+			return
+		}
+		c.Set("principal_id", "local-user")
+		c.Set("workspace_role", decision.Role)
+		c.Next()
+	}
+}

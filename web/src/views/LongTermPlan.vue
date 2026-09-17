@@ -1,21 +1,4 @@
-/**
- * 长期计划页
- *
- * 查看和编辑 Agent 的长期计划。
- */
-
 <script setup lang="ts">
+import FeaturePlaceholder from '@/components/common/FeaturePlaceholder.vue'
 </script>
-
-<template>
-  <div class="long-term-plan-page">
-    <h1>长期计划</h1>
-    <p>查看和编辑长期计划。</p>
-  </div>
-</template>
-
-<style scoped lang="scss">
-.long-term-plan-page {
-  padding: 24px;
-}
-</style>
+<template><FeaturePlaceholder eyebrow="Insights" title="长期计划" description="把长期目标拆成可追踪的阶段，并持续校准下一步行动。" icon="target" /></template>

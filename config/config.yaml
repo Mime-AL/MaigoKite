@@ -16,17 +16,26 @@ models:
     - lm_studio
     - vllm
   chat:
+    provider: ""
     default: ""
     fallback: ""
+    base_url: ""
+    temperature: 0.7
+    max_tokens: 4096
+    timeout_seconds: 60
   embedding:
     provider: ""
     bge:
       model: ""
       device: "cpu"
 
+# Files shown in the Workspace sidebar. Override with NANAMI_WORKSPACE_ROOT.
+workspace:
+  root: "."
+
 # Permission settings
 permissions:
-  default_mode: "manual"
+  default_mode: "workspace"
   circuit_breaker:
     enabled: true
     blocked_patterns:
@@ -48,6 +57,11 @@ skills:
   scan_directories:
     - "~/.nanamigopher/skills/"
     - "./skills/"
+
+# Explicitly configured Phase 1 stdio MCP servers. Secret values stay outside
+# YAML; env_allowlist only passes named variables from the parent environment.
+mcp:
+  servers: {}
 
 # Observability
 observability:

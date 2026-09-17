@@ -1,108 +1,71 @@
-/**
- * Inspector 主页面组件
- *
- * 展示活跃/已完成/失败的对话卡片列表和维度选择器。
- */
-
 <script setup lang="ts">
-import InspectorCard from './InspectorCard.vue'
-import TimelineNode from './TimelineNode.vue'
-import DimensionSelector from './DimensionSelector.vue'
-import { useInspector } from '@/composables/useInspector'
 import { ref } from 'vue'
+import { useInspector } from '@/composables/useInspector'
+import IconSymbol from '@/components/common/IconSymbol.vue'
+import DimensionSelector from './DimensionSelector.vue'
+import InspectorCard from './InspectorCard.vue'
 
-const { activeCards, completedCards, failedCards, connect, loadCards } = useInspector()
-
+const { activeCards, completedCards, failedCards } = useInspector()
 const expandedSessions = ref<string[]>([])
-const currentTimeline = ref<any[]>([])
 
-function toggleExpand(sessionId: string) {
-  if (expandedSessions.value.includes(sessionId)) {
-    expandedSessions.value = expandedSessions.value.filter((id) => id !== sessionId)
-    currentTimeline.value = []
-  } else {
-    expandedSessions.value.push(sessionId)
-    // TODO: 加载时间线数据
-  }
+function toggle(sessionId: string) {
+  expandedSessions.value = expandedSessions.value.includes(sessionId)
+    ? expandedSessions.value.filter(id => id !== sessionId)
+    : [...expandedSessions.value, sessionId]
 }
 </script>
 
 <template>
-  <div class="inspector-view">
-    <div class="inspector-header">
-      <h2>Inspector</h2>
+  <main class="page-shell inspector-view">
+    <header class="page-header">
+      <div>
+        <p class="page-eyebrow">Observability</p>
+        <h1 class="page-title">Inspector</h1>
+        <p class="page-subtitle">实时查看 Agent 如何规划、调用工具并完成任务。</p>
+      </div>
       <DimensionSelector />
+    </header>
+
+    <template
+      v-for="section in [
+        { title: '运行中', cards: activeCards, tone: 'live' },
+        { title: '已完成', cards: completedCards, tone: 'done' },
+        { title: '失败', cards: failedCards, tone: 'failed' },
+      ]"
+      :key="section.title"
+    >
+      <section v-if="section.cards.length" class="card-section">
+        <header><span :class="section.tone" />{{ section.title }}<small>{{ section.cards.length }}</small></header>
+        <InspectorCard
+          v-for="card in section.cards"
+          :key="card.session_id"
+          :card="card"
+          :expanded="expandedSessions.includes(card.session_id)"
+          @expand="toggle"
+          @collapse="toggle"
+        />
+      </section>
+    </template>
+
+    <div v-if="!activeCards.length && !completedCards.length && !failedCards.length" class="empty-state glass-card">
+      <span><IconSymbol name="activity" :size="25" /></span>
+      <strong>没有正在执行的任务</strong>
+      <p>开始一段对话后，任务时间线会实时显示在这里。</p>
     </div>
-
-    <section class="card-section">
-      <h3>运行中 ({{ activeCards.length }})</h3>
-      <InspectorCard
-        v-for="card in activeCards"
-        :key="card.session_id"
-        :card="card"
-        :expanded="expandedSessions.includes(card.session_id)"
-        @expand="toggleExpand"
-        @collapse="toggleExpand"
-      />
-    </section>
-
-    <section class="card-section">
-      <h3>已完成 ({{ completedCards.length }})</h3>
-      <InspectorCard
-        v-for="card in completedCards"
-        :key="card.id"
-        :card="card"
-        :expanded="expandedSessions.includes(card.session_id)"
-        @expand="toggleExpand"
-        @collapse="toggleExpand"
-      />
-    </section>
-
-    <section class="card-section">
-      <h3>失败 ({{ failedCards.length }})</h3>
-      <InspectorCard
-        v-for="card in failedCards"
-        :key="card.id"
-        :card="card"
-        :expanded="expandedSessions.includes(card.session_id)"
-        @expand="toggleExpand"
-        @collapse="toggleExpand"
-      />
-    </section>
-
-    <div v-if="activeCards.length === 0 && completedCards.length === 0 && failedCards.length === 0">
-      <p class="empty-state">暂无执行的对话</p>
-    </div>
-  </div>
+  </main>
 </template>
 
 <style scoped lang="scss">
-.inspector-view {
-  padding: 16px;
-  height: 100%;
-  overflow-y: auto;
-}
-
-.inspector-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.card-section {
-  margin-bottom: 24px;
-
-  h3 {
-    font-size: 14px;
-    color: #666;
-    margin-bottom: 8px;
-  }
-}
-
-.empty-state {
-  text-align: center;
-  color: #999;
-  padding: 48px 0;
-}
+.inspector-view { display: flex; flex-direction: column; gap: 25px; }
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.card-section > header { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--text-secondary); font-size: 10px; font-weight: 680; }
+.card-section > header > span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-tertiary); }
+.card-section > header .live { background: var(--primary-color); box-shadow: 0 0 0 3px var(--primary-soft); }
+.card-section > header .done { background: var(--success); }
+.card-section > header .failed { background: var(--danger); }
+.card-section > header small { color: var(--text-tertiary); font-size: 9px; font-weight: 500; }
+.empty-state { display: flex; min-height: 260px; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
+.empty-state > span { display: grid; width: 54px; height: 54px; margin-bottom: 14px; place-items: center; border-radius: 17px; color: var(--primary-color); background: var(--primary-soft); }
+.empty-state strong { font-size: 12px; }
+.empty-state p { margin: 6px 0 0; color: var(--text-tertiary); font-size: 10px; }
 </style>

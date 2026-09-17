@@ -15,27 +15,37 @@ export function useLayout() {
 
   let onMouseMove: ((e: MouseEvent) => void) | null = null
   let onMouseUp: (() => void) | null = null
+  let dragFrame = 0
+  let pendingX: number | null = null
+  let applyPendingDrag: (() => void) | null = null
 
   /** 开始拖拽 */
   function startDrag(side: 'left' | 'right', startX: number, startWidth: number) {
+    stopDrag()
     isDragging.value = true
     dragStartX.value = startX
     dragStartWidth.value = startWidth
 
-    onMouseMove = (e: MouseEvent) => {
-      if (!isDragging.value) return
-      const delta = side === 'left' ? e.clientX - dragStartX.value : dragStartX.value - e.clientX
+    applyPendingDrag = () => {
+      if (pendingX === null) return
+      const delta = side === 'left' ? pendingX - dragStartX.value : dragStartX.value - pendingX
       const newWidth = dragStartWidth.value + delta
-      if (side === 'left') {
-        layoutStore.setSidebarWidth(newWidth)
-      } else {
-        layoutStore.setFileExplorerWidth(newWidth)
-      }
+      if (side === 'left') layoutStore.setSidebarWidth(newWidth)
+      else layoutStore.setFileExplorerWidth(newWidth)
+      pendingX = null
     }
 
-    onMouseUp = () => {
-      isDragging.value = false
+    onMouseMove = (e: MouseEvent) => {
+      if (!isDragging.value) return
+      pendingX = e.clientX
+      if (dragFrame) return
+      dragFrame = requestAnimationFrame(() => {
+        applyPendingDrag?.()
+        dragFrame = 0
+      })
     }
+
+    onMouseUp = stopDrag
 
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
@@ -43,6 +53,11 @@ export function useLayout() {
 
   /** 停止拖拽 */
   function stopDrag() {
+    if (dragFrame) cancelAnimationFrame(dragFrame)
+    dragFrame = 0
+    applyPendingDrag?.()
+    applyPendingDrag = null
+    if (isDragging.value) layoutStore.persistLayout()
     isDragging.value = false
     if (onMouseMove) document.removeEventListener('mousemove', onMouseMove)
     if (onMouseUp) document.removeEventListener('mouseup', onMouseUp)

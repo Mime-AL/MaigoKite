@@ -1,8 +1,11 @@
 # NanamiGopher 开发任务拆解
 
-> **版本**: v1.1  
-> **日期**: 2026-07-15  
-> **周期**: 16 周（4 个月）  
+> 状态：Planned
+> 本文负责需求拆解与排期，不定义接口、数据库或权限策略。
+
+> **版本**: v1.1
+> **日期**: 2026-07-15
+> **周期**: 16 周（4 个月）
 > **团队**: 1 人全栈
 
 ---
@@ -35,20 +38,20 @@
 | 1.2.1 | 会话管理 API | 实现 CRUD 接口（POST/GET/DELETE） | 4h | P0 |
 | 1.2.2 | 消息发送接口 | 实现消息发送和流式响应 | 4h | P0 |
 | 1.2.3 | 前端对话界面 | 实现 Sidebar + ChatArea + InputBox | 6h | P0 |
-| 1.2.4 | MCP 通信基础 | 实现 MCP stdio 通信协议（仅用于 Layer 3 Skill） | 2h | P0 |
+| 1.2.4 | MCP 通信基础 | 在 Python Agent Core 实现统一 MCP stdio 客户端，并将发现结果注册为 Tool | 2h | P0 |
 | 1.2.5 | 原生 Tool: file_read/write/edit | 实现 BaseTool 接口 + 三个文件操作工具 | 4h | P0 |
-| 1.2.6 | 原生 Tool: bash + web_search + web_fetch | 实现流式 bash 输出 + DuckDuckGo 搜索 + URL 抓取 | 4h | P0 |
+| 1.2.6 | 原生 Tool: bash + web_search + web_fetch | 实现限时、无 shell 展开的 bash 输出捕获 + DuckDuckGo 搜索 + 安全 URL 抓取；实时输出并入 Phase 2 统一事件流 | 4h | P0 |
 | 1.2.7 | 原生 Tool: glob + grep | 实现文件通配搜索和文本搜索 | 2h | P0 |
 | 1.2.8 | Tool 基础设施 | BaseTool 接口 + ToolResult 结构 + ExecutionContext + ToolRegistry + PermissionManager + ToolValidator | 4h | P0 |
-| 1.2.9 | 凭证管理 | 实现 CredentialStore（跨平台密钥链） | 4h | P0 |
-| 1.2.9 | 安全过滤管道 | 实现正则匹配 + 长度截断 | 3h | P0 |
-| 1.2.10 | 安全过滤管道 | 实现正则匹配 + 长度截断 | 3h | P0 |
+| 1.2.9 | 模型接入与凭证管理 | 设置页管理多个模型配置和默认模型；会话可选模型/速度，凭证按配置 ID 进入跨平台密钥链 | 4h | P0 |
+| 1.2.10 | 安全过滤管道 | 实现输入校验、风险检测与超限拒绝；可执行输入不得静默截断 | 3h | P0 |
 | 1.2.11 | 白名单机制 | 实现白名单配置和检查 | 2h | P0 |
-| 1.2.12 | 权限分级 | 实现 L1-L5 五级权限 + Manual/Auto 模式 | 3h | P0 |
+| 1.2.12 | 权限分级 | 内部 L1-L5 风险判定 + 只读/工作区/完全访问三档模式 | 3h | P0 |
 | 1.2.13 | 审计日志 | 实现 JSON 日志存储 + GUI 查看 | 2h | P0 |
 | 1.2.14 | Example: 代码分析工作流 | 实现纯 Python 代码分析 Example | 3h | P1 |
 | 1.2.15 | Example: 搜索 + 总结工作流 | 实现搜索 + LLM 总结 Example | 3h | P1 |
 | 1.2.16 | Phase 1 集成测试 | 端到端测试 + 修复 Bug | 4h | P0 |
+| 1.2.17 | Workspace 文件与 Diff | 受限文件树、文本预览、Git staged/unstaged/untracked Diff | 4h | P0 |
 
 **Phase 1 里程碑**: Week 2 结束可演示 Framework + 2 个 Example
 
@@ -60,7 +63,7 @@
 
 | 序号 | 任务 | 描述 | 预计工时 | 优先级 |
 |------|------|------|---------|--------|
-| 2.3.1 | 完整模型路由 | 实现多模型切换 + 降级策略 | 3h | P0 |
+| 2.3.1 | 完整模型路由 | 在 Phase 1 显式模型切换之上实现自动路由、能力匹配与 fallback | 3h | P0 |
 | 2.3.2 | RAG++ 记忆系统 | 实现向量检索 + Agentic Search | 5h | P0 |
 | 2.3.3 | 记忆自动清理 | 实现双重条件触发 + 混合粒度清理 | 2h | P0 |
 | 2.3.4 | 多对话并行 | 实现 Tab 管理、独立上下文 | 3h | P0 |
@@ -81,7 +84,7 @@
 
 | 序号 | 任务 | 描述 | 预计工时 | 优先级 |
 |------|------|------|---------|--------|
-| 2.5.1 | 本地模型支持 | 集成 Ollama | 3h | P0 |
+| 2.5.1 | 本地模型高级支持 | 自动发现 Ollama/LM Studio 模型，支持会话级选择与 fallback | 3h | P0 |
 | 2.5.2 | Tavily/Google 搜索 | 实现需 API Key 的搜索引擎 | 3h | P0 |
 | 2.5.3 | MCP Server 生命周期 | 实现常驻 + 空闲超时关闭 | 4h | P0 |
 | 2.5.4 | 基础 Telemetry | 实现 Token/Latency/Cost/Retry 追踪 | 4h | P0 |
@@ -111,7 +114,7 @@
 | 3.7.1 | LangGraph 工作流引擎 | 实现 JSON Schema 定义、DAG 调度 | 8h | P0 |
 | 3.7.2 | HITL 人机协同 | 实现挂起/恢复、事件驱动 | 8h | P0 |
 | 3.7.3 | Checkpoint 机制 | 实现浏览器 Session 持久化 | 6h | P0 |
-| 3.7.4 | Stealth Runtime | 实现指纹防检测、代理轮换 | 8h | P0 |
+| 3.7.4 | 合规浏览器运行时 | 实现授权校验、限流、遇验证码停止与人工接管 | 8h | P0 |
 | 3.7.5 | Go/Python 解耦 | 实现控制流与数据流分离 | 6h | P0 |
 
 ### 4.2 Week 9-10: 规划反思与可观测性
@@ -123,7 +126,7 @@
 | 3.9.3 | 反思知识库 | 实现失败模式积累 | 4h | P0 |
 | 3.9.4 | 完整 Telemetry | 集成 OpenTelemetry + Langfuse | 8h | P0 |
 
-### 4.3 Week 11-12: 多 Agent、SubAgent 与 Plugin
+### 4.3 Week 11-12: 多 Agent、SubAgent 与 Skill 生命周期
 
 | 序号 | 任务 | 描述 | 预计工时 | 优先级 |
 |------|------|------|---------|--------|
@@ -132,7 +135,7 @@
 | 3.11.3 | 基准测试 | 实现 Golden Dataset + 自动化回归 | 6h | P0 |
 | 3.11.4 | 审批拦截 | 实现敏感操作挂起 + 前端审批 | 6h | P0 |
 | 3.11.5 | 接管机制 | 实现 Agent 举手 + 无缝移交 | 6h | P0 |
-| 3.11.6 | Plugin 架构 | 实现 MCP Plugin 注册/发现/加载 | 8h | P0 |
+| 3.11.6 | Skill 生命周期 | 实现 SkillVersion、SkillGrant 与 MCP Server 激活/停止 | 8h | P0 |
 | 3.11.7 | Boss 直聘工作流 | 实现首个完整浏览器工作流 | 10h | P1 |
 | 3.11.8 | Phase 3 集成测试 | 端到端测试 + 性能优化 | 6h | P0 |
 
@@ -213,7 +216,7 @@ Phase 4
 |------|------|------|---------|
 | Phase 1 时间紧张 | 高 | 高 | 砍掉非核心功能，前端只做最简版 |
 | 本地模型集成复杂 | 中 | 中 | 先支持 Ollama，vLLM/LM Studio 延后 |
-| 反爬对抗升级 | 中 | 中 | 预留 Playwright stealth，必要时降级 |
+| 第三方平台限制自动化 | 中 | 高 | 遵守平台条款；遇验证码或拒绝访问立即停止并转人工流程 |
 | 单人开发进度慢 | 高 | 高 | 严格遵循 MVP 原则，Feature Freeze |
 
 ---

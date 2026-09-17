@@ -16,8 +16,8 @@ export const useSkillStore = defineStore('skill', () => {
   async function loadSkills() {
     isLoading.value = true
     try {
-      const result = await window.electronAPI.listSkills()
-      skills.value = result.skills ?? []
+      // Skill management API is introduced after the Phase 1 conversation slice.
+      skills.value = []
     } finally {
       isLoading.value = false
     }

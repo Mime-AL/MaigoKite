@@ -1,21 +1,4 @@
-/**
- * 包管理页
- *
- * 项目依赖包的安装、更新和卸载。
- */
-
 <script setup lang="ts">
+import FeaturePlaceholder from '@/components/common/FeaturePlaceholder.vue'
 </script>
-
-<template>
-  <div class="packages-page">
-    <h1>包管理</h1>
-    <p>管理项目依赖包。</p>
-  </div>
-</template>
-
-<style scoped lang="scss">
-.packages-page {
-  padding: 24px;
-}
-</style>
+<template><FeaturePlaceholder eyebrow="Extensions" title="包管理" description="集中查看运行时依赖、版本状态与升级建议。" icon="cube" /></template>

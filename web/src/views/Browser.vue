@@ -1,21 +1,4 @@
-/**
- * 浏览器控制页
- *
- * 浏览器自动化控制和监控。
- */
-
 <script setup lang="ts">
+import FeaturePlaceholder from '@/components/common/FeaturePlaceholder.vue'
 </script>
-
-<template>
-  <div class="browser-page">
-    <h1>浏览器控制</h1>
-    <p>浏览器自动化操作面板。</p>
-  </div>
-</template>
-
-<style scoped lang="scss">
-.browser-page {
-  padding: 24px;
-}
-</style>
+<template><FeaturePlaceholder eyebrow="Automation" title="浏览器" description="以可观察、可中止的方式运行浏览器自动化任务。" icon="globe" /></template>

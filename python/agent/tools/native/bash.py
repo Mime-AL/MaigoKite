@@ -1,107 +1,53 @@
-"""BashTool - Execute shell commands safely using LangChain StructuredTool."""
+"""BashTool - execute argv without a shell inside a workspace sandbox."""
 
 from __future__ import annotations
 
-import subprocess
-import time
+from pathlib import Path
 from typing import Any
 
-from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
+from agent.utils.sandbox import SandboxExecutor
 
 
 class BashParams(BaseModel):
-    """Parameters for executing a shell command."""
+    """Parameters for executing a command."""
 
     command: str = Field(
+        min_length=1,
+        max_length=8_192,
         description=(
-            "The shell command to execute. Run concise, targeted commands rather than "
-            "long multi-step pipelines. Avoid commands that produce very large outputs."
+            "The command to execute without shell expansion. Run concise, targeted "
+            "commands rather than long multi-step pipelines."
         ),
     )
     timeout: int = Field(
         default=30,
-        description="Maximum seconds to wait for the command before killing it (default: 30).",
+        ge=1,
+        le=120,
+        description="Maximum seconds to wait for the command before killing it.",
     )
     workdir: str | None = Field(
         default=None,
-        description=(
-            "Working directory in which to run the command. "
-            "If omitted, uses the current working directory."
-        ),
+        description="Working directory inside the current workspace.",
     )
 
 
-def _bash_impl(
-    command: str,
-    timeout: int = 30,
-    workdir: str | None = None,
-) -> dict[str, Any]:
-    """Run a shell command and capture stdout, stderr, and exit code.
-
-    Args:
-        command: The command string to pass to the shell.
-        timeout: Seconds before the process is killed.
-        workdir: Optional working directory override.
-
-    Returns:
-        A dict with keys stdout, stderr, return_code, duration_seconds, and timed_out.
-    """
-    start = time.monotonic()
-    try:
-        proc = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=workdir,
-        )
-        duration = time.monotonic() - start
-        return {
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-            "return_code": proc.returncode,
-            "duration_seconds": round(duration, 3),
-            "timed_out": False,
-        }
-    except subprocess.TimeoutExpired:
-        duration = time.monotonic() - start
-        return {
-            "stdout": "",
-            "stderr": f"Command timed out after {timeout} seconds.",
-            "return_code": -1,
-            "duration_seconds": round(duration, 3),
-            "timed_out": True,
-        }
-
-
 BASH_DESCRIPTION = (
-    "Execute a shell command in a sandboxed environment and return its output. "
+    "Execute a command without shell expansion in a workspace-confined process sandbox. "
     "Returns stdout, stderr, exit code, and execution duration."
 )
 
 
 class BashTool(BaseTool):
-    """Executes shell commands via LangChain StructuredTool."""
-
-    def __init__(self) -> None:
-        self._structured = StructuredTool.from_function(
-            func=_bash_impl,
-            name="bash",
-            description=BASH_DESCRIPTION,
-            args_schema=BashParams,
-        )
-
     @property
     def name(self) -> str:
         return "bash"
 
     @property
     def description(self) -> str:
-        return self._structured.description
+        return BASH_DESCRIPTION
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
@@ -110,32 +56,42 @@ class BashTool(BaseTool):
     async def execute(
         self, context: ExecutionContext, arguments: dict[str, Any]
     ) -> ToolResult:
-        """Run the shell command and wrap the result."""
-        result = _bash_impl(**arguments)
-        command = arguments.get("command", "")
-        rc = result.get("return_code", -1)
+        workspace_root = Path(
+            str(context.metadata.get("workspace_root") or arguments.get("workdir") or Path.cwd())
+        ).expanduser().resolve()
+        workdir = Path(str(arguments.get("workdir") or workspace_root)).expanduser().resolve()
+        executor = SandboxExecutor(
+            {"workspace_root": str(workspace_root), "workdir": str(workdir)}
+        )
+        result = await executor.execute_command(
+            str(arguments["command"]), int(arguments.get("timeout", 30))
+        )
 
-        # Build a human-readable summary
-        parts = [f"Exit code {rc}"]
-        if result.get("timed_out"):
+        parts = [f"Exit code {result.exit_code}"]
+        if result.timed_out:
             parts.insert(0, "Timed out")
-        if result.get("stdout"):
-            summary_len = min(len(result["stdout"]), 200)
-            parts.append(f"stdout: {result['stdout'][:summary_len]}")
-        if result.get("stderr"):
-            summary_len = min(len(result["stderr"]), 200)
-            parts.append(f"stderr: {result['stderr'][:summary_len]}")
-        parts.append(f"Duration: {result.get('duration_seconds', 0):.2f}s")
+        if result.stdout:
+            parts.append(f"stdout: {result.stdout[:200]}")
+        if result.stderr:
+            parts.append(f"stderr: {result.stderr[:200]}")
+        parts.append(f"Duration: {result.duration_ms / 1000:.2f}s")
 
         return ToolResult(
             data={
-                "return_code": rc,
-                "stdout": result["stdout"],
-                "stderr": result["stderr"],
-                "duration_seconds": result["duration_seconds"],
-                "timed_out": result.get("timed_out", False),
+                "return_code": result.exit_code,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "duration_seconds": round(result.duration_ms / 1000, 3),
+                "timed_out": result.timed_out,
+                "output_truncated": result.output_truncated,
+                "sandboxed": result.sandboxed,
             },
             summary="; ".join(parts),
-            raw=result["stdout"] or result["stderr"] or "",
-            metadata={"tool": "bash", "type": "shell", "exit_code": rc},
+            raw=result.stdout or result.stderr or "",
+            metadata={
+                "tool": "bash",
+                "type": "process",
+                "exit_code": result.exit_code,
+                "sandboxed": result.sandboxed,
+            },
         )

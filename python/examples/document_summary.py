@@ -1,0 +1,45 @@
+"""Runnable phase-one document summary workflow."""
+from __future__ import annotations
+
+import argparse
+import asyncio
+from pathlib import Path
+
+from agent.models.chat_adapter import ChatAdapter
+from agent.models.chat_provider import ChatMessage, IChatProvider
+
+
+async def summarize_document(path: str | Path, provider: IChatProvider) -> str:
+    document_path = Path(path).expanduser().resolve()
+    content = document_path.read_text(encoding="utf-8")
+    prompt = (
+        f"Summarize {document_path.name}. Return: a one-paragraph overview, key decisions, open questions, "
+        "and next actions. Base the answer only on the document.\n\n"
+        f"<document>\n{content}\n</document>"
+    )
+    return (await provider.chat([ChatMessage("user", prompt)])).content
+
+
+async def run(args: argparse.Namespace) -> None:
+    provider = ChatAdapter(
+        provider=args.provider, model=args.model, base_url=args.base_url or None,
+        api_key=args.api_key or None, temperature=0.2,
+    )
+    try:
+        print(await summarize_document(args.path, provider))
+    finally:
+        await provider.aclose()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Summarize one UTF-8 text or Markdown document.")
+    parser.add_argument("path")
+    parser.add_argument("--provider", choices=["openai", "anthropic", "openai_compatible", "ollama"], default="ollama")
+    parser.add_argument("--model", default="qwen3.5")
+    parser.add_argument("--base-url", default="http://127.0.0.1:11434")
+    parser.add_argument("--api-key", default="", help="Prefer provider environment variables in shared terminals.")
+    asyncio.run(run(parser.parse_args()))
+
+
+if __name__ == "__main__":
+    main()

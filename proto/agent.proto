@@ -1,0 +1,173 @@
+syntax = "proto3";
+package nanamigopher.agent.v1;
+option go_package = "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1;agentv1";
+
+service AgentService {
+  rpc ProcessMessage(ProcessMessageRequest) returns (stream AgentEvent);
+  rpc CreateConversation(ConversationRequest) returns (Conversation);
+  rpc GetConversation(ConversationRequest) returns (Conversation);
+  rpc ListConversations(ListConversationsRequest) returns (ConversationList);
+  rpc DeleteConversation(ConversationRequest) returns (Empty);
+  rpc UpdateConversationPermission(ConversationPermissionRequest) returns (Conversation);
+  rpc UpdateConversationSettings(ConversationSettingsRequest) returns (Conversation);
+  rpc ListMessages(ConversationRequest) returns (MessageList);
+  rpc ListApprovals(ApprovalListRequest) returns (ApprovalList);
+  rpc DecideApproval(ApprovalDecisionRequest) returns (stream AgentEvent);
+  rpc CheckWorkspaceAccess(WorkspaceAccessRequest) returns (WorkspaceAccessResponse);
+  rpc ListAuditEvents(ListConversationsRequest) returns (AuditEventList);
+  rpc RecordAuditEvent(AuditWriteRequest) returns (Empty);
+  rpc GetChatModelSettings(WorkspaceRequest) returns (ChatModelSettings);
+  rpc UpdateChatModelSettings(UpdateChatModelSettingsRequest) returns (ChatModelSettings);
+  rpc ListChatModels(WorkspaceRequest) returns (ChatModelList);
+  rpc UpsertChatModel(UpsertChatModelRequest) returns (ChatModelSettings);
+  rpc DeleteChatModel(ChatModelRequest) returns (Empty);
+  rpc SetDefaultChatModel(ChatModelRequest) returns (ChatModelList);
+  rpc ValidateChatModel(ValidateChatModelRequest) returns (ModelValidationResponse);
+  rpc SetChatModelCredential(SetChatModelCredentialRequest) returns (Empty);
+  rpc GetUserPreferences(UserPreferencesRequest) returns (UserPreferences);
+  rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (UserPreferences);
+  rpc GetPermissionSettings(WorkspaceRequest) returns (PermissionSettings);
+  rpc UpdatePermissionSettings(UpdatePermissionSettingsRequest) returns (PermissionSettings);
+  rpc Health(Empty) returns (HealthResponse);
+}
+
+message Empty {}
+message Attachment { string type = 1; string path = 2; string url = 3; }
+message ProcessMessageRequest {
+  string workspace_id = 1;
+  string conversation_id = 2;
+  string content = 3;
+  repeated Attachment attachments = 4;
+  string principal_id = 5;
+  reserved 6;
+}
+message AgentEvent {
+  string type = 1;
+  string task_id = 2;
+  string conversation_id = 3;
+  string content = 4;
+  string code = 5;
+  string message = 6;
+  bool retryable = 7;
+  string payload_json = 8;
+}
+message ConversationRequest {
+  string workspace_id = 1;
+  string conversation_id = 2;
+  string title = 3;
+  string model_id = 4;
+  string permission_mode = 5;
+  string response_mode = 6;
+}
+message ListConversationsRequest { string workspace_id = 1; }
+message Conversation {
+  string id = 1;
+  string workspace_id = 2;
+  string title = 3;
+  string model_id = 4;
+  string permission_mode = 5;
+  string created_at = 6;
+  string updated_at = 7;
+  int32 message_count = 8;
+  string response_mode = 9;
+}
+message ConversationList { repeated Conversation conversations = 1; }
+message ConversationPermissionRequest {
+  string workspace_id = 1;
+  string conversation_id = 2;
+  string permission_mode = 3;
+}
+message ConversationSettingsRequest {
+  string workspace_id = 1;
+  string conversation_id = 2;
+  optional string model_id = 3;
+  optional string response_mode = 4;
+  optional string permission_mode = 5;
+}
+message Message { string id = 1; string conversation_id = 2; string role = 3; string content = 4; string created_at = 5; }
+message MessageList { repeated Message messages = 1; }
+message ApprovalListRequest { string workspace_id = 1; string conversation_id = 2; }
+message Approval {
+  string id = 1; string workspace_id = 2; string conversation_id = 3;
+  string task_id = 4; string tool_call_id = 5; string tool_name = 6;
+  string arguments_json = 7; string resource_scope = 8; string risk_level = 9;
+  string status = 10; int32 version = 11; string expires_at = 12;
+}
+message ApprovalList { repeated Approval approvals = 1; }
+message ApprovalDecisionRequest {
+  string workspace_id = 1; string approval_id = 2; string principal_id = 3;
+  string decision = 4; int32 version = 5;
+}
+message HealthResponse { string status = 1; string version = 2; }
+message WorkspaceAccessRequest { string workspace_id = 1; string principal_id = 2; }
+message WorkspaceAccessResponse { bool allowed = 1; string role = 2; }
+message AuditEvent {
+  string id = 1; string workspace_id = 2; string actor = 3; string action = 4;
+  string resource = 5; string result = 6; string details_json = 7; string created_at = 8;
+}
+message AuditEventList { repeated AuditEvent events = 1; }
+message AuditWriteRequest {
+  string workspace_id = 1; string actor = 2; string action = 3;
+  string resource = 4; string result = 5;
+}
+message WorkspaceRequest { string workspace_id = 1; }
+message ChatModelSettings {
+  string provider = 1;
+  string model = 2;
+  string base_url = 3;
+  double temperature = 4;
+  int32 max_tokens = 5;
+  int32 timeout_seconds = 6;
+  string id = 7;
+  string name = 8;
+  bool is_default = 9;
+}
+message UpdateChatModelSettingsRequest {
+  string workspace_id = 1;
+  ChatModelSettings settings = 2;
+}
+message ChatModelList {
+  repeated ChatModelSettings models = 1;
+  string default_model_id = 2;
+}
+message UpsertChatModelRequest {
+  string workspace_id = 1;
+  ChatModelSettings settings = 2;
+}
+message ChatModelRequest {
+  string workspace_id = 1;
+  string model_id = 2;
+}
+message ValidateChatModelRequest {
+  ChatModelSettings settings = 1;
+  string api_key = 2;
+}
+message ModelValidationResponse {
+  bool ok = 1;
+  string message = 2;
+  string model = 3;
+}
+message SetChatModelCredentialRequest {
+  string workspace_id = 1;
+  string api_key = 2;
+  string provider = 3;
+  string model_id = 4;
+}
+message UserPreferencesRequest {
+  string workspace_id = 1;
+  string subject_user_id = 2;
+}
+message UserPreferences { string assistant_name = 1; }
+message UpdateUserPreferencesRequest {
+  string workspace_id = 1;
+  string subject_user_id = 2;
+  UserPreferences preferences = 3;
+}
+message PermissionSettings {
+  string default_mode = 1;
+  map<string, int32> tool_levels = 2;
+}
+message UpdatePermissionSettingsRequest {
+  string workspace_id = 1;
+  PermissionSettings settings = 2;
+}

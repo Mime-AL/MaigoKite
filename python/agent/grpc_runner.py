@@ -68,7 +68,8 @@ class GRPCRunner:
         )
 
         address = f"{self._host}:{self._port}"
-        self._server.add_insecure_port(address)
+        if self._server.add_insecure_port(address) == 0:
+            raise RuntimeError(f"failed to bind gRPC server to {address}")
         await self._server.start()
         self._logger.info("gRPC server started on %s", address)
 

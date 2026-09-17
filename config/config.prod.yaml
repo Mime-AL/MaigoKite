@@ -8,18 +8,29 @@ models:
   prefer_local: false
   # Production: model names are configured via Settings page or environment variables
   chat:
+    provider: ""
     default: ""
     fallback: ""
+    base_url: ""
+    temperature: 0.7
+    max_tokens: 4096
+    timeout_seconds: 60
   embedding:
     provider: ""
     bge:
       model: ""
       device: "cuda"
 
+workspace:
+  root: "."
+
 permissions:
-  default_mode: "manual"
+  default_mode: "workspace"
   circuit_breaker:
     enabled: true
+
+mcp:
+  servers: {}
 
 observability:
   enabled: true

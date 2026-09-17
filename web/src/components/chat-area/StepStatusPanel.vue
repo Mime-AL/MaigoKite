@@ -1,63 +1,23 @@
-/**
- * 步骤状态面板组件
- *
- * 展示当前任务的步骤执行进度。
- */
-
 <script setup lang="ts">
 import CollapseCard from '../common/CollapseCard.vue'
+import StatusIcon from '../common/StatusIcon.vue'
 
-defineProps<{
-  steps?: Array<{
-    id: string
-    title: string
-    status: 'todo' | 'running' | 'completed' | 'failed'
-  }>
-}>()
+defineProps<{ steps?: Array<{ id: string; title: string; status: 'todo' | 'running' | 'completed' | 'failed' }> }>()
 </script>
 
 <template>
-  <CollapseCard title="执行步骤">
+  <CollapseCard v-if="steps?.length" title="执行步骤" icon="activity" default-expanded>
     <div class="step-list">
-      <div
-        v-for="step in steps"
-        :key="step.id"
-        class="step-item"
-        :class="step.status"
-      >
+      <div v-for="step in steps" :key="step.id" class="step-item" :class="step.status">
         <StatusIcon :status="step.status" />
-        <span class="step-title">{{ step.title }}</span>
+        <span>{{ step.title }}</span>
       </div>
     </div>
   </CollapseCard>
 </template>
 
 <style scoped lang="scss">
-.step-list {
-  padding: 8px 0;
-}
-
-.step-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  font-size: 14px;
-
-  &.running {
-    color: #0066cc;
-  }
-
-  &.completed {
-    color: #28a745;
-  }
-
-  &.failed {
-    color: #dc3545;
-  }
-
-  &.todo {
-    color: #999;
-  }
-}
+.step-list { display: grid; gap: 5px; }
+.step-item { display: flex; min-height: 34px; align-items: center; gap: 9px; color: var(--text-secondary); font-size: 11px; }
+.step-item.running { color: var(--text-primary); font-weight: 600; }
 </style>

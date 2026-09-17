@@ -18,6 +18,7 @@ class SleepParams(BaseModel):
     seconds: float = Field(
         description="Number of seconds to pause execution. Must be positive.",
         gt=0,
+        le=300,
     )
 
 
@@ -69,8 +70,10 @@ class SleepTool(BaseTool):
         self, context: ExecutionContext, arguments: dict[str, Any]
     ) -> ToolResult:
         """Execute the sleep operation."""
-        result = _sleep_impl(**arguments)
-        secs = result.get("slept_seconds", arguments.get("seconds", 0))
+        requested = float(arguments["seconds"])
+        start = time.monotonic()
+        await asyncio.sleep(requested)
+        secs = round(time.monotonic() - start, 3)
         return ToolResult(
             data={"slept_seconds": secs},
             summary=f"Slept for {secs:.1f} seconds",

@@ -1,28 +1,67 @@
-"""MCPToolWrapper - Bridge between MCP tools and the agent tool interface."""
+"""Expose an MCP tool through the common BaseTool contract."""
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
-from agent.tools.base import BaseTool, ExecutionContext, ToolResult, ToolResultStream
+from agent.mcp.client import MCPClient
+from agent.tools.base import BaseTool, ExecutionContext, ToolResult
+
+
+def _model_safe_name(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_")
+    if not normalized:
+        raise ValueError("MCP namespace and tool names must contain letters or digits")
+    return normalized
 
 
 class MCPToolWrapper(BaseTool):
-    """Wraps an MCP (Model Context Protocol) tool as a BaseTool."""
+    def __init__(
+        self, client: MCPClient, definition: dict[str, Any], namespace: str
+    ) -> None:
+        source_name = str(definition.get("name") or "")
+        schema = definition.get("inputSchema", {"type": "object"})
+        if not source_name:
+            raise ValueError("MCP tool is missing a name")
+        if not isinstance(schema, dict) or schema.get("type", "object") != "object":
+            raise ValueError(f"MCP tool {source_name!r} has an invalid input schema")
+        if len(json.dumps(schema, ensure_ascii=False, default=str)) > 100_000:
+            raise ValueError(f"MCP tool {source_name!r} schema is too large")
+
+        self._client = client
+        self._definition = definition
+        self._source_name = source_name
+        self._schema = dict(schema)
+        self._name = f"{_model_safe_name(namespace)}__{_model_safe_name(source_name)}"
+        if len(self._name) > 64:
+            raise ValueError(f"MCP tool name is too long: {self._name}")
+
+        # Server-provided annotations describe intent, but cannot grant permission.
+        annotations = definition.get("annotations", {})
+        self.risk_level = 5 if isinstance(annotations, dict) and annotations.get("destructiveHint") is True else 3
 
     @property
     def name(self) -> str:
-        ...
+        return self._name
 
     @property
     def description(self) -> str:
-        ...
+        return str(self._definition.get("description", ""))[:4_000]
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
-        ...
+        return self._schema
 
     async def execute(
         self, context: ExecutionContext, arguments: dict[str, Any]
-    ) -> ToolResult | ToolResultStream:
-        ...
+    ) -> ToolResult:
+        response = await self._client.call_tool(self._source_name, arguments)
+        text = json.dumps(response, ensure_ascii=False, default=str)
+        return ToolResult(
+            data={"result": response},
+            summary=text[:500],
+            raw=text,
+            metadata={"tool": self.name, "source": "mcp"},
+        )

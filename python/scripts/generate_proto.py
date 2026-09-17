@@ -10,9 +10,10 @@ from grpc_tools import protoc
 
 
 def generate() -> None:
-    repo_root = Path(__file__).resolve().parent.parent
-    proto_path = repo_root / "proto"
-    output_path = repo_root / "agent" / "grpc_generated"
+    python_root = Path(__file__).resolve().parent.parent
+    project_root = python_root.parent
+    proto_path = project_root / "proto"
+    output_path = python_root / "agent" / "grpc_generated"
 
     # Ensure output dir exists and is importable
     output_path.mkdir(parents=True, exist_ok=True)
@@ -31,6 +32,14 @@ def generate() -> None:
     if ret != 0:
         print(f"[ERROR] protoc failed with return code {ret}")
         sys.exit(1)
+    grpc_stub = output_path / "agent_pb2_grpc.py"
+    grpc_stub.write_text(
+        grpc_stub.read_text(encoding="utf-8").replace(
+            "import agent_pb2 as agent__pb2",
+            "from . import agent_pb2 as agent__pb2",
+        ),
+        encoding="utf-8",
+    )
     print(f"[OK] Generated *_pb2.py and *_pb2_grpc.py in {output_path}")
 
 

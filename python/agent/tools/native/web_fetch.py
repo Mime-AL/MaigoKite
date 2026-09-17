@@ -3,11 +3,26 @@
 from __future__ import annotations
 
 import logging
+import asyncio
+import ipaddress
+import socket
 from typing import Any
+from urllib.parse import urljoin, urlsplit
 
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+async def _validate_public_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("only public HTTP(S) URLs without embedded credentials are allowed")
+    addresses = await asyncio.to_thread(socket.getaddrinfo, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+    for address in addresses:
+        ip = ipaddress.ip_address(address[4][0])
+        if not ip.is_global:
+            raise ValueError("private, loopback, link-local, and reserved addresses are not allowed")
 
 
 class WebFetchTool(BaseTool):
@@ -36,6 +51,8 @@ class WebFetchTool(BaseTool):
                 },
                 "timeout": {
                     "type": "integer",
+                    "minimum": 1,
+                    "maximum": 30,
                     "description": "Request timeout in seconds. Default: 15.",
                 },
             },
@@ -59,8 +76,19 @@ class WebFetchTool(BaseTool):
             import httpx
             from markdownify import markdownify
 
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.get(url, follow_redirects=True)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                current_url = url
+                for _ in range(6):
+                    await _validate_public_url(current_url)
+                    resp = await client.get(current_url)
+                    if not resp.is_redirect:
+                        break
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise ValueError("redirect response has no location")
+                    current_url = urljoin(current_url, location)
+                else:
+                    raise ValueError("too many redirects")
                 resp.raise_for_status()
 
                 # Try to detect charset
@@ -91,7 +119,6 @@ class WebFetchTool(BaseTool):
                             self._in_title = True
 
                     def handle_endtag(self, tag):
-                        nonlocal self
                         if tag == "title":
                             self._in_title = False
 
@@ -115,7 +142,7 @@ class WebFetchTool(BaseTool):
                 raw=md_content[:10000],  # Cap raw output
             )
         except Exception as e:
-            logger.error(f"Web fetch failed: {e}")
+            logger.error("Web fetch failed (%s)", type(e).__name__)
             return ToolResult(
                 data={"url": url, "error": str(e)},
                 summary=f"Failed to fetch {url}: {e}",

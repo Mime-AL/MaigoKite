@@ -1,21 +1,7 @@
-/**
- * Inspector 监控页
- *
- * 展示活跃/已完成/失败的对话卡片和时间线。
- */
-
 <script setup lang="ts">
-import InspectorView from '@/components/inspector/InspectorView.vue'
+import FeaturePlaceholder from '@/components/common/FeaturePlaceholder.vue'
 </script>
 
 <template>
-  <div class="inspector-page">
-    <InspectorView />
-  </div>
+  <FeaturePlaceholder eyebrow="Observability" title="Inspector" description="实时任务与工具时间线将在统一事件流接入后开放。" icon="activity" status="Phase 3" />
 </template>
-
-<style scoped lang="scss">
-.inspector-page {
-  height: 100%;
-}
-</style>

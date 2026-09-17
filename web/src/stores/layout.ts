@@ -6,7 +6,7 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 
 // 布局常量
 const LAYOUT_KEYS = {
@@ -45,19 +45,17 @@ export const useLayoutStore = defineStore('layout', () => {
       : loadFromStorage(LAYOUT_KEYS.FILE_EXPLORER_WIDTH, DEFAULT_EXPLORER_WIDTH)
   )
 
-  // 持久化到 localStorage
-  watch(sidebarCollapsed, (val) => {
-    localStorage.setItem(LAYOUT_KEYS.SIDEBAR_COLLAPSED, JSON.stringify(val))
-  })
-  watch(sidebarWidth, (val) => {
-    localStorage.setItem(LAYOUT_KEYS.SIDEBAR_WIDTH, JSON.stringify(val))
-  })
-  watch(fileExplorerCollapsed, (val) => {
-    localStorage.setItem(LAYOUT_KEYS.FILE_EXPLORER_COLLAPSED, JSON.stringify(val))
-  })
-  watch(fileExplorerWidth, (val) => {
-    localStorage.setItem(LAYOUT_KEYS.FILE_EXPLORER_WIDTH, JSON.stringify(val))
-  })
+  /** 仅在交互完成后持久化，避免拖拽期间同步阻塞每一帧。 */
+  function persistLayout() {
+    try {
+      localStorage.setItem(LAYOUT_KEYS.SIDEBAR_COLLAPSED, JSON.stringify(sidebarCollapsed.value))
+      localStorage.setItem(LAYOUT_KEYS.SIDEBAR_WIDTH, JSON.stringify(sidebarWidth.value))
+      localStorage.setItem(LAYOUT_KEYS.FILE_EXPLORER_COLLAPSED, JSON.stringify(fileExplorerCollapsed.value))
+      localStorage.setItem(LAYOUT_KEYS.FILE_EXPLORER_WIDTH, JSON.stringify(fileExplorerWidth.value))
+    } catch {
+      // 禁用本地存储时布局仍在当前会话内可用。
+    }
+  }
 
   /** 切换侧边栏收起/展开 */
   function toggleSidebar() {
@@ -67,6 +65,7 @@ export const useLayoutStore = defineStore('layout', () => {
     } else {
       sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH
     }
+    persistLayout()
   }
 
   /** 切换文件管理器收起/展开 */
@@ -77,6 +76,7 @@ export const useLayoutStore = defineStore('layout', () => {
     } else {
       fileExplorerWidth.value = DEFAULT_EXPLORER_WIDTH
     }
+    persistLayout()
   }
 
   /** 设置侧边栏宽度（拖拽时使用） */
@@ -97,6 +97,7 @@ export const useLayoutStore = defineStore('layout', () => {
     toggleSidebar,
     toggleFileExplorer,
     setSidebarWidth,
-    setFileExplorerWidth
+    setFileExplorerWidth,
+    persistLayout,
   }
 })

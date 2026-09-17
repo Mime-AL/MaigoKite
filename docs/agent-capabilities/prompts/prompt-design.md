@@ -1,6 +1,7 @@
 # Prompt 设计规范
 
-> NanamiGopher Agent 系统的 Prompt 工程标准与最佳实践。
+> 状态：Current
+> NanamiGopher Agent 系统的 Prompt 工程标准与最佳实践；权限边界不可由 Prompt 覆盖。
 
 ---
 

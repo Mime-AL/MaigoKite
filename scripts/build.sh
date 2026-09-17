@@ -23,11 +23,11 @@ build_go() {
     warn "Skipping Go build (requested: $BUILD_TYPE)"
     return
   fi
-  (cd "$PROJECT_ROOT" && \
+  (cd "$PROJECT_ROOT/gateway" && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-      -ldflags="-s -w -X main.Version=$(grep '^version' config/config.yaml | head -1 | cut -d'"' -f2)" \
+      -ldflags="-s -w" \
       -o "$PROJECT_ROOT/dist/$output" \
-      ./go/cmd/api/ 2>&1) || error "Go build failed"
+      ./cmd/gateway 2>&1) || error "Go build failed"
   info "Go binary: dist/$output"
 }
 
@@ -39,11 +39,13 @@ build_python() {
   fi
   mkdir -p "$PROJECT_ROOT/dist"
   if command -v uv &>/dev/null; then
-    (cd "$PROJECT_ROOT" && uv build 2>&1) || error "uv build failed"
+    TASK_UV_CACHE="/tmp/nanamigopher-uv-cache"
+    (cd "$PROJECT_ROOT/python" && UV_CACHE_DIR="$TASK_UV_CACHE" uv build --no-build-isolation --out-dir "$PROJECT_ROOT/dist" 2>&1) || error "uv build failed"
   elif command -v poetry &>/dev/null; then
-    (cd "$PROJECT_ROOT" && poetry build 2>&1) || error "Poetry build failed"
+    (cd "$PROJECT_ROOT/python" && poetry build 2>&1) || error "Poetry build failed"
+    cp "$PROJECT_ROOT"/python/dist/* "$PROJECT_ROOT/dist/"
   else
-    (cd "$PROJECT_ROOT" && python -m build 2>&1) || error "Python build failed"
+    (cd "$PROJECT_ROOT/python" && python -m build --outdir "$PROJECT_ROOT/dist" 2>&1) || error "Python build failed"
   fi
   info "Python wheel/sdist in dist/"
 }

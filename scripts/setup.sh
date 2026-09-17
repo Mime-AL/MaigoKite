@@ -38,16 +38,16 @@ done
 
 # --- Install Go dependencies ---
 info "Installing Go dependencies..."
-(cd "$PROJECT_ROOT" && go mod download)
+(cd "$PROJECT_ROOT/gateway" && go mod download)
 
 # --- Install Python dependencies ---
 info "Installing Python dependencies..."
 if command -v uv &>/dev/null; then
-  (cd "$PROJECT_ROOT" && uv sync --all-extras)
+  (cd "$PROJECT_ROOT/python" && uv sync --all-extras)
 elif command -v poetry &>/dev/null; then
-  (cd "$PROJECT_ROOT" && poetry install --no-root)
+  (cd "$PROJECT_ROOT/python" && poetry install --no-root)
 else
-  (cd "$PROJECT_ROOT" && pip install -e ".[dev]" 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true)
+  (cd "$PROJECT_ROOT/python" && pip install -e ".[dev]")
 fi
 
 # --- Install Node.js dependencies ---

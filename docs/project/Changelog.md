@@ -1,172 +1,37 @@
-# NanamiGopher — 更新日志
+# NanamiGopher 更新日志
 
-本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范。
+> 状态：Current
+> 本文件只记录已经合并且可验证的变化。计划版本属于 [Roadmap.md](Roadmap.md)，不得提前写成已发布功能。
 
-## 格式规范
+格式遵循 Keep a Changelog，版本号遵循 Semantic Versioning。发布记录必须能够关联 Git 标签、构建产物与验收结果。
 
-### 版本号
-
-采用 [Semantic Versioning](https://semver.org/lang/zh-CN/) 规范（主版本.次版本.修订版本）。
-
-### 变更类别
-
-- **Added** — 新增功能
-- **Changed** — 现有功能的变更
-- **Deprecated** — 即将废弃的功能
-- **Removed** — 已移除的功能
-- **Fixed** — Bug 修复
-- **Security** — 安全性修复
-
-### 变更日志结构
-
-```markdown
-## [版本号] — YYYY-MM-DD
+## Unreleased
 
 ### Added
-- 新增功能描述
+
+- 建立根级权威 Proto，接通 Go Gateway 到 Python Agent Core 的 gRPC 会话、消息、健康检查与事件流。
+- 实现 SQLite Workspace/会话/消息/偏好/审计 Repository、原生 Tool 执行管道和 MCP stdio 客户端。
+- 实现 Vue 会话 Store、REST/WebSocket 客户端、Electron 安全 preload 与本地 Runtime Supervisor。
+- 增加 Go、Python gRPC/MCP/领域逻辑与 Vue 交互自动化测试。
+- 增加模型服务预设和基于 Base URL 的模型目录发现，支持 OpenAI/Anthropic/兼容 `/models` 与 Ollama `/api/tags`。
+- 接通配置式 MCP stdio Server 的 Agent Core 启停、工具发现、统一审批与审计链路。
+- 增加 Bash 工作区进程沙箱和 Gateway 完整路由构造回归测试。
 
 ### Changed
-- 变更内容描述
 
-### Fixed
-- 修复内容描述
-```
+- 重构 `docs/` 文档体系，建立 Current、Planned、Deprecated、Generated 状态。
+- 统一系统边界：Go Gateway 是 Python Agent Core 的 gRPC 客户端；Python 是 Agent 领域数据的唯一写入方。
+- 统一 Workspace、权限、工具、MCP、Skill、记忆与凭证语义。
+- 将 API、数据库、前端、后端、部署、测试和运维文档收敛为单一职责文档。
+- 将原生 Tool 与 MCP 的运行时所有权统一到 Python，Gateway 仅保留协议边界和系统密钥环适配。
+- 模型设置页移除普通用户不需要的生成参数，权限设置收敛为只读、工作区和完全访问三档。
+- 将模型连接验证和目录发现改为无歧义的 `/models/actions/*` 路由，修复 Gateway 启动冲突。
 
----
+### Removed
 
-## 已发布的版本
+- 删除与 `GitWorkflow.md` 重复的 `BranchStrategy.md`。
+- 移除项目文档中未验证的“已发布版本”声明；历史目标仍可从路线图与里程碑查看。
 
-### [v1.5] — 2026-10-13
+## 发布记录
 
-> 第一个正式公开发布版本，完成安全加固、性能优化、Skill 市场和 Team 功能。
-
-#### Added
-- Skill 市场：用户可浏览、搜索、评价和安装社区 Skill
-- Team 功能：多用户协作、共享对话空间和共享记忆库
-- CI/CD 流水线：GitHub Actions 自动化测试、构建和部署
-- Docker Compose 一键部署方案
-- Kubernetes 部署模板
-- 完整的 API 文档（OpenAPI 3.0 规范）
-- 用户手册、开发者指南和部署文档
-
-#### Security
-- 全面渗透测试和漏洞修复
-- 输入验证增强（SQL 注入 / XSS / CSRF 防护）
-- API 速率限制
-- 安全审计日志
-
-#### Changed
-- 响应缓存（Redis）显著降低 API 延迟
-- 数据库查询优化，吞吐量提升 3 倍
-- 前端资源压缩和懒加载
-
-#### Fixed
-- 修复了多对话切换时的状态丢失问题
-- 修复了 Playwright 进程内存泄漏
-- 修复了流式输出在弱网环境下的断连问题
-
----
-
-### [v1.0] — 2026-09-01
-
-> GA 版本，功能完整，达到生产可用标准。
-
-#### Added
-- DSL 工作流引擎：支持 YAML/JSON 定义的条件分支和循环
-- 多 Agent 架构：Master-Worker 模式的 Agent 集群
-- 可观测性平台：OpenTelemetry 集成、链路追踪、Grafana 面板
-- Plugin 热加载：无需重启即可加载/卸载/更新插件
-- SubAgent 系统：主 Agent 可创建和管理子任务
-- Inspector：实时查看 Agent 状态、工具调用链和记忆内容
-- 长期记忆系统：ChromaDB 向量存储 + 语义检索
-- 文件存储系统：上传/下载/版本控制/搜索
-
-#### Changed
-- 将 Plugin 架构从示例级别提升至生产级别
-- 对话引擎支持更复杂的上下文管理
-
-#### Fixed
-- 修复了长对话中的 Token 溢出问题
-- 修复了 SubAgent 超时后状态不一致的问题
-
----
-
-### [v0.5] — 2026-07-28
-
-> Beta 版本，核心体验打磨完成，支持本地模型和浏览器自动化。
-
-#### Added
-- 多对话管理：同时打开多个对话窗口，支持搜索和归档
-- 流式输出：SSE + WebSocket 双通道传输
-- 本地模型支持：Ollama 集成，可在本地运行推理
-- Telemetry 基础版：对话统计、延迟监控、Token 消耗
-- Playwright 集成：Agent 可操控浏览器完成任务
-- OCR 模块：中文图片文字识别
-- Electron 桌面端：打包为桌面应用
-
-#### Changed
-- 前端从概念验证升级为完整的多对话界面
-- 错误处理从简单日志升级为结构化错误码体系
-
-#### Fixed
-- 修复了流式输出在 Firefox 下的兼容性问题
-- 修复了 OCR 识别大图片时的内存溢出
-
----
-
-### [v0.1] — 2026-07-07
-
-> MVP 版本，验证核心技术栈的可行性。
-
-#### Added
-- Go API Gateway（Gin）：RESTful 路由、CORS、JWT 认证
-- Python Agent Core：LLM 调用封装、工具调用接口
-- 对话引擎：单轮/多轮对话、会话管理
-- 工具注册中心：动态工具发现和参数校验
-- 短期记忆：会话内上下文窗口管理
-- 权限系统 v1：用户注册/登录、基础 RBAC
-- 2 个 Example 插件：天气查询、代码格式化
-- Vue 3 前端：基础对话界面
-
----
-
-## 未来版本预留
-
-### [Unreleased]
-
-> 此区域用于记录尚未发布版本的变更。发布时移动至对应版本号下。
-
-#### Added
-- （预留）
-
-#### Changed
-- （预留）
-
-#### Fixed
-- （预留）
-
-#### Security
-- （预留）
-
----
-
-### [v2.0] — 规划中
-
-> 预计 1 年后发布，聚焦生态成熟和跨平台集成。
-
-#### Planned
-- VS Code / JetBrains / Xcode 原生集成
-- Skill 市场开放提交和审核流程
-- 更多 LLM 后端支持（Gemini、Mistral、通义千问等）
-- 社区贡献指南和开发者计划
-
----
-
-### [v3.0] — 远期规划
-
-> 预计 3 年后发布，聚焦自主软件工程项目能力。
-
-#### Planned
-- 从需求分析到部署上线的端到端自主开发
-- MCP 协议成为行业标准参考实现
-- 全球开发者社区超过 1,000,000 人
+当前文档没有足够的标签和验收证据可确认已发布版本。首次正式发布时，在此新增版本、日期和对应标签，不从路线图自动推导。

@@ -1,21 +1,4 @@
-/**
- * 归档页
- *
- * 查看历史归档的对话和任务。
- */
-
 <script setup lang="ts">
+import FeaturePlaceholder from '@/components/common/FeaturePlaceholder.vue'
 </script>
-
-<template>
-  <div class="archive-page">
-    <h1>归档</h1>
-    <p>查看历史归档。</p>
-  </div>
-</template>
-
-<style scoped lang="scss">
-.archive-page {
-  padding: 24px;
-}
-</style>
+<template><FeaturePlaceholder eyebrow="Library" title="归档" description="安全保存已结束的对话、任务和工作成果，需要时随时恢复。" icon="archive" /></template>

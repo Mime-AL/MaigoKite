@@ -38,12 +38,13 @@ const emit = defineEmits<{
 .context-menu {
   position: fixed;
   z-index: 1000;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  padding: 4px 0;
-  min-width: 140px;
+  min-width: 150px;
+  padding: 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  backdrop-filter: var(--blur);
 }
 
 ul {
@@ -53,17 +54,23 @@ ul {
 }
 
 li {
-  padding: 6px 16px;
-  font-size: 13px;
+  padding: 7px 11px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
   cursor: pointer;
 
   &:hover {
-    background-color: #f0f0f0;
+    color: var(--text-primary);
+    background: var(--surface-strong);
   }
 
   &.separator {
-    border-top: 1px solid #eee;
-    color: #dc3545;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+    border-radius: 0 0 8px 8px;
+    color: var(--danger);
   }
 }
 </style>

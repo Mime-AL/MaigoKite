@@ -24,8 +24,8 @@ export const useMemoryStore = defineStore('memory', () => {
     isSearching.value = true
     searchQuery.value = query
     try {
-      const result = await window.electronAPI.searchMemories({ query })
-      memories.value = result.entries ?? []
+      // Memory search API is introduced in Phase 2; keep the Phase 1 store inert.
+      memories.value = []
     } finally {
       isSearching.value = false
     }

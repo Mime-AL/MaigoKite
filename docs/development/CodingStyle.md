@@ -1,7 +1,9 @@
 # 编码规范
 
-> **版本**: v1.0  
-> **日期**: 2026-07-21  
+> 状态：Current
+
+> **版本**: v1.0
+> **日期**: 2026-07-21
 > **适用范围**: Go 后端、Python Agent Core、Vue 3 前端
 
 ---
@@ -21,8 +23,7 @@
 
 ```
 cmd/
-  nanamigopher/        # 主程序入口
-  nanamigopher-server/ # 服务器入口
+  gateway/             # Gateway 进程入口
 internal/
   config/              # 配置管理
   permission/          # 权限校验

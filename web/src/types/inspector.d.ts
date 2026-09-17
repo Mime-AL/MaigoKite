@@ -5,7 +5,7 @@
  */
 
 // 时间线节点
-interface TimelineNode {
+export interface TimelineNode {
   id: string
   type: 'task' | 'tool' | 'llm' | 'event' | 'exception' | 'subagent'
   timestamp: Date
@@ -14,11 +14,24 @@ interface TimelineNode {
 }
 
 // 维度配置
-interface DimensionConfig {
+export interface DimensionConfig {
   key: string
   label: string
   visible: boolean
   icon: string
+}
+
+export type Dimension = string
+
+export interface InspectorCard {
+  session_id: string
+  title: string
+  status: 'running' | 'completed' | 'failed' | 'paused'
+  current_step?: string
+  running_duration_sec?: number
+  total_duration_sec?: number
+  token_count?: number
+  tool_call_count?: number
 }
 
 export {}

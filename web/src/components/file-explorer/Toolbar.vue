@@ -1,44 +1,10 @@
-/**
- * 文件管理器工具栏组件
- *
- * 提供新建、刷新等操作按钮。
- */
-
 <script setup lang="ts">
-const emit = defineEmits<{
-  (e: 'new-file'): void
-  (e: 'new-folder'): void
-  (e: 'refresh'): void
-}>()
+import IconSymbol from '@/components/common/IconSymbol.vue'
+const emit = defineEmits<{ (event: 'refresh'): void }>()
 </script>
 
-<template>
-  <div class="toolbar">
-    <button @click="emit('new-file')" title="新建文件">+ 文件</button>
-    <button @click="emit('new-folder')" title="新建文件夹">+ 文件夹</button>
-    <button @click="emit('refresh')" title="刷新">刷新</button>
-  </div>
-</template>
+<template><div class="toolbar"><span><IconSymbol name="folder" :size="14" />项目根目录</span><button class="icon-button" type="button" title="刷新" @click="emit('refresh')"><IconSymbol name="refresh" :size="15" /></button></div></template>
 
 <style scoped lang="scss">
-.toolbar {
-  display: flex;
-  gap: 4px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e0e0e0;
-  background-color: #f5f5f5;
-}
-
-button {
-  padding: 4px 8px;
-  font-size: 12px;
-  border: 1px solid #ddd;
-  border-radius: 3px;
-  background: #fff;
-  cursor: pointer;
-
-  &:hover {
-    background-color: #e8e8e8;
-  }
-}
+.toolbar { display: flex; height: 39px; flex: none; align-items: center; justify-content: space-between; padding: 0 10px 0 16px; border-block: 1px solid var(--border-color); }.toolbar > span { display: flex; min-width: 0; align-items: center; gap: 7px; overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.icon-button { width: 28px; height: 28px; }
 </style>

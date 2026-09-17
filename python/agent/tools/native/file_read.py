@@ -18,6 +18,8 @@ class FileReadParams(BaseModel):
     encoding: str = Field(default="utf-8", description="File encoding (default: utf-8).")
     max_bytes: int = Field(
         default=100_000,
+        ge=1,
+        le=5_000_000,
         description="Maximum number of bytes to read (default: 100000).",
     )
 
@@ -28,7 +30,7 @@ def _file_read_impl(path: str, encoding: str = "utf-8", max_bytes: int = 100_000
     Args:
         path: The file path to read.
         encoding: Character encoding of the file.
-        max_bytes: Maximum number of characters to read.
+        max_bytes: Maximum number of bytes to read.
 
     Returns:
         A dict with keys path, content, and size_bytes.
@@ -36,17 +38,26 @@ def _file_read_impl(path: str, encoding: str = "utf-8", max_bytes: int = 100_000
     Raises:
         FileNotFoundError: If the file does not exist.
         PermissionError: If the process lacks read permission.
-        UnicodeDecodeError: If the file cannot be decoded with the given encoding.
+        ValueError: If the file is binary or cannot be decoded with the requested encoding.
     """
     abs_path = os.path.abspath(path)
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
-    with open(abs_path, "r", encoding=encoding) as f:
-        content = f.read(max_bytes)
+    with open(abs_path, "rb") as file:
+        payload = file.read(max_bytes + 1)
+    truncated = len(payload) > max_bytes
+    payload = payload[:max_bytes]
+    if b"\x00" in payload:
+        raise ValueError(f"Binary file is not supported: {path}")
+    try:
+        content = payload.decode(encoding)
+    except (LookupError, UnicodeDecodeError) as exc:
+        raise ValueError(f"File is not valid {encoding} text: {path}") from exc
     return {
         "path": path,
         "content": content,
-        "size_bytes": len(content.encode(encoding)),
+        "size_bytes": len(payload),
+        "truncated": truncated,
     }
 
 
@@ -88,8 +99,8 @@ class FileReadTool(BaseTool):
         size = result.get("size_bytes", len(content))
         read_path = result.get("path", arguments.get("path", ""))
         return ToolResult(
-            data={"content": content, "path": read_path},
-            summary=f"Read {size} bytes from {read_path}",
+            data={"content": content, "path": read_path, "truncated": result["truncated"]},
+            summary=f"Read {size} bytes from {read_path}" + (" (truncated)" if result["truncated"] else ""),
             raw=content,
             metadata={"tool": "file_read", "type": "text"},
         )

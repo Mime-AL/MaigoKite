@@ -36,11 +36,11 @@ test:
 
 test-go:
 	@echo "==> Running Go tests..."
-	@cd $(CURDIR) && go test ./... -count=1
+	@cd $(CURDIR)/gateway && go test ./... -count=1
 
 test-python:
 	@echo "==> Running Python tests..."
-	@cd $(CURDIR)/python && pytest
+	@cd $(CURDIR) && PYTHONPATH=python .venv/bin/python -m pytest python
 
 test-vue:
 	@echo "==> Running Vue tests..."
@@ -52,7 +52,7 @@ lint: lint-go lint-python lint-vue
 
 lint-go:
 	@echo "==> Linting Go code..."
-	@golangci-lint run ./go/... 2>/dev/null || echo "(golangci-lint not installed, skipping)"
+	@cd $(CURDIR)/gateway && golangci-lint run ./... 2>/dev/null || echo "(golangci-lint not installed, skipping)"
 
 lint-python:
 	@echo "==> Linting Python code..."

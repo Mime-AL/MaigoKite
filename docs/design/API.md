@@ -1,1385 +1,260 @@
-# NanamiGopher 接口文档
+# NanamiGopher API 设计
 
-> **版本**: v1.1  
-> **日期**: 2026-07-15  
-> **协议**: REST API + gRPC + WebSocket + MCP
+> **状态**：Current
+> **架构版本**：v1
+> **最后核验**：2026-09-14
+> **权威范围**：REST 资源、gRPC 服务、WebSocket 事件及兼容规则
 
----
+最终机器契约应分别由 OpenAPI、Proto 和事件 Schema 表达；本文档说明稳定资源与行为，不复制生成代码。
 
-## 1. API 概览
+## 1. 协议边界
 
-| 协议 | 用途 | 端口 | 说明 |
-|------|------|------|------|
-| REST API | 会话/记忆/Skill 管理 | 8080 | Go API Gateway |
-| gRPC | Agent 控制 | 8081 | Go ↔ Python |
-| WebSocket | 流式响应 | 8080 | 前端 ↔ Go |
-| MCP stdio | 工具调用 | N/A | Python ↔ MCP Server |
+| 边界 | 协议 | 服务端 |
+|---|---|---|
+| UI → Gateway | HTTPS REST | Go Gateway |
+| UI ↔ Gateway | WSS | Go Gateway |
+| Gateway → Agent Core | gRPC | Python Agent Core |
+| Agent Core ↔ MCP Server | MCP stdio | MCP Server |
 
----
+## 2. 通用调用上下文
 
-## 2. REST API (Go API Gateway)
+外部请求经过 Gateway 认证后形成可信上下文：
 
-### 2.1 会话管理
-
-#### 创建新对话
-
-```
-POST /api/v1/sessions
-Content-Type: application/json
-
-{
-  "title": "新项目分析",
-  "model_id": "gpt-4o",
-  "permission_mode": "manual"
-}
-
-Response 201:
-{
-  "id": "sess_20260715_001",
-  "title": "新项目分析",
-  "created_at": "2026-07-15T10:00:00Z",
-  "updated_at": "2026-07-15T10:00:00Z"
-}
-```
-
-#### 列出所有对话
-
-```
-GET /api/v1/sessions
-
-Response 200:
-{
-  "sessions": [
-    {
-      "id": "sess_20260715_001",
-      "title": "新项目分析",
-      "created_at": "2026-07-15T10:00:00Z",
-      "is_archived": false
-    }
-  ]
-}
-```
-
-#### 获取对话详情
-
-```
-GET /api/v1/sessions/:id
-
-Response 200:
-{
-  "id": "sess_20260715_001",
-  "title": "新项目分析",
-  "created_at": "2026-07-15T10:00:00Z",
-  "updated_at": "2026-07-15T10:00:00Z",
-  "is_archived": false,
-  "permission_mode": "manual",
-  "model_id": "gpt-4o",
-  "message_count": 15
-}
-```
-
-#### 删除对话
-
-```
-DELETE /api/v1/sessions/:id
-
-Response 204: No Content
-```
-
-#### 切换对话
-
-```
-POST /api/v1/sessions/:id/switch
-
-Response 200:
-{
-  "id": "sess_20260715_001",
-  "title": "新项目分析",
-  "switched_at": "2026-07-15T10:05:00Z"
-}
-```
-
-### 2.2 消息交互
-
-#### 发送消息
-
-```
-POST /api/v1/sessions/:id/messages
-Content-Type: application/json
-
-{
-  "content": "帮我分析一下这个项目的依赖关系",
-  "attachments": [
-    {
-      "type": "file",
-      "path": "/path/to/package.json"
-    }
-  ]
-}
-
-Response 202:
-{
-  "message_id": "msg_001",
-  "status": "processing"
-}
-```
-
-#### 流式响应（WebSocket）
-
-```
-WS /api/v1/sessions/:id/stream
-
-连接成功后接收事件:
-
-// 步骤开始
-{"type": "step_start", "data": {"step": "reading_file", "status": "running"}}
-
-// 步骤完成
-{"type": "step_complete", "data": {"step": "reading_file", "status": "completed"}}
-
-// 消息片段（流式输出）
-{"type": "message_chunk", "data": {"content": "好的，让我来分析一下..."}}
-
-// 错误
-{"type": "error", "data": {"level": "P1", "code": "TOOL_FAILED", "message": "文件读取失败", "suggestion": "请检查文件路径"}}
-```
-
-### 2.3 记忆管理
-
-#### 列出记忆
-
-```
-GET /api/v1/memories?type=favorite&tag=python&page=1&per_page=20
-
-Response 200:
-{
-  "memories": [
-    {
-      "id": "mem_001",
-      "type": "preference",
-      "content": "用户偏好使用 Python 进行后端开发",
-      "tags": ["python", "backend"],
-      "importance_score": 0.8,
-      "is_pinned": true,
-      "created_at": "2026-07-15T10:00:00Z"
-    }
-  ],
-  "total": 42,
-  "page": 1,
-  "per_page": 20
-}
-```
-
-#### 搜索记忆
-
-```
-POST /api/v1/memories/search
-Content-Type: application/json
-
-{
-  "query": "Python 后端开发",
-  "type": "preference",
-  "tags": ["python"],
-  "top_k": 10,
-  "use_vector_search": true
-}
-
-Response 200:
-{
-  "results": [
-    {
-      "id": "mem_001",
-      "content": "用户偏好使用 Python 进行后端开发",
-      "similarity": 0.95,
-      "type": "preference"
-    }
-  ]
-}
-```
-
-#### 更新记忆
-
-```
-PUT /api/v1/memories/:id
-Content-Type: application/json
-
-{
-  "content": "用户偏好使用 Python 和 Go 进行后端开发",
-  "tags": ["python", "go", "backend"],
-  "is_pinned": true
-}
-
-Response 200:
-{
-  "id": "mem_001",
-  "updated_at": "2026-07-15T10:05:00Z"
-}
-```
-
-#### 批量删除
-
-```
-DELETE /api/v1/memories/batch
-Content-Type: application/json
-
-{
-  "ids": ["mem_001", "mem_002", "mem_003"]
-}
-
-Response 200:
-{
-  "deleted_count": 3
-}
-```
-
-### 2.4 Skill 管理
-
-#### 列出所有 Skill
-
-```
-GET /api/v1/skills?namespace=builtin
-
-Response 200:
-{
-  "skills": [
-    {
-      "id": "skill_001",
-      "name": "web-search",
-      "version": "1.0.0",
-      "description": "通过网络搜索获取实时信息",
-      "namespace": "builtin",
-      "permission_level": 2,
-      "is_active": true
-    }
-  ]
-}
-```
-
-#### 导入 Skill
-
-```
-POST /api/v1/skills/import
-Content-Type: multipart/form-data
-
-file: SKILL.md
-mode: self_contained  // 或 directory
-
-Response 201:
-{
-  "id": "skill_002",
-  "name": "data-analysis",
-  "version": "1.0.0",
-  "status": "imported"
-}
-```
-
-#### 卸载 Skill
-
-```
-DELETE /api/v1/skills/:id
-
-Response 204: No Content
-```
-
-#### 查看 Skill 依赖
-
-```
-GET /api/v1/skills/:id/deps
-
-Response 200:
-{
-  "skill_name": "data-analysis",
-  "dependencies": [
-    {
-      "name": "file-reader",
-      "version": "1.0.0",
-      "installed": true
-    },
-    {
-      "name": "code-executor",
-      "version": "1.0.0",
-      "installed": true
-    },
-    {
-      "name": "visualization",
-      "version": "1.0.0",
-      "installed": false
-    }
-  ]
-}
-```
-
-### 2.5 权限管理
-
-#### 获取当前权限配置
-
-```
-GET /api/v1/permissions
-
-Response 200:
-{
-  "current_mode": "manual",
-  "modes": [
-    {"name": "manual", "is_default": true},
-    {"name": "accept_edits", "is_default": false},
-    {"name": "plan", "is_default": false},
-    {"name": "auto", "is_default": false}
-  ],
-  "circuit_breaker": {
-    "enabled": true,
-    "blocked_patterns": ["rm -rf /", "dd if="]
-  }
-}
-```
-
-#### 更新权限配置
-
-```
-PUT /api/v1/permissions
-Content-Type: application/json
-
-{
-  "default_mode": "accept_edits",
-  "circuit_breaker": {
-    "enabled": true,
-    "blocked_patterns": ["rm -rf /"]
-  }
-}
-
-Response 200:
-{
-  "updated_at": "2026-07-15T10:05:00Z"
-}
-```
-
-#### 切换权限模式
-
-```
-POST /api/v1/permissions/mode
-Content-Type: application/json
-
-{
-  "mode": "auto"
-}
-
-Response 200:
-{
-  "previous_mode": "manual",
-  "current_mode": "auto",
-  "switched_at": "2026-07-15T10:05:00Z"
-}
-```
-
-### 2.6 凭证管理
-
-凭证采用通用 CRUD 模型，通过 `type` 字段区分用途（`model` / `search` / `custom`）。凭证明文仅写入 OS 密钥链，API 层不回传 `api_key`。
-
-#### 创建凭证
-
-```
-POST /api/v1/credentials
-Content-Type: application/json
-
-{
-  "type": "model",
-  "service": "openai",
-  "api_key": "sk-xxxxx"
-}
-
-Response 201:
-{
-  "id": "cred_001",
-  "type": "model",
-  "service": "openai",
-  "configured": true,
-  "validated": true,
-  "created_at": "2026-07-15T10:00:00Z"
-}
-```
-
-```
-POST /api/v1/credentials
-Content-Type: application/json
-
-{
-  "type": "search",
-  "service": "tavily",
-  "api_key": "tvly-xxxxx"
-}
-
-Response 201:
-{
-  "id": "cred_002",
-  "type": "search",
-  "service": "tavily",
-  "configured": true,
-  "validated": true,
-  "created_at": "2026-07-15T10:01:00Z"
-}
-```
-
-#### 列出凭证
-
-```
-GET /api/v1/credentials?type=model
-
-Response 200:
-{
-  "items": [
-    {
-      "id": "cred_001",
-      "type": "model",
-      "service": "openai",
-      "configured": true,
-      "validated": true
-    },
-    {
-      "id": "cred_003",
-      "type": "model",
-      "service": "anthropic",
-      "configured": true,
-      "validated": false
-    }
-  ],
-  "total": 2
-}
-```
-
-`type` 为可选过滤参数，取值 `model` / `search` / `custom`；省略时返回全部凭证。
-
-#### 查询单个凭证
-
-```
-GET /api/v1/credentials/cred_001
-
-Response 200:
-{
-  "id": "cred_001",
-  "type": "model",
-  "service": "openai",
-  "configured": true,
-  "validated": true,
-  "created_at": "2026-07-15T10:00:00Z",
-  "updated_at": "2026-07-15T10:05:00Z"
-}
-```
-
-#### 更新凭证
-
-```
-PUT /api/v1/credentials/cred_001
-Content-Type: application/json
-
-{
-  "api_key": "sk-new-key"
-}
-
-Response 200:
-{
-  "id": "cred_001",
-  "type": "model",
-  "service": "openai",
-  "configured": true,
-  "validated": true,
-  "updated_at": "2026-07-15T10:05:00Z"
-}
-```
-
-#### 删除凭证
-
-```
-DELETE /api/v1/credentials/cred_001
-
-Response 204: No Content
-```
-
-### 2.7 模型管理
-
-#### 列出可用模型
-
-```
-GET /api/v1/models
-
-Response 200:
-{
-  "models": [
-    {
-      "id": "gpt-4o",
-      "name": "GPT-4o",
-      "provider": "openai",
-      "type": "chat",
-      "is_available": true,
-      "cost_per_token": 0.00003
-    },
-    {
-      "id": "claude-sonnet-4",
-      "name": "Claude Sonnet 4",
-      "provider": "anthropic",
-      "type": "chat",
-      "is_available": true,
-      "cost_per_token": 0.000003
-    },
-    {
-      "id": "ollama:qwen2.5:32b",
-      "name": "Qwen2.5 32B",
-      "provider": "ollama",
-      "type": "chat",
-      "is_available": true,
-      "cost_per_token": 0
-    }
-  ]
-}
-```
-
-#### 触发模型路由决策
-
-```
-POST /api/v1/models/route
-Content-Type: application/json
-
-{
-  "task_type": "coding",
-  "complexity": "standard",
-  "prefer_local": true
-}
-
-Response 200:
-{
-  "selected_model": "ollama:qwen2.5:32b",
-  "reason": "Local model preferred for coding task",
-  "fallback_models": ["gpt-4o", "claude-sonnet-4"]
-}
-```
-
-### 2.8 审批相关
-
-#### 创建审批请求
-
-```
-POST /api/v1/approvals
-Content-Type: application/json
-
-{
-  "action": "send_messages",
-  "preview": {
-    "jobs": [...],
-    "message_template": "您好，我对贵司的..."
-  },
-  "timeout_seconds": 300
-}
-
-Response 201:
-{
-  "request_id": "req_20260715_103000",
-  "status": "pending",
-  "expires_at": "2026-07-15T10:35:00Z"
-}
-```
-
-#### 获取审批详情
-
-```
-GET /api/v1/approvals/:id
-
-Response 200:
-{
-  "request_id": "req_20260715_103000",
-  "action": "send_messages",
-  "status": "pending",
-  "preview": {...},
-  "expires_at": "2026-07-15T10:35:00Z"
-}
+```text
+request_id
+trace_id
+principal_id
+workspace_id
+client_version
+deadline
 ```
 
-#### 提交审批决策
+- 外部客户端不得在请求体中覆盖 `principal_id`。
+- `workspace_id` 可来自路径或请求头，但必须经过 Membership 校验。
+- 资源不存在和无权访问应按安全策略返回一致外观，避免枚举。
 
-```
-PUT /api/v1/approvals/:id/decision
-Content-Type: application/json
-
-{
-  "decision": "approve",
-  "selected_jobs": [...],
-  "modified_message": null
-}
-
-Response 200:
-{
-  "request_id": "req_20260715_103000",
-  "decision": "approve",
-  "processed_at": "2026-07-15T10:30:30Z"
-}
-```
-
-#### 获取审批历史记录
-
-```
-GET /api/v1/approvals/history?page=1&per_page=20
-
-Response 200:
-{
-  "approvals": [
-    {
-      "request_id": "req_001",
-      "action": "send_messages",
-      "decision": "approve",
-      "processed_at": "2026-07-15T10:30:30Z"
-    }
-  ],
-  "total": 15,
-  "page": 1
-}
-```
-
-### 2.9 接管相关
-
-#### Agent 举手请求接管
-
-```
-POST /api/v1/takeovers/raise
-Content-Type: application/json
-
-{
-  "reason": "captcha_solver_failed",
-  "context": {
-    "current_node": "node_scrape_page",
-    "screenshot": "base64...",
-    "attempt_count": 3
-  },
-  "suggestion": "请手动完成滑块验证"
-}
-
-Response 201:
-{
-  "takeover_id": "tk_20260715_103000",
-  "status": "raised",
-  "created_at": "2026-07-15T10:30:00Z"
-}
-```
-
-#### 用户接受接管
-
-```
-POST /api/v1/takeovers/:id/accept
-
-Response 200:
-{
-  "takeover_id": "tk_20260715_103000",
-  "status": "accepted",
-  "accepted_at": "2026-07-15T10:30:10Z"
-}
-```
-
-#### 用户释放接管
-
-```
-POST /api/v1/takeovers/:id/release
-
-Response 200:
-{
-  "takeover_id": "tk_20260715_103000",
-  "status": "released",
-  "released_at": "2026-07-15T10:35:00Z"
-}
-```
-
-### 2.10 可观测性
-
-#### 获取完整追踪链
+## 3. REST 资源
 
-```
-GET /api/v1/traces/:trace_id
-
-Response 200:
-{
-  "trace_id": "wf_boss_zhipin_20260715_103000",
-  "spans": [
-    {
-      "span_id": "span_001",
-      "operation_name": "node_init_browser",
-      "duration_ms": 3200,
-      "status": "OK"
-    }
-  ]
-}
-```
+统一前缀：`/api/v1`。
 
-#### 获取 Span 详情
+### 3.1 身份与 Workspace
 
+```text
+GET    /me
+GET    /workspaces
+POST   /workspaces
+GET    /workspaces/{workspace_id}
+GET    /workspaces/{workspace_id}/members
+POST   /workspaces/{workspace_id}/members
+DELETE /workspaces/{workspace_id}/members/{user_id}
 ```
-GET /api/v1/traces/:trace_id/spans/:span_id
-
-Response 200:
-{
-  "span_id": "span_001",
-  "operation_name": "playwright.launch",
-  "start_time": "2026-07-15T10:30:00Z",
-  "end_time": "2026-07-15T10:30:01Z",
-  "attributes": {
-    "stealth_mode": true,
-    "session_id": "bz_1784045621"
-  }
-}
-```
 
-#### 手动运行基准测试
+### 3.2 会话与消息
 
+```text
+GET    /workspaces/{workspace_id}/conversations
+POST   /workspaces/{workspace_id}/conversations
+GET    /workspaces/{workspace_id}/conversations/{conversation_id}
+PATCH  /workspaces/{workspace_id}/conversations/{conversation_id}
+DELETE /workspaces/{workspace_id}/conversations/{conversation_id}
+GET    /workspaces/{workspace_id}/conversations/{conversation_id}/messages
+POST   /workspaces/{workspace_id}/conversations/{conversation_id}/messages
 ```
-POST /api/v1/benchmarks/run
-
-Response 202:
-{
-  "test_run_id": "bench_001",
-  "status": "running"
-}
-```
-
-#### 获取测试结果
 
-```
-GET /api/v1/benchmarks/results/:test_run_id
-
-Response 200:
-{
-  "test_run_id": "bench_001",
-  "status": "completed",
-  "results": {
-    "total_cases": 12,
-    "passed": 12,
-    "failed": 0,
-    "total_latency_ms": 45200,
-    "total_cost_usd": 0.32
-  }
-}
-```
+发送消息返回已创建的 `task_id`；增量结果通过事件流提供。
 
-#### 获取性能指标
+### 3.3 任务、工具调用与审批
 
-```
-GET /api/v1/metrics
-
-Response 200:
-{
-  "cpu_usage_percent": 12.5,
-  "memory_usage_mb": 256,
-  "active_sessions": 3,
-  "tokens_used_today": 125000,
-  "cost_today_usd": 2.50,
-  "error_rate": 0.02
-}
+```text
+GET  /workspaces/{workspace_id}/tasks/{task_id}
+POST /workspaces/{workspace_id}/tasks/{task_id}:cancel
+POST /workspaces/{workspace_id}/tasks/{task_id}:retry
+GET  /workspaces/{workspace_id}/tasks/{task_id}/tool-calls
+GET  /workspaces/{workspace_id}/approvals
+GET  /workspaces/{workspace_id}/approvals/{approval_id}
+POST /workspaces/{workspace_id}/approvals/{approval_id}/decision
 ```
 
-### 2.11 SubAgent 管理
-
-#### 创建 SubAgent
-
-```
-POST /api/v1/sessions/:id/subagents
-Content-Type: application/json
-
-{
-  "task": "搜索相关知识",
-  "parent_context": {
-    "session_id": "sess_001",
-    "shared_data": { ... }
-  }
-}
-
-Response 201:
-{
-  "subagent_id": "sa_20260715_001",
-  "status": "created",
-  "created_at": "2026-07-15T10:30:00Z"
-}
-```
+审批由 Agent Core 创建，外部 API 不提供任意创建审批请求的入口。审批决定必须包含目标审批 ID、decision 和审批版本；参数从服务端保存的规范化 ToolCall 读取，客户端不能在决定时替换参数，服务端同时验证版本与过期时间。
 
-#### 获取 SubAgent 状态
+### 3.4 Memory 与 Knowledge
 
-```
-GET /api/v1/subagents/:id/status
-
-Response 200:
-{
-  "subagent_id": "sa_20260715_001",
-  "status": "streaming",
-  "task": "搜索相关知识",
-  "created_at": "2026-07-15T10:30:00Z",
-  "expires_at": "2026-07-15T10:35:00Z",
-  "size_bytes": 1024,
-  "is_expired": false
-}
+```text
+GET    /workspaces/{workspace_id}/memories
+POST   /workspaces/{workspace_id}/memories:search
+PATCH  /workspaces/{workspace_id}/memories/{memory_id}
+DELETE /workspaces/{workspace_id}/memories/{memory_id}
+GET    /workspaces/{workspace_id}/documents
+POST   /workspaces/{workspace_id}/documents
+GET    /workspaces/{workspace_id}/documents/{document_id}
+DELETE /workspaces/{workspace_id}/documents/{document_id}
+POST   /workspaces/{workspace_id}/indexes:rebuild
 ```
 
-#### 提交 SubAgent 结果
+### 3.5 Skill
 
+```text
+GET    /workspaces/{workspace_id}/skills
+POST   /workspaces/{workspace_id}/skills:import
+POST   /workspaces/{workspace_id}/skills:install
+GET    /workspaces/{workspace_id}/skills/{skill_id}
+PATCH  /workspaces/{workspace_id}/skills/{skill_id}
+DELETE /workspaces/{workspace_id}/skills/{skill_id}
 ```
-POST /api/v1/subagents/:id/result
-Content-Type: application/json
-
-{
-  "result": "搜索到 3 篇相关文章..."
-}
-
-Response 200:
-{
-  "subagent_id": "sa_20260715_001",
-  "status": "completed",
-  "size_bytes": 1024
-}
-```
 
-#### 销毁 SubAgent
+- `import` 接收本地包或目录归档。
+- `install` 接收受支持的注册源和不可变版本引用。
+- 二者共用验证、权限预览和 SkillGrant 创建流程。
 
-```
-DELETE /api/v1/subagents/:id
+### 3.6 设置、模型和凭证引用
 
-Response 204: No Content
+```text
+GET   /workspaces/{workspace_id}/settings
+PATCH /workspaces/{workspace_id}/settings
+GET   /workspaces/{workspace_id}/models
+POST  /workspaces/{workspace_id}/models
+PUT   /workspaces/{workspace_id}/models/{model_id}
+DELETE /workspaces/{workspace_id}/models/{model_id}
+POST  /workspaces/{workspace_id}/models/{model_id}/default
+POST  /workspaces/{workspace_id}/models/actions/validate
+POST  /workspaces/{workspace_id}/models/actions/discover
+GET   /workspaces/{workspace_id}/credential-references
+POST  /workspaces/{workspace_id}/credential-references
+DELETE /workspaces/{workspace_id}/credential-references/{credential_id}
+GET   /workspaces/{workspace_id}/preferences
+PATCH /workspaces/{workspace_id}/preferences
 ```
 
-### 2.12 Inspector 监控
+读取凭证只返回引用和元数据，不返回 Secret 值。
 
-#### 获取对话活动卡片列表
+Phase 1 中，模型 API 管理 Workspace 的 Chat 模型配置集合，并保证最多一个默认模型；`models/actions/validate` 使用提交的草稿配置做一次最小模型调用，不保存草稿。`models/actions/discover` 根据 Provider 与 Base URL 查询服务端模型目录：OpenAI、Anthropic 和兼容端点使用 `/models`，Ollama 使用 `/api/tags`。它优先使用本次草稿中的 Key；仅当 Provider 与 Base URL 同已保存配置完全匹配时，才读取该配置的 CredentialStore 引用。结果和 Secret 都不持久化。目录请求禁用重定向、系统代理和链路本地地址，防止 Key 被转发到非预期端点。
 
-```
-GET /api/v1/inspector/cards
-
-Response 200:
-{
-  "cards": [
-    {
-      "session_id": "sess_001",
-      "title": "帮我分析这个项目",
-      "status": "running",  // running | completed | failed | paused
-      "running_duration_sec": 155,
-      "current_step": "正在执行: 搜索相关知识",
-      "token_count": 1234,
-      "tool_call_count": 3,
-      "subagent_count": 2,
-      "subagent_running": 1,
-      "subagent_completed": 1
-    },
-    {
-      "session_id": "sess_002",
-      "title": "帮我搜索最新 AI 新闻",
-      "status": "completed",
-      "total_duration_sec": 15,
-      "token_count": 567,
-      "tool_call_count": 2
-    },
-    {
-      "session_id": "sess_003",
-      "title": "帮我部署网站",
-      "status": "failed",
-      "error": "Docker 构建超时",
-      "retry_count": 2,
-      "token_count": 890,
-      "tool_call_count": 4
-    }
-  ]
-}
-```
+设置写入、目录发现、连接验证和凭证管理只允许 Workspace Owner。模型凭证按模型配置 ID 隔离（`model-profile.{id}`），保存后由 Gateway 同步到 Agent Core 内存，发送消息前再次从 OS CredentialStore 同步当前会话选择的配置。修改 Provider/Base URL 会使旧凭证失效，Secret 不进入领域数据库或事件。
 
-#### 获取对话时间线
+Phase 1 另提供 `GET/PATCH /workspaces/{workspace_id}/permissions` 管理三档默认执行模式：`read_only / workspace / full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`response_mode` 和 `permission_mode`。服务端验证模型属于当前 Workspace；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
 
-```
-GET /api/v1/inspector/sessions/:id/timeline?dimensions=task,tool,model,event,error,subagent
-
-Response 200:
-{
-  "session_id": "sess_001",
-  "nodes": [
-    {
-      "node_id": "sess_001_2026-07-15T10:30:00",
-      "node_type": "task",
-      "title": "任务开始",
-      "status": "running",
-      "timestamp": "2026-07-15T10:30:00Z",
-      "duration_ms": null,
-      "details": { "task_id": "task_001" },
-      "children": [
-        {
-          "node_id": "sess_001_2026-07-15T10:30:01",
-          "node_type": "tool",
-          "title": "file_reader 读取 package.json",
-          "status": "completed",
-          "timestamp": "2026-07-15T10:30:01Z",
-          "duration_ms": 120,
-          "details": {
-            "tool_name": "file_reader",
-            "arguments": { "path": "package.json" },
-            "return_value_length": 2048
-          }
-        },
-        {
-          "node_id": "sess_001_2026-07-15T10:30:02",
-          "node_type": "model",
-          "title": "qwen2.5 调用",
-          "status": "completed",
-          "timestamp": "2026-07-15T10:30:02Z",
-          "duration_ms": 800,
-          "details": {
-            "model": "qwen2.5:32b",
-            "input_tokens": 120,
-            "output_tokens": 450,
-            "cost_usd": 0.001
-          }
-        }
-      ]
-    }
-  ]
-}
-```
+`preferences` 是当前主体在 Workspace 中的用户级偏好。Phase 1 支持 `assistant_name`（1–32 个字符），用于界面称呼；团队成员只修改自己的显示偏好，不会改变 Workspace 全局名称。
 
-#### 获取历史 Inspector 记录
+### 3.7 Workspace 文件与变更
 
+```text
+GET /workspaces/{workspace_id}/files?path={relative_path}
+GET /workspaces/{workspace_id}/files/content?path={relative_file}
+GET /workspaces/{workspace_id}/changes
+GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 ```
-GET /api/v1/inspector/history?session_id=sess_002
-
-Response 200:
-{
-  "session_id": "sess_002",
-  "completed_at": "2026-07-15T10:25:00Z",
-  "nodes": [ ... ],  // 同 timeline 格式
-  "summary": {
-    "total_duration_sec": 15,
-    "token_count": 567,
-    "tool_call_count": 2,
-    "error_count": 0,
-    "subagent_count": 0
-  }
-}
-```
 
-#### 切换 Inspector 记录保存开关
+这些接口是受 Workspace 根目录约束的只读投影：拒绝绝对路径、`..` 穿越和逃逸根目录的符号链接；预览限制为 512 KiB，变更列表最多 200 项，Diff 在用户选中文件后懒加载并限制为 256 KiB，截断状态随响应返回。`changes` 在非 Git Workspace 返回 `git: false`，不执行写入或暂存操作。
 
-```
-PUT /api/v1/inspector/settings
-Content-Type: application/json
-
-{
-  "save_history": true  // true: 保存 / false: 不保存
-}
-
-Response 200:
-{
-  "save_history": true,
-  "updated_at": "2026-07-15T10:30:00Z"
-}
-```
+## 4. 命令语义
 
----
+- 创建类请求接受 `Idempotency-Key`。
+- 重复的相同键和相同请求返回原结果；相同键不同请求返回 Conflict。
+- 更新使用版本号或 ETag 防止丢失更新。
+- 取消、审批和重试使用显式动作，不伪装成普通字段 PATCH。
 
-## 3. gRPC 接口 (Go ↔ Python)
+## 5. gRPC 服务
 
-### 3.1 Protobuf 定义
+Python Agent Core 是服务端。建议按领域拆分：
 
 ```protobuf
-syntax = "proto3";
-
-package nanamigopher.agent.v1;
-
-option go_package = "pkg/proto/agent";
-
-// Agent 服务
-service AgentService {
-  // 发送消息（流式响应）
-  rpc ProcessMessage(ProcessRequest) returns (stream AgentResponse);
-  
-  // 会话管理
-  rpc CreateSession(SessionRequest) returns (SessionResponse);
-  rpc SwitchSession(SessionRequest) returns (SessionResponse);
-  rpc ListSessions(Empty) returns (SessionListResponse);
-  
-  // 记忆管理
-  rpc SearchMemories(MemorySearchRequest) returns (MemorySearchResponse);
-  rpc UpdateMemory(MemoryUpdateRequest) returns (MemoryUpdateResponse);
-  
-  // 模型路由
-  rpc RouteModel(ModelRouteRequest) returns (ModelRouteResponse);
-  
-  // 权限检查
-  rpc CheckPermission(PermissionCheckRequest) returns (PermissionCheckResponse);
+service AgentCommandService {
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc CancelTask(CancelTaskRequest) returns (TaskResponse);
+  rpc RetryTask(RetryTaskRequest) returns (TaskResponse);
+  rpc DecideApproval(DecideApprovalRequest) returns (ApprovalResponse);
 }
 
-// 消息请求
-message ProcessRequest {
-  string session_id = 1;
-  string content = 2;
-  repeated Attachment attachments = 3;
+service AgentQueryService {
+  rpc GetTask(GetTaskRequest) returns (TaskResponse);
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+  rpc SearchMemories(SearchMemoriesRequest) returns (SearchMemoriesResponse);
 }
 
-message Attachment {
-  string type = 1;  // file, image, url
-  string path = 2;
-  string url = 3;
-}
-
-// 消息响应
-message AgentResponse {
-  string type = 1;  // step_start, step_complete, message_chunk, error
-  StepData step = 2;
-  MessageChunk chunk = 3;
-  ErrorInfo error = 4;
-}
-
-message StepData {
-  string step = 1;
-  string status = 2;  // running, completed, failed
-}
-
-message MessageChunk {
-  string content = 1;
-}
-
-message ErrorInfo {
-  string level = 1;  // P0, P1, P2
-  string code = 2;
-  string message = 3;
-  string suggestion = 4;
-  bool retryable = 5;
-}
-
-// 会话
-message SessionRequest {
-  string id = 1;
-  string title = 2;
-  string model_id = 3;
-}
-
-message SessionResponse {
-  string id = 1;
-  string title = 2;
-  string created_at = 3;
-  string updated_at = 4;
-}
-
-message SessionListResponse {
-  repeated SessionResponse sessions = 1;
-}
-
-// 记忆搜索
-message MemorySearchRequest {
-  string query = 1;
-  string type = 2;
-  repeated string tags = 3;
-  int32 top_k = 4;
-  bool use_vector_search = 5;
-}
-
-message MemorySearchResponse {
-  repeated MemoryResult results = 1;
-}
-
-message MemoryResult {
-  string id = 1;
-  string content = 2;
-  float similarity = 3;
-  string type = 4;
-}
-
-// 模型路由
-message ModelRouteRequest {
-  string task_type = 1;
-  string complexity = 2;
-  bool prefer_local = 3;
-}
-
-message ModelRouteResponse {
-  string selected_model = 1;
-  string reason = 2;
-  repeated string fallback_models = 3;
-}
-
-// 权限检查
-message PermissionCheckRequest {
-  string operation = 1;
-  string resource = 2;
-}
-
-message PermissionCheckResponse {
-  bool allowed = 1;
-  string reason = 2;
-  string required_level = 3;
-}
-
-// 空消息
-message Empty {}
-```
-
-### 3.2 使用示例
-
-```go
-// Go 客户端调用
-conn, err := grpc.Dial("localhost:8081", grpc.WithTransportCredentials(insecure.NewCredentials()))
-if err != nil {
-    log.Fatal(err)
-}
-defer conn.Close()
-
-client := agent.NewAgentServiceClient(conn)
-
-// 发送消息
-stream, err := client.ProcessMessage(context.Background(), &agent.ProcessRequest{
-    SessionId: "sess_001",
-    Content: "帮我分析一下这个项目的依赖关系",
-})
-if err != nil {
-    log.Fatal(err)
-}
-
-// 接收流式响应
-for {
-    resp, err := stream.Recv()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    switch resp.Type {
-    case "step_start":
-        fmt.Printf("步骤开始: %s\n", resp.Step.Step)
-    case "message_chunk":
-        fmt.Print(resp.Chunk.Content)
-    case "error":
-        fmt.Printf("错误: %s\n", resp.Error.Message)
-    }
+service AgentEventService {
+  rpc Subscribe(SubscribeRequest) returns (stream AgentEvent);
 }
 ```
 
----
+所有请求包含 `CallContext`。Proto 中字段一旦发布不得重编号，删除字段必须 `reserved`。
 
-## 4. WebSocket 流式响应
+健康检查使用标准 gRPC Health Checking；不假设同一端口还提供 HTTP `/health`。
 
-### 4.1 连接方式
+## 6. WebSocket 事件
 
-```javascript
-// 前端连接 WebSocket
-const ws = new WebSocket(`ws://localhost:8080/api/v1/sessions/${sessionId}/stream`);
+连接：
 
-ws.onopen = () => {
-  console.log('WebSocket 连接已建立');
-};
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  
-  switch (data.type) {
-    case 'step_start':
-      showStep(data.data.step, 'running');
-      break;
-    case 'step_complete':
-      showStep(data.data.step, 'completed');
-      break;
-    case 'message_chunk':
-      appendMessage(data.data.content);
-      break;
-    case 'error':
-      showError(data.data.error);
-      break;
-  }
-};
-
-ws.onerror = (error) => {
-  console.error('WebSocket 错误:', error);
-};
-
-ws.onclose = () => {
-  console.log('WebSocket 连接已关闭');
-};
+```text
+GET /api/v1/workspaces/{workspace_id}/events?after={sequence}
 ```
 
-### 4.2 事件类型
-
-```typescript
-interface StreamEvent {
-  type: 'step_start' | 'step_complete' | 'step_error' | 'message_chunk' | 'error';
-  data: {
-    step?: string;        // 步骤标识
-    status?: string;      // 进行中/成功/失败
-    content?: string;     // 流式输出的文本片段
-    error?: ErrorInfo;    // 错误信息
-  };
-}
-
-interface ErrorInfo {
-  level: 'P0' | 'P1' | 'P2';
-  code: string;
-  message: string;
-  suggestion?: string;
-  retryable?: boolean;
-}
-
-// Inspector 事件类型
-interface InspectorEvent {
-  type: 'card_update' | 'timeline_node' | 'card_action';
-  data: {
-    session_id?: string;
-    status?: string;
-    title?: string;
-    node_id?: string;
-    node_type?: string;
-    details?: Record<string, any>;
-    action?: 'pause' | 'resume' | 'stop';
-  };
-}
-```
-
-### 4.3 Inspector 专用 WebSocket 端点
-
-```
-WS /api/v1/inspector/ws
-
-连接成功后接收事件:
-
-// 卡片状态更新
-{"type": "card_update", "data": {
-  "session_id": "sess_001",
-  "status": "running",
-  "title": "帮我分析这个项目",
-  "running_duration_sec": 155,
-  "token_count": 1234,
-  "tool_call_count": 3
-}}
-
-// 时间线节点更新
-{"type": "timeline_node", "data": {
-  "node_id": "sess_001_2026-07-15T10:30:01",
-  "node_type": "tool",
-  "title": "file_reader 读取 package.json",
-  "status": "completed",
-  "duration_ms": 120,
-  "details": {"tool_name": "file_reader", "arguments": {"path": "package.json"}}
-}}
-
-// 卡片操作响应
-{"type": "card_action", "data": {
-  "action": "pause",
-  "session_id": "sess_001",
-  "result": "ok"
-}}
-```
-
----
-
-## 5. MCP 协议接口
-
-> **注意**：Phase 1 的前 8 个核心工具（file_read/write/edit, bash, web_search, web_fetch, glob, grep）全部做成**原生工具**（Python 直接实现），不走 MCP。MCP 协议仅用于 Layer 3 的 Skill 工具（browser、ocr、code_executor 等）。
-
-### 5.1 工具发现
+事件信封：
 
 ```json
-// 请求
-{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
-
-// 响应（MCP Server 返回该 Skill 的所有工具）
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "tools": [
-      {
-        "name": "browser_navigate",
-        "description": "Navigate to a URL in the browser",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "url": {"type": "string"}
-          },
-          "required": ["url"]
-        }
-      },
-      {
-        "name": "browser_click",
-        "description": "Click an element by selector",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "selector": {"type": "string"}
-          },
-          "required": ["selector"]
-        }
-      }
-    ]
-  }
+  "schema_version": 1,
+  "event_id": "evt_...",
+  "sequence": 42,
+  "type": "task.started",
+  "occurred_at": "2026-09-14T00:00:00Z",
+  "workspace_id": "ws_...",
+  "trace_id": "trace_...",
+  "task_id": "task_...",
+  "payload": {}
 }
 ```
 
-### 5.2 工具调用
+稳定事件类型：
+
+```text
+message.delta
+message.completed
+task.started
+task.waiting_approval
+task.succeeded
+task.failed
+task.cancelled
+reasoning.started
+reasoning.delta
+reasoning.completed
+tool.proposed
+tool.started
+tool.completed
+tool.failed
+subagent.started
+subagent.progress
+subagent.completed
+subagent.failed
+approval.requested
+approval.decided
+```
+
+`message.*` 只承载用户可见的最终回答。模型主动输出的简短过程说明使用 `reasoning.*`，工具与子 Agent 生命周期分别使用 `tool.*` 和 `subagent.*`；三者均通过 `task_id` 关联任务，不写入 Message 资源。系统不传输模型隐藏思维链。
+
+客户端按 `event_id` 去重，按 `sequence` 检测缺口。断线不取消任务；缺口通过 `after` 重放或 REST 快照恢复。
+
+## 7. 错误模型
 
 ```json
-// 请求
-{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
-  "name": "browser_navigate",
-  "arguments": {
-    "url": "https://example.com"
-  }
-}}
-
-// 响应
 {
-  "jsonrpc": "2.0",
-  "id": 2,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "Navigated to https://example.com"
-      }
-    ]
+  "error": {
+    "code": "APPROVAL_EXPIRED",
+    "message": "审批已过期",
+    "request_id": "req_...",
+    "retryable": false,
+    "details": {}
   }
 }
 ```
 
-### 5.3 原生工具 vs MCP 工具
+稳定类别：Validation、Unauthenticated、AccessDenied、NotFound、Conflict、ApprovalRequired、ToolDenied、RateLimited、Timeout、DependencyUnavailable、Internal。
 
-```
-原生工具（Layer 1-2）:
-  • 直接 Python 函数调用
-  • 零网络开销
-  • 统一 BaseTool 接口
-  • Phase 1: file_read, file_write, file_edit, glob, grep, bash, web_search, web_fetch
+错误消息不得包含 Secret、原始系统提示、内部路径或未脱敏工具输出。
 
-MCP 工具（Layer 3）:
-  • stdio 进程通信
-  • tools/list 自动发现
-  • MCPToolWrapper 统一包装
-  • Phase 3+: browser, ocr, code_executor, custom skills
-```
+## 8. 版本策略
 
----
-
-## 6. 错误码
-
-| 错误码 | HTTP 状态 | 说明 |
-|--------|----------|------|
-| AUTH_REQUIRED | 401 | 需要认证 |
-| INVALID_REQUEST | 400 | 请求参数错误 |
-| SESSION_NOT_FOUND | 404 | 会话不存在 |
-| PERMISSION_DENIED | 403 | 权限不足 |
-| TOOL_FAILED | 500 | 工具执行失败 |
-| MODEL_UNAVAILABLE | 503 | 模型不可用 |
-| RATE_LIMITED | 429 | 请求频率超限 |
-
----
-
-## 7. 附录
-
-### 7.1 API 版本管理
-
-所有 API 端点都带有版本前缀 `/api/v1/`，未来升级时可以使用 `/api/v2/` 等新版本。
-
-### 7.2 分页参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| page | integer | 1 | 页码 |
-| per_page | integer | 20 | 每页数量 |
-
-### 7.3 排序参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| sort_by | string | created_at | 排序字段 |
-| order | string | desc | 排序方向（asc/desc） |
+- REST 主版本位于路径。
+- Event 使用 `schema_version`。
+- Proto 遵循字段兼容规则。
+- Breaking change 必须新增版本并记录 ADR。
+- Markdown 示例通过机器 Schema 校验，避免与实现漂移。

@@ -1,5 +1,8 @@
 # NanamiGopher 监控告警
 
+> **状态**：Current；本文档是指标、告警和监控视图的权威来源。
+> **最后核验**：2026-09-14
+
 ## 概述
 
 NanamiGopher 的可观测性体系基于 `IObservability` 接口构建，覆盖基础设施、应用和业务三个层次，通过 EventBus 事件驱动实现实时数据推送，最终接入 Prometheus + Grafana 进行长期指标存储与可视化。

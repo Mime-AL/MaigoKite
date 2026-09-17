@@ -1,5 +1,8 @@
 # NanamiGopher — 产品路线图
 
+> 状态：Planned
+> 路线图表达目标与顺序，不作为功能已交付的证据；实际发布以版本标签和更新日志为准。
+
 ## 概述
 
 NanamiGopher 的开发周期为 **16 周（约 4 个月）**，由 1 名全栈开发者独立完成。整体规划分为四个阶段，每个阶段聚焦不同的能力域，逐步构建出完整的 AI 工作助手。
@@ -22,24 +25,26 @@ Week 01 ────┬──── Week 02 ────┬───────
 
 - 完成 Go API Gateway（Gin）的基础路由和中间件
 - 完成 Python Agent Core 的 LLM 调用封装
+- 打通多 Chat 模型配置、默认模型、会话级选择、验证、持久化和实际调用链路
 - 实现基本的多轮对话能力
 - 实现工具调用（Tool Calling）机制
 - 实现短期记忆（会话上下文）
 - 实现基础的用户权限系统
-- 开发 2 个 Example 插件，验证 Plugin 架构可行性
+- 开发 2 个纯 Python Example Workflow，验证 Tool 与模型接口
+- 提供 Workspace 文件树、只读预览和 Git Diff
 
 ### 交付物
 
 | 序号 | 交付物 | 说明 |
 |------|--------|------|
-| 1 | Go API Gateway 骨架 | Gin 路由、CORS、JWT 认证中间件 |
-| 2 | Python Agent Core | LLM 抽象层、Tool Calling 接口 |
+| 1 | Go API Gateway 骨架 | Gin 路由、本地 Origin 边界、Workspace AccessPolicy；服务器身份认证后续接入 |
+| 2 | Python Agent Core | LLM 抽象层、Tool Calling 接口、云端 API 与本地端口接入 |
 | 3 | 对话引擎 | 多轮对话 + 上下文管理 |
 | 4 | 工具注册中心 | 动态注册/发现工具的能力 |
 | 5 | 短期记忆模块 | 基于会话的上下文窗口管理 |
-| 6 | 权限系统 v1 | 用户角色 + 基础 RBAC |
-| 7 | Example Plugin × 2 | 演示 Plugin 开发流程 |
-| 8 | 基础前端页面 | Vue 3 + Vite 的对话界面 |
+| 6 | 权限系统 v1 | Personal Workspace Owner 初始化 + Workspace 访问校验 + ToolPolicy |
+| 7 | Example Workflow × 2 | 代码审查、文档摘要，复用稳定 Provider 接口 |
+| 8 | 基础前端页面 | 对话、模型/速度/权限选择、多模型设置与 Workspace 文件/Diff |
 
 ### 关键里程碑
 
@@ -54,7 +59,7 @@ Week 01 ────┬──── Week 02 ────┬───────
 |------|------|---------|
 | Go + Python 跨进程通信延迟 | 用户体验差 | 优先使用 gRPC 而非 HTTP 作为内部通信 |
 | LLM API 不稳定 | 核心功能不可用 | 实现重试机制 + fallback 策略 |
-| 时间不足 | 功能砍掉 | 严格限定范围，Example 插件使用同一模板 |
+| 时间不足 | 功能砍掉 | 严格限定范围，Example Skill 使用同一模板 |
 
 ---
 
@@ -64,10 +69,10 @@ Week 01 ────┬──── Week 02 ────┬───────
 
 ### 核心目标
 
-- 支持多对话并行管理
-- 实现流式输出（SSE/WebSocket）
+- 支持多对话并行运行与管理
+- 为现有 WebSocket 增量事件补齐断线续传
 - 完善的错误处理和用户反馈机制
-- 接入本地模型（Ollama / llama.cpp）
+- 完善模型能力/成本标注、自动路由与多模型 fallback
 - 实现 Telemetry 基础版
 - 集成 Playwright 实现浏览器自动化
 - 集成 OCR 能力（中文文档识别）
@@ -77,9 +82,9 @@ Week 01 ────┬──── Week 02 ────┬───────
 | 序号 | 交付物 | 说明 |
 |------|--------|------|
 | 1 | 多对话管理 | 创建/切换/搜索/归档多个对话 |
-| 2 | 流式输出 | SSE + WebSocket 双通道流式传输 |
+| 2 | 可恢复事件流 | WebSocket 序列号、断线续传与并发任务隔离 |
 | 3 | 错误处理系统 | 分类错误码 + 用户友好提示 |
-| 4 | 本地模型支持 | Ollama 集成 + 模型选择器 |
+| 4 | 高级模型管理 | 在 Phase 1 目录发现之上增加能力/成本路由与 fallback |
 | 5 | Telemetry 基础版 | 关键指标采集（对话数、延迟、Token 消耗） |
 | 6 | Playwright 集成 | Agent 可操控浏览器完成任务 |
 | 7 | OCR 模块 | 中文图片文字识别 |
@@ -87,7 +92,7 @@ Week 01 ────┬──── Week 02 ────┬───────
 
 ### 关键里程碑
 
-- **Week 3 末**：多对话 + 流式输出上线
+- **Week 3 末**：并行对话 + 可恢复事件流上线
 - **Week 4 末**：本地模型 + Playwright 可用
 - **Week 5 末**：OCR + Electron 桌面端可用
 - **Week 6 末**：v0.5 发布（Beta）
@@ -111,7 +116,7 @@ Week 01 ────┬──── Week 02 ────┬───────
 - 实现 DSL 工作流引擎，支持可视化任务编排
 - 多 Agent 协作架构（Master Agent + Worker Agents）
 - 可观测性完整版（链路追踪 + 指标面板 + 日志聚合）
-- 完整的 Plugin 架构（热加载、沙箱隔离、版本管理）
+- 完整的 Skill 生命周期（不可变版本、授权、隔离、更新与回滚）
 - SubAgent 机制（主 Agent 可派生子任务）
 - Inspector 工具（实时查看 Agent 内部状态和执行过程）
 
@@ -122,7 +127,7 @@ Week 01 ────┬──── Week 02 ────┬───────
 | 1 | DSL 工作流引擎 | YAML/JSON 定义的执行流，支持条件分支和循环 |
 | 2 | 多 Agent 架构 | Master-Worker 模式的 Agent 集群 |
 | 3 | 可观测性平台 | OpenTelemetry 集成 + Grafana 面板 |
-| 4 | Plugin 热加载 | 无需重启即可加载/卸载/更新插件 |
+| 4 | Skill 生命周期 | 按 kind 激活、禁用、更新、回滚与卸载 Skill |
 | 5 | SubAgent 系统 | 主 Agent 可创建和管理子任务 |
 | 6 | Inspector | 实时查看 Agent 状态、工具调用链、记忆内容 |
 | 7 | 长期记忆系统 | ChromaDB 向量存储 + 语义检索 |
@@ -133,7 +138,7 @@ Week 01 ────┬──── Week 02 ────┬───────
 - **Week 7 末**：DSL 引擎原型可用
 - **Week 8 末**：多 Agent 架构跑通
 - **Week 9 末**：可观测性平台上线
-- **Week 10 末**：Plugin 热加载 + SubAgent 可用
+- **Week 10 末**：Skill 生命周期 + SubAgent 可用
 - **Week 11 末**：Inspector 完成
 - **Week 12 末**：v1.0 发布（GA）
 
@@ -143,7 +148,7 @@ Week 01 ────┬──── Week 02 ────┬───────
 |------|------|---------|
 | DSL 设计过于复杂 | 开发延期 | 先实现最小 DSL 子集，迭代扩展 |
 | 多 Agent 通信开销大 | 性能瓶颈 | 使用 gRPC 而非 HTTP，连接池复用 |
-| Plugin 安全风险 | 系统稳定性 | 沙箱隔离 + 权限白名单 + 资源限制 |
+| 第三方 Skill 安全风险 | 系统稳定性 | 安装前验证 + Workspace Grant + ToolPolicy + 资源限制 |
 
 ---
 

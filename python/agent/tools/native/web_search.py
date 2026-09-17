@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -32,6 +33,8 @@ class WebSearchTool(BaseTool):
             "properties": {
                 "query": {
                     "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
                     "description": "The search query string.",
                 },
                 "engine": {
@@ -41,6 +44,8 @@ class WebSearchTool(BaseTool):
                 },
                 "max_results": {
                     "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
                     "description": "Maximum number of results to return. Default: 5.",
                 },
             },
@@ -64,6 +69,7 @@ class WebSearchTool(BaseTool):
                 results = await self._google_search(query, api_key, max_results)
             else:
                 # DuckDuckGo doesn't require an API key
+                engine = "duckduckgo"
                 results = await self._duckduckgo_search(query, max_results)
 
             return ToolResult(
@@ -72,10 +78,10 @@ class WebSearchTool(BaseTool):
                 raw=self._format_results(results),
             )
         except Exception as e:
-            logger.error(f"Web search failed: {e}")
+            logger.error("Web search failed (%s)", type(e).__name__)
             return ToolResult(
-                data={"results": [], "error": str(e)},
-                summary=f"Web search failed: {e}",
+                data={"results": [], "error": "search provider request failed"},
+                summary="Web search provider request failed.",
             )
 
     async def _tavily_search(
@@ -91,7 +97,8 @@ class WebSearchTool(BaseTool):
             "max_results": max_results,
             "include_answer": True,
         }
-        resp = await httpx.AsyncClient().post(url, json=payload, timeout=15.0)
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload, timeout=15.0)
         resp.raise_for_status()
         data = resp.json()
         return [
@@ -111,8 +118,9 @@ class WebSearchTool(BaseTool):
 
         cx = api_key.split(":")[1] if ":" in api_key else ""
         key = api_key.split(":")[0] if ":" in api_key else api_key
-        url = f"https://www.googleapis.com/customsearch/v1?key={key}&cx={cx}&q={query}&num={max_results}"
-        resp = await httpx.AsyncClient().get(url, timeout=15.0)
+        url = "https://www.googleapis.com/customsearch/v1"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params={"key": key, "cx": cx, "q": query, "num": max_results}, timeout=15.0)
         resp.raise_for_status()
         data = resp.json()
         return [
@@ -130,15 +138,18 @@ class WebSearchTool(BaseTool):
         """Search via DuckDuckGo (free, no API key)."""
         from duckduckgo_search import DDGS
 
-        results = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=max_results):
-                results.append({
-                    "title": r.get("title", ""),
-                    "url": r.get("href", ""),
-                    "snippet": r.get("body", ""),
-                })
-        return results
+        def search() -> list[dict[str, Any]]:
+            results = []
+            with DDGS() as ddgs:
+                for r in ddgs.text(query, max_results=max_results):
+                    results.append({
+                        "title": r.get("title", ""),
+                        "url": r.get("href", ""),
+                        "snippet": r.get("body", ""),
+                    })
+            return results
+
+        return await asyncio.to_thread(search)
 
     @staticmethod
     def _format_results(results: list[dict[str, Any]]) -> str:

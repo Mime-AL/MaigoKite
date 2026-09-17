@@ -1,75 +1,46 @@
-"""Execution engine for running agent steps and tool invocations."""
-
+"""Tool execution pipeline: validate, authorize, execute, audit."""
 from __future__ import annotations
-import json
-from datetime import datetime
-from typing import Any, Optional
-
-
-class ExecutionContext:
-    """Context passed to tool executions."""
-
-    deadline: datetime
-    cancellation_token: bool
-    trace_id: str
-    task_id: str
-    step_id: str
-    metadata: dict[str, Any]
-
-    def __init__(
-        self,
-        trace_id: str,
-        task_id: str,
-        step_id: str,
-        deadline: datetime | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        ...
-
-
-class ToolResult:
-    """Standardized result returned by tool executions."""
-
-    data: dict[str, Any]
-    summary: str
-    raw: str | bytes | None
-    metadata: dict[str, Any]
-
-    def __init__(
-        self,
-        data: dict[str, Any],
-        summary: str,
-        raw: str | bytes | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        ...
-
-
-class ToolResultStream:
-    """Streaming variant of ToolResult for long-running operations."""
-
-    def __aiter__(self) -> Any:
-        ...
-
-    async def collect(self) -> ToolResult:
-        ...
-
+from typing import Any
+from agent.repository import SQLiteRepository
+from agent.tools.base import ExecutionContext, ToolResult, ToolResultStream
+from agent.tools.permission_mgr import PermissionManager, PermissionRequired
+from agent.tools.tool_registry import ToolRegistry
+from agent.security.injection_filter import InjectionFilter
 
 class ExecutionEngine:
-    """Executes agent steps and manages tool invocations."""
+    def __init__(self, registry:ToolRegistry, policy:PermissionManager, repository:SQLiteRepository) -> None:
+        self.registry=registry; self.policy=policy; self.repository=repository; self._cancelled:set[str]=set(); self.input_filter=InjectionFilter()
 
-    def __init__(self, trace_id: str, task_id: str) -> None:
-        ...
+    async def execute_step(self, step_config:dict[str,Any], context:ExecutionContext)->ToolResult|ToolResultStream:
+        return await self.execute_tool(step_config["tool"],step_config.get("arguments",{}),context)
 
-    async def execute_step(
-        self, step_config: dict[str, Any], context: ExecutionContext
-    ) -> ToolResult:
-        ...
+    async def execute_tool(self, tool_name:str, arguments:dict[str,Any], context:ExecutionContext)->ToolResult|ToolResultStream:
+        if context.task_id in self._cancelled or context.cancellation_token: raise RuntimeError("task cancelled")
+        clean=self.input_filter.sanitize_arguments(self.registry.validator.sanitize(tool_name,arguments))
+        tool=self.registry.get(tool_name)
+        configured_risks=context.metadata.get("tool_risk_levels",{})
+        configured_risk=configured_risks.get(tool_name) if isinstance(configured_risks,dict) else None
+        tool_risk=getattr(tool,"risk_level",None) if tool is not None else None
+        risk_override=configured_risk if configured_risk is not None else tool_risk
+        decision=self.policy.evaluate(
+            tool_name,clean,bool(context.metadata.get("approved")),risk_override,
+            str(context.metadata.get("permission_mode") or self.policy.mode),
+        )
+        workspace_id=str(context.metadata.get("workspace_id","personal")); actor=str(context.metadata.get("principal_id","local-user"))
+        if decision.outcome=="deny":
+            await self.repository.record_audit(workspace_id,actor,"tool.denied",tool_name,"denied",{"reason":decision.reason,"risk":decision.risk.name})
+            raise PermissionError(decision.reason)
+        if decision.outcome=="approval_required":
+            await self.repository.record_audit(workspace_id,actor,"tool.approval_required",tool_name,"pending",{"risk":decision.risk.name})
+            raise PermissionRequired(decision)
+        try:
+            result=await self.registry.invoke(tool_name,decision.arguments,context)
+            if isinstance(result,ToolResultStream): result=await result.collect()
+        except Exception as exc:
+            await self.repository.record_audit(workspace_id,actor,"tool.failed",tool_name,"failed",{"error_type":type(exc).__name__})
+            raise
+        await self.repository.record_audit(workspace_id,actor,"tool.completed",tool_name,"success",{"risk":decision.risk.name,"summary":getattr(result,"summary","")[:500]})
+        return result
 
-    async def execute_tool(
-        self, tool_name: str, arguments: dict[str, Any], context: ExecutionContext
-    ) -> ToolResult | ToolResultStream:
-        ...
-
-    async def cancel(self) -> None:
-        ...
+    async def cancel(self, task_id:str|None=None)->None:
+        if task_id: self._cancelled.add(task_id)

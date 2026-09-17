@@ -1,464 +1,181 @@
-"""gRPC Server implementation for AgentService.
-
-This module provides the gRPC server that listens for incoming requests
-from the Go API Gateway and delegates to AgentCore for business logic.
-
-Architecture:
-    Go Gateway (AgentClient) --[gRPC]--> Python Agent Core (AgentServiceServicer)
-                                              |
-                                              v
-                                         AgentCore.run()
-                                              |
-                                              v
-                                         EventBus --> stream responses back
-"""
-
+"""Python gRPC service; all domain writes delegate to AgentCore."""
 from __future__ import annotations
-
-import asyncio
-import uuid
-from datetime import datetime, timezone
-from typing import AsyncIterator
-
+import asyncio,json
+from typing import Any,AsyncIterator
 import grpc
-
-# Import generated stubs (run `python -m scripts.generate_proto` first)
-from agent.grpc_generated import agent_pb2
-from agent.grpc_generated import agent_pb2_grpc
-
+from agent.grpc_generated import agent_pb2,agent_pb2_grpc
+from agent.models.runtime import ChatModelSettings
 
 class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
-    """Implements the AgentService gRPC service.
-
-    Delegates to AgentCore for agent execution, TaskManager for session handling,
-    MemorySystem for memory operations, and Observability for monitoring.
-    """
-
-    def __init__(self, agent_core, event_bus, observability):
-        """
-        Args:
-            agent_core: AgentCore instance for executing agent loops.
-            event_bus: EventBus instance for subscribing to agent events.
-            observability: Observability instance for logging/tracing.
-        """
-        self._core = agent_core
-        self._event_bus = event_bus
-        self._obs = observability
-        # Track active session states
-        self._sessions: dict[str, dict] = {}
-        # Track active ProcessMessage streams for cancellation
-        self._active_streams: dict[str, asyncio.Event] = {}
-
-    # ------------------------------------------------------------------
-    # Helper methods: proto <-> domain conversions
-    # ------------------------------------------------------------------
-
-    def _now_iso(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
-
-    def _to_session_response(
-        self, sid: str, title: str, mode: str, msg_count: int
-    ) -> agent_pb2.SessionResponse:
-        return agent_pb2.SessionResponse(
-            id=sid,
-            title=title,
-            created_at=self._now_iso(),
-            updated_at=self._now_iso(),
-            permission_mode=mode,
-            message_count=msg_count,
+    def __init__(self,agent_core,event_bus,observability)->None:self._core=agent_core;self._event_bus=event_bus;self._obs=observability
+    @staticmethod
+    def _conversation(item:dict[str,Any])->agent_pb2.Conversation:
+        return agent_pb2.Conversation(id=item["id"],workspace_id=item["workspace_id"],title=item["title"],model_id=item["model_id"],permission_mode=item["permission_mode"],response_mode=item.get("response_mode","balanced"),created_at=item["created_at"],updated_at=item["updated_at"],message_count=int(item.get("message_count",0)))
+    @staticmethod
+    def _message(item:dict[str,Any])->agent_pb2.Message:return agent_pb2.Message(**item)
+    @staticmethod
+    def _approval(item:dict[str,Any])->agent_pb2.Approval:
+        arguments=item.get("arguments",{})
+        scope=arguments.get("path") or arguments.get("workdir") or arguments.get("url") or "current workspace"
+        return agent_pb2.Approval(
+            id=item["id"],workspace_id=item["workspace_id"],conversation_id=item["conversation_id"],
+            task_id=item["task_id"],tool_call_id=item["tool_call_id"],tool_name=item["tool_name"],
+            arguments_json=json.dumps(arguments,ensure_ascii=False),resource_scope=str(scope),
+            risk_level=item["risk_level"],status=item["status"],version=int(item["version"]),expires_at=item["expires_at"],
         )
+    @staticmethod
+    def _event(kind:str,payload:dict[str,Any])->agent_pb2.AgentEvent:
+        return agent_pb2.AgentEvent(type=kind,task_id=str(payload.get("task_id","")),conversation_id=str(payload.get("conversation_id","")),content=str(payload.get("content","")),payload_json=json.dumps(payload,ensure_ascii=False,default=str))
 
-    def _to_error_info(
-        self, level: str, code: str, message: str, suggestion: str = "", retryable: bool = False
-    ) -> agent_pb2.ErrorInfo:
-        return agent_pb2.ErrorInfo(
-            level=level,
-            code=code,
-            message=message,
-            suggestion=suggestion,
-            retryable=retryable,
-        )
-
-    def _to_agent_response_error(
-        self,
-        level: str,
-        code: str,
-        message: str,
-        suggestion: str = "",
-        retryable: bool = False,
-    ) -> agent_pb2.AgentResponse:
-        return agent_pb2.AgentResponse(
-            type="error",
-            error=self._to_error_info(level, code, message, suggestion, retryable),
-        )
-
-    # ------------------------------------------------------------------
-    # ProcessMessage — streaming RPC (main agent loop)
-    # ------------------------------------------------------------------
-
-    async def ProcessMessage(
-        self,
-        request: agent_pb2.ProcessRequest,
-        context: grpc.ServicerContext,
-    ) -> AsyncIterator[agent_pb2.AgentResponse]:
-        """Handle a user message and stream agent responses.
-
-        This is the core RPC that triggers the agent execution loop.
-        It subscribes to EventBus events and yields AgentResponse messages.
-        """
-        session_id = request.session_id or str(uuid.uuid4())[:8]
-        trace_id = str(uuid.uuid4())
-
-        # Register active stream for cancellation tracking
-        cancel_event = asyncio.Event()
-        self._active_streams[trace_id] = cancel_event
-
+    async def ProcessMessage(self,request,context)->AsyncIterator[agent_pb2.AgentEvent]:
+        if not request.conversation_id:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT,"conversation_id is required")
+            return
         try:
-            # Signal step_start
-            yield agent_pb2.AgentResponse(
-                type="step_start",
-                step=agent_pb2.StepData(step_name="session.init", status="running"),
-            )
-
-            # Subscribe to event bus for this trace
-            received_events: list[dict] = []
-
-            async def on_event(event_type: str, payload: dict):
-                received_events.append({"type": event_type, "payload": payload})
-                # Yield response based on event type
-                if event_type == "tool_call":
-                    tool_name = payload.get("tool_name", "unknown")
-                    yield agent_pb2.AgentResponse(
-                        type="tool_call",
-                        tool_call=agent_pb2.ToolCallData(
-                            tool_name=tool_name,
-                            status="running",
-                        ),
-                    )
-                elif event_type == "tool_result":
-                    tool_name = payload.get("tool_name", "unknown")
-                    summary = payload.get("summary", "")
-                    yield agent_pb2.AgentResponse(
-                        type="tool_call",
-                        tool_call=agent_pb2.ToolCallData(
-                            tool_name=tool_name,
-                            result_summary=summary,
-                            status="completed",
-                        ),
-                    )
-                elif event_type == "llm_stream":
-                    content = payload.get("content", "")
-                    yield agent_pb2.AgentResponse(
-                        type="message_chunk",
-                        chunk=agent_pb2.MessageChunk(content=content),
-                    )
-                elif event_type == "step_complete":
-                    step_name = payload.get("step_name", "unknown")
-                    status = payload.get("status", "completed")
-                    yield agent_pb2.AgentResponse(
-                        type="step_complete",
-                        step=agent_pb2.StepData(
-                            step_name=step_name,
-                            status=status,
-                        ),
-                    )
-
-            # NOTE: Since EventBus.subscribe expects async callbacks,
-            # we use a simpler approach: poll the event bus or use
-            # the agent core's built-in streaming capability.
-
-            # For Phase 1, we invoke the agent core directly and
-            # yield responses based on its return structure.
-
-            # Run the agent core in a background task
-            async def run_agent():
-                try:
-                    result = await self._core.run(
-                        prompt=request.content,
-                        metadata={
-                            "session_id": session_id,
-                            "trace_id": trace_id,
-                            "attachments": [
-                                agent_pb2.Attachment(
-                                    type=a.type,
-                                    path=a.path,
-                                    url=a.url,
-                                ).__dict__
-                                for a in request.attachments
-                            ],
-                        },
-                    )
-                    return result
-                except Exception as e:
-                    return {"error": str(e), "type": "exception"}
-
-            # Execute agent and yield results
-            agent_task = asyncio.create_task(run_agent())
-
-            # Stream progress via event bus subscription
-            async def listen_events():
-                """Listen to EventBus and yield responses."""
-                event_queue: asyncio.Queue[dict] = asyncio.Queue()
-
-                async def on_publish(event_type: str, payload: dict):
-                    await event_queue.put({"type": event_type, "payload": payload})
-
-                self._event_bus.subscribe("*", on_publish)
-                try:
-                    while not agent_task.done():
-                        try:
-                            event = await asyncio.wait_for(
-                                event_queue.get(), timeout=0.1
-                            )
-                            yield event
-                        except asyncio.TimeoutError:
-                            continue
-
-                finally:
-                    self._event_bus.unsubscribe("*", on_publish)
-
-            # Run event listener and agent concurrently
-            async def collect_and_yield():
-                """Collect events from both agent execution and event bus."""
-                # First, yield session init
-                yield agent_pb2.AgentResponse(
-                    type="step_start",
-                    step=agent_pb2.StepData(step_name="session.init", status="running"),
-                )
-
-                # Run agent in background, collect events
-                event_task = asyncio.create_task(
-                    listen_events().__anext__()
-                    if hasattr(listen_events(), "__anext__")
-                    else asyncio.sleep(0)
-                )
-
-                try:
-                    result = await agent_task
-                except Exception as e:
-                    yield self._to_agent_response_error(
-                        level="P1",
-                        code="AGENT_ERROR",
-                        message=str(e),
-                        retryable=True,
-                    )
-                    return
-
-                # Yield completion
-                if "error" in result:
-                    yield self._to_agent_response_error(
-                        level="P1",
-                        code=result.get("error_code", "RUNTIME_ERROR"),
-                        message=result["error"],
-                        retryable=result.get("retryable", True),
-                    )
-                else:
-                    yield agent_pb2.AgentResponse(
-                        type="step_complete",
-                        step=agent_pb2.StepData(
-                            step_name="agent.complete", status="completed",
-                        ),
-                    )
-                    # Yield final response
-                    if "response" in result:
-                        yield agent_pb2.AgentResponse(
-                            type="message_chunk",
-                            chunk=agent_pb2.MessageChunk(content=result["response"]),
-                        )
-
-            async for response in collect_and_yield():
-                if context.is_cancelled():
-                    break
-                yield response
-
+            await self._core.get_conversation(request.workspace_id or "personal",request.conversation_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND,"conversation not found")
+            return
+        queue:asyncio.Queue[tuple[str,dict[str,Any]]]=asyncio.Queue()
+        async def receive(kind:str,payload:dict[str,Any])->None:
+            if str(payload.get("conversation_id", "")) == request.conversation_id:
+                await queue.put((kind,payload))
+        self._event_bus.subscribe("*",receive)
+        metadata={"conversation_id":request.conversation_id,"workspace_id":request.workspace_id or "personal","principal_id":request.principal_id or "local-user","attachments":[{"type":a.type,"path":a.path,"url":a.url} for a in request.attachments]}
+        task=asyncio.create_task(self._core.run(request.content,metadata))
+        try:
+            while not task.done() or not queue.empty():
+                try:kind,payload=await asyncio.wait_for(queue.get(),0.05)
+                except asyncio.TimeoutError:continue
+                yield self._event(kind,payload)
+            result=await task
+            if error:=result.get("error"):
+                yield agent_pb2.AgentEvent(type="error",task_id=result.get("task_id",""),conversation_id=result.get("conversation_id",""),code=result.get("error_code","AGENT_ERROR"),message=error,retryable=bool(result.get("retryable")),payload_json=json.dumps(result))
         finally:
-            # Clean up
-            self._active_streams.pop(trace_id, None)
+            self._event_bus.unsubscribe("*",receive)
+            if context.cancelled() and not task.done():task.cancel()
 
-    # ------------------------------------------------------------------
-    # Session management RPCs
-    # ------------------------------------------------------------------
-
-    async def CreateSession(
-        self,
-        request: agent_pb2.SessionRequest,
-        context: grpc.ServicerContext,
-    ) -> agent_pb2.SessionResponse:
-        """Create a new conversation session."""
-        session_id = request.id or str(uuid.uuid4())[:8]
-        title = request.title or "Untitled"
-        model_id = request.model_id or ""
-        perm_mode = request.permission_mode or "auto"
-
-        self._sessions[session_id] = {
-            "id": session_id,
-            "title": title,
-            "model_id": model_id,
-            "permission_mode": perm_mode,
-            "created_at": self._now_iso(),
-            "updated_at": self._now_iso(),
-            "messages": [],
-        }
-
-        await self._obs.log("info", f"Session created: {session_id}")
-        return self._to_session_response(session_id, title, perm_mode, 0)
-
-    async def SwitchSession(
-        self,
-        request: agent_pb2.SessionRequest,
-        context: grpc.ServicerContext,
-    ) -> agent_pb2.SessionResponse:
-        """Switch to an existing session."""
-        session_id = request.id
-        if session_id not in self._sessions:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details(f"Session {session_id} not found")
-            return agent_pb2.SessionResponse()
-
-        session = self._sessions[session_id]
-        session["updated_at"] = self._now_iso()
-        return self._to_session_response(
-            session["id"],
-            session["title"],
-            session["permission_mode"],
-            len(session.get("messages", [])),
+    async def CreateConversation(self,request,context):
+        try:item=await self._core.create_conversation(request.workspace_id or "personal",request.title,request.model_id,request.permission_mode or None,request.response_mode or "balanced")
+        except (KeyError,ValueError) as exc:await context.abort(grpc.StatusCode.INVALID_ARGUMENT,str(exc))
+        return self._conversation(item)
+    async def GetConversation(self,request,context):
+        try:return self._conversation(await self._core.get_conversation(request.workspace_id or "personal",request.conversation_id))
+        except KeyError:await context.abort(grpc.StatusCode.NOT_FOUND,"conversation not found")
+    async def ListConversations(self,request,context):return agent_pb2.ConversationList(conversations=[self._conversation(i) for i in await self._core.list_conversations(request.workspace_id or "personal")])
+    async def DeleteConversation(self,request,context):
+        try:await self._core.delete_conversation(request.workspace_id or "personal",request.conversation_id)
+        except KeyError:await context.abort(grpc.StatusCode.NOT_FOUND,"conversation not found")
+        return agent_pb2.Empty()
+    async def UpdateConversationPermission(self,request,context):
+        try:item=await self._core.update_conversation_permission(request.workspace_id or "personal",request.conversation_id,request.permission_mode)
+        except KeyError:await context.abort(grpc.StatusCode.NOT_FOUND,"conversation not found")
+        except ValueError as exc:await context.abort(grpc.StatusCode.INVALID_ARGUMENT,str(exc))
+        return self._conversation(item)
+    async def UpdateConversationSettings(self,request,context):
+        try:item=await self._core.update_conversation_settings(
+            request.workspace_id or "personal",request.conversation_id,
+            model_id=request.model_id if request.HasField("model_id") else None,
+            response_mode=request.response_mode if request.HasField("response_mode") else None,
+            permission_mode=request.permission_mode if request.HasField("permission_mode") else None,
         )
-
-    async def ListSessions(
-        self,
-        request: agent_pb2.Empty,
-        context: grpc.ServicerContext,
-    ) -> agent_pb2.SessionListResponse:
-        """List all sessions."""
-        sessions = []
-        for sid, sdata in self._sessions.items():
-            sessions.append(
-                self._to_session_response(
-                    sdata["id"],
-                    sdata["title"],
-                    sdata["permission_mode"],
-                    len(sdata.get("messages", [])),
-                )
-            )
-        return agent_pb2.SessionListResponse(sessions=sessions)
-
-    async def DeleteSession(
-        self,
-        request: agent_pb2.SessionRequest,
-        context: grpc.ServicerContext,
-    ) -> agent_pb2.SessionResponse:
-        """Delete a session."""
-        session_id = request.id
-        if session_id not in self._sessions:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details(f"Session {session_id} not found")
-            return agent_pb2.SessionResponse()
-
-        deleted = self._sessions.pop(session_id)
-        await self._obs.log("info", f"Session deleted: {session_id}")
-        return self._to_session_response(
-            deleted["id"], deleted["title"], deleted["permission_mode"], 0
-        )
-
-    # ------------------------------------------------------------------
-    # Memory management RPCs
-    # ------------------------------------------------------------------
-
-    async def SearchMemories(
-        self,
-        request: agent_pb2.MemorySearchRequest,
-        context: grpc.ServicerContext,
-    ) -> agent_pb2.MemorySearchResponse:
-        """Search memories using vector or keyword matching."""
-        # Delegate to AgentCore's memory system
-        # For Phase 1, return placeholder results
-        results = []
-        if request.use_vector_search:
-            # Would call MemorySystem.vector_search() here
-            pass
-
-        return agent_pb2.MemorySearchResponse(results=results)
-
-    async def UpdateMemory(
-        self,
-        request: agent_pb2.MemoryUpdateRequest,
-        context: grpc.ServicerContext,
-    ) -> agent_pb2.MemoryUpdateResponse:
-        """Update or create a memory entry."""
-        # Delegate to MemorySystem.update()
-        return agent_pb2.MemoryUpdateResponse(
-            id=request.id or str(uuid.uuid4())[:8],
-            updated_at=self._now_iso(),
-        )
-
-    # ------------------------------------------------------------------
-    # Model routing RPC
-    # ------------------------------------------------------------------
-
-    async def RouteModel(
-        self,
-        request: agent_pb2.ModelRouteRequest,
-        context: grpc.ServicerContext,
-    ) -> agent_pb2.ModelRouteResponse:
-        """Route a task to the best available model."""
-        # Delegate to ModelProvider routing logic
-        task_type = request.task_type or "general"
-        complexity = request.complexity or "medium"
-        prefer_local = request.prefer_local
-
-        # Simple routing logic for Phase 1
-        if prefer_local:
-            model = "qwen2.5:latest"
-            provider = "ollama"
-        elif complexity == "high":
-            model = "gpt-4o"
-            provider = "openai"
-        else:
-            model = "claude-sonnet-4-0"
-            provider = "anthropic"
-
-        return agent_pb2.ModelRouteResponse(
-            selected_model=model,
-            provider=provider,
-            reason=f"Selected based on task_type={task_type}, complexity={complexity}, prefer_local={prefer_local}",
-            fallback_models=["qwen2.5:14b", "gemma:7b"],
-            fallback_providers=["ollama", "ollama"],
-        )
-
-    # ------------------------------------------------------------------
-    # Permission check RPC
-    # ------------------------------------------------------------------
-
-    async def CheckPermission(
-        self,
-        request: agent_pb2.PermissionCheckRequest,
-        context: grpc.ServicerContext,
-    ) -> agent_pb2.PermissionCheckResponse:
-        """Check if an operation is allowed under current permission mode."""
-        # Delegate to PermissionManager
-        operation = request.operation
-        resource = request.resource
-
-        # Simple permission matrix for Phase 1
-        permission_map = {
-            "file_read": "L1",
-            "file_write": "L4",
-            "file_edit": "L4",
-            "bash": "L3",
-            "web_search": "L3",
-            "web_fetch": "L3",
-            "glob": "L1",
-            "grep": "L1",
-            "image_generate": "L4",
-        }
-
-        required_level = permission_map.get(operation, "L5")
-
-        # In Phase 1, auto mode allows all; manual mode requires confirmation
-        allowed = True  # Simplified; would check current permission mode
-
-        return agent_pb2.PermissionCheckResponse(
-            allowed=allowed,
-            reason=f"Operation '{operation}' requires level {required_level}",
-            required_level=required_level,
-        )
+        except KeyError:await context.abort(grpc.StatusCode.NOT_FOUND,"conversation or model not found")
+        except ValueError as exc:await context.abort(grpc.StatusCode.INVALID_ARGUMENT,str(exc))
+        return self._conversation(item)
+    async def ListMessages(self,request,context):
+        try:items=await self._core.list_messages(request.conversation_id,request.workspace_id or "personal")
+        except KeyError:await context.abort(grpc.StatusCode.NOT_FOUND,"conversation not found")
+        return agent_pb2.MessageList(messages=[self._message(i) for i in items])
+    async def ListApprovals(self,request,context):
+        items=await self._core.repository.list_approvals(request.workspace_id or "personal",request.conversation_id or None)
+        return agent_pb2.ApprovalList(approvals=[self._approval(item) for item in items])
+    async def DecideApproval(self,request,context)->AsyncIterator[agent_pb2.AgentEvent]:
+        workspace_id=request.workspace_id or "personal"
+        try:pending=await self._core.repository.get_approval(workspace_id,request.approval_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND,"approval not found")
+            return
+        queue:asyncio.Queue[tuple[str,dict[str,Any]]]=asyncio.Queue()
+        async def receive(kind:str,payload:dict[str,Any])->None:
+            if (
+                str(payload.get("conversation_id",""))==pending["conversation_id"]
+                and str(payload.get("task_id",""))==pending["task_id"]
+            ):
+                await queue.put((kind,payload))
+        self._event_bus.subscribe("*",receive)
+        task=asyncio.create_task(self._core.decide_approval(
+            workspace_id,request.approval_id,request.principal_id or "local-user",request.decision,int(request.version)
+        ))
+        try:
+            while not task.done() or not queue.empty():
+                try:kind,payload=await asyncio.wait_for(queue.get(),0.05)
+                except asyncio.TimeoutError:continue
+                yield self._event(kind,payload)
+            try:await task
+            except (ValueError,PermissionError) as exc:
+                yield agent_pb2.AgentEvent(type="error",conversation_id=pending["conversation_id"],task_id=pending["task_id"],code="APPROVAL_INVALID",message=str(exc),payload_json=json.dumps({"message":str(exc)}))
+            except Exception as exc:
+                yield agent_pb2.AgentEvent(type="error",conversation_id=pending["conversation_id"],task_id=pending["task_id"],code="AGENT_ERROR",message=str(exc),payload_json=json.dumps({"message":str(exc)}))
+        finally:
+            self._event_bus.unsubscribe("*",receive)
+            if context.cancelled() and not task.done():task.cancel()
+    async def Health(self,request,context):return agent_pb2.HealthResponse(status="serving",version="0.1.0")
+    async def CheckWorkspaceAccess(self,request,context):
+        role=await self._core.repository.check_workspace_access(request.workspace_id,request.principal_id)
+        return agent_pb2.WorkspaceAccessResponse(allowed=role is not None,role=role or "")
+    async def ListAuditEvents(self,request,context):
+        items=await self._core.repository.list_audit_events(request.workspace_id or "personal")
+        return agent_pb2.AuditEventList(events=[agent_pb2.AuditEvent(**item) for item in items])
+    async def RecordAuditEvent(self,request,context):
+        await self._core.repository.record_audit(request.workspace_id,request.actor,request.action,request.resource,request.result,{})
+        return agent_pb2.Empty()
+    @staticmethod
+    def _chat_model_settings(item:ChatModelSettings)->agent_pb2.ChatModelSettings:
+        return agent_pb2.ChatModelSettings(id=item.id,name=item.name,provider=item.provider,model=item.model,base_url=item.base_url,temperature=item.temperature,max_tokens=item.max_tokens,timeout_seconds=item.timeout_seconds,is_default=item.is_default)
+    @staticmethod
+    def _chat_model_settings_value(item)->ChatModelSettings:
+        return ChatModelSettings(id=item.id,name=item.name,provider=item.provider,model=item.model,base_url=item.base_url,temperature=item.temperature,max_tokens=item.max_tokens,timeout_seconds=item.timeout_seconds,is_default=item.is_default)
+    async def GetChatModelSettings(self,request,context):
+        return self._chat_model_settings(await self._core.get_chat_model_settings(request.workspace_id or "personal"))
+    async def UpdateChatModelSettings(self,request,context):
+        try:item=await self._core.update_chat_model_settings(request.workspace_id or "personal",self._chat_model_settings_value(request.settings))
+        except ValueError as exc:await context.abort(grpc.StatusCode.INVALID_ARGUMENT,str(exc))
+        return self._chat_model_settings(item)
+    async def ListChatModels(self,request,context):
+        items,default_id=await self._core.list_chat_models(request.workspace_id or "personal")
+        return agent_pb2.ChatModelList(models=[self._chat_model_settings(item) for item in items],default_model_id=default_id)
+    async def UpsertChatModel(self,request,context):
+        try:item=await self._core.upsert_chat_model(request.workspace_id or "personal",self._chat_model_settings_value(request.settings))
+        except ValueError as exc:await context.abort(grpc.StatusCode.INVALID_ARGUMENT,str(exc))
+        return self._chat_model_settings(item)
+    async def DeleteChatModel(self,request,context):
+        try:await self._core.delete_chat_model(request.workspace_id or "personal",request.model_id)
+        except KeyError:await context.abort(grpc.StatusCode.NOT_FOUND,"model profile not found")
+        return agent_pb2.Empty()
+    async def SetDefaultChatModel(self,request,context):
+        try:items,default_id=await self._core.set_default_chat_model(request.workspace_id or "personal",request.model_id)
+        except KeyError:await context.abort(grpc.StatusCode.NOT_FOUND,"model profile not found")
+        return agent_pb2.ChatModelList(models=[self._chat_model_settings(item) for item in items],default_model_id=default_id)
+    async def ValidateChatModel(self,request,context):
+        try:
+            await self._core.validate_chat_model(self._chat_model_settings_value(request.settings),request.api_key)
+            return agent_pb2.ModelValidationResponse(ok=True,message="connection successful",model=request.settings.model)
+        except Exception as exc:
+            return agent_pb2.ModelValidationResponse(ok=False,message=str(exc),model=request.settings.model)
+    async def SetChatModelCredential(self,request,context):
+        await self._core.set_chat_model_credential(request.workspace_id or "personal",request.provider,request.api_key,request.model_id)
+        return agent_pb2.Empty()
+    async def GetUserPreferences(self,request,context):
+        item=await self._core.get_user_preferences(request.workspace_id or "personal",request.subject_user_id or "local-user")
+        return agent_pb2.UserPreferences(**item)
+    async def UpdateUserPreferences(self,request,context):
+        try:item=await self._core.update_user_preferences(request.workspace_id or "personal",request.subject_user_id or "local-user",request.preferences.assistant_name)
+        except ValueError as exc:await context.abort(grpc.StatusCode.INVALID_ARGUMENT,str(exc))
+        return agent_pb2.UserPreferences(**item)
+    async def GetPermissionSettings(self,request,context):
+        item=await self._core.get_permission_settings(request.workspace_id or "personal")
+        return agent_pb2.PermissionSettings(default_mode=item["default_mode"],tool_levels=item["tool_levels"])
+    async def UpdatePermissionSettings(self,request,context):
+        try:item=await self._core.update_permission_settings(request.workspace_id or "personal",request.settings.default_mode,dict(request.settings.tool_levels))
+        except ValueError as exc:await context.abort(grpc.StatusCode.INVALID_ARGUMENT,str(exc))
+        return agent_pb2.PermissionSettings(default_mode=item["default_mode"],tool_levels=item["tool_levels"])

@@ -1,549 +1,126 @@
 # NanamiGopher 配置指南
 
-本指南详细说明 NanamiGopher 的各项配置选项，帮助您根据需求定制工作流和安全策略。
+> **状态**：Current
+> **最后核验**：2026-09-14
 
----
+配置字段最终以仓库配置 Schema 和默认配置为准。本文解释用户可见的配置，不复制内部结构体。
 
-## 目录
+## 1. 配置层级
 
-1. [配置文件概述](#配置文件概述)
-2. [模型配置](#模型配置)
-3. [存储配置](#存储配置)
-4. [权限模式配置](#权限模式配置)
-5. [工具配置](#工具配置)
-6. [Skill 管理配置](#skill-管理配置)
-7. [安全配置](#安全配置)
-8. [快捷键自定义](#快捷键自定义)
+优先级从低到高：
 
----
+```text
+内置默认值 → 配置文件 → 部署环境覆盖 → Workspace 设置 → 当前会话设置
+```
 
-## 配置文件概述
+Secret 不写入普通配置；配置只保存 Credential Reference。
 
-NanamiGopher 使用 `config.yaml` 作为主要配置文件，位于数据目录下的 `config/` 子目录中。
+## 2. 界面称呼
 
-- **macOS**：`~/.local/share/NanamiGopher/config/config.yaml`
-- **Windows**：`%APPDATA%\NanamiGopher\config\config.yaml`
-- **Linux**：`~/.config/NanamiGopher/config/config.yaml`
+打开“设置 → 通用”，可修改对话标题栏、欢迎页和输入框中显示的助手称呼。称呼长度为 1–32 个字符，按 Workspace 中的当前用户保存；不会改变项目名、Workspace 名或模型身份。
 
-您也可以通过图形界面（设置面板）修改大部分配置项，这些修改会自动同步到 `config.yaml`。
+## 3. 模型
 
----
+Phase 1 支持在一个 Workspace 中保存多个 Chat 模型配置，并选择一个默认模型。打开“设置 → 模型”，默认只显示已配置的服务行、凭证状态和默认标记；点击配置行进入编辑，或点“添加模型”选择新服务。同一时间只会打开一个编辑器。
 
-## 模型配置
+- `OpenAI`：官方 API，或带鉴权的 OpenAI-compatible 云服务；自定义服务可填写 API Base URL。
+- `Anthropic`：Claude 官方 API，可选自定义 API Base URL。
+- `OpenAI Compatible`：本地 LM Studio、vLLM 或兼容服务；若服务端启用 Bearer 鉴权，可选填写独立 API Key。
+- `Ollama`：Ollama 原生接口。
 
-NanamiGopher 支持灵活的模型配置，包括 Chat Model、Embedding 和 Image Generation。
+常用本地配置：
 
-### 基本结构
+| 服务 | API Base URL | 模型名称示例 |
+|---|---|---|
+| Ollama | `http://127.0.0.1:11434` | `qwen2.5` |
+| LM Studio | `http://127.0.0.1:1234/v1` | 以 LM Studio 已加载模型 ID 为准 |
+| vLLM | `http://127.0.0.1:8000/v1` | 以 vLLM 的 `--served-model-name` 为准 |
+
+选择服务后先填写 API Key 和模型；接口类型、服务预设与 Base URL 位于“自定义设置”。点“从服务获取”会使用当前尚未保存的表单值读取服务端模型目录，目录支持按名称或 ID 搜索，选择并确认后才会写入当前草稿，不会自动保存。目录不可用时仍可手工输入准确的模型 ID。再点“测试连接”，成功后保存配置。Temperature、输出 Token 和超时由运行时采用稳定默认值，不在常规设置页中要求用户调节。
+
+非敏感设置写入 Workspace 数据库；API Key 按模型配置 ID 隔离保存在系统密钥链，不写入 YAML、数据库或 API 响应。Provider 或 Base URL 变化后必须提供新 Key，旧凭证不会发送到新端点。本地 Provider 不会继承云端 API Key，也不会通过系统 HTTP 代理访问回环端口。
+
+默认模型用于新对话。聊天输入框可以为当前会话选择其他已保存模型，并选择 `快速`、`均衡` 或 `深度` 输出档；该选择持久化到会话，不会改变 Workspace 默认模型。
+
+无桌面的服务器环境可以使用 `NANAMI_MODEL_PROVIDER`、`NANAMI_MODEL_NAME`、`NANAMI_MODEL_BASE_URL` 以及 Provider 对应的 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`。Workspace 中已保存的设置优先于 YAML 和这些模型设置环境变量。
+
+Phase 1 的自动发现仅查询模型目录。多模型自动路由、能力/成本判断和自动 fallback 属于 Phase 2。
+
+模型列表和路由规则见 [Model Routing](../agent-capabilities/models/model-routing.md)。
+
+## 4. Workspace 与存储
+
+- Personal 与 Team Workspace 使用同一配置模型。
+- 本地部署默认使用 SQLite 和本地内容存储。
+- 服务器部署可使用 PostgreSQL、对象存储和独立向量服务。
+- 向量索引可重建；修改 Embedding 或 chunk 版本后需触发索引重建。
+
+存储语义见 [Database](../design/Database.md)。
+
+## 5. 权限模式
+
+权限运行时提供三个面向用户的档位：
+
+- `只读（read_only）`：读取与搜索自动执行；编辑、命令和联网操作询问。
+- `工作区（workspace，推荐）`：当前 Workspace 内的读取、编辑和安全命令自动执行；联网与高风险命令询问。
+- `完全访问（full_access）`：在应用允许的范围内自动执行普通工具与联网操作；重大影响操作仍询问。
+
+Hard-deny 规则任何模式都不能覆盖。完整矩阵见 [Tool Permission](../agent-capabilities/security/tool-permission.md)。
+
+Phase 1 的设置页只修改新对话默认档位，聊天输入框可覆盖当前对话档位。需要确认时，审批卡片展示规范化参数、资源范围、风险等级和有效期；决定只对保存的这一次 ToolCall 生效。L1–L5 是服务端内部风险模型，不再要求用户逐工具配置。
+
+## 6. Workspace 文件与 Diff
+
+右侧栏的“文件”页按需读取当前 Workspace，可选择文本文件进行只读预览；“变更”页展示 Git staged、unstaged 与 untracked 文件，并在选中文件后加载逐文件 Diff。配置 `NANAMI_WORKSPACE_ROOT` 可显式指定本地运行时根目录。服务端拒绝绝对路径、目录穿越与逃逸根目录的符号链接。
+
+## 7. Skill
+
+Skill 配置包含：
+
+- 启用状态和版本。
+- Workspace 级能力授权。
+- 文件、网络和凭证范围。
+- 非敏感用户设置。
+- 超时和资源限制。
+
+`import` 用于本地包，`install` 用于受支持的注册源。当前 MCP transport 只承诺 stdio。SKILL.md 格式见 [Skill Lifecycle](../agent-capabilities/skills/skill-lifecycle.md)。
+
+Phase 1 可由部署者在 YAML 中显式配置受信 stdio Server；Agent Core 启动时完成握手和工具注册，关闭时终止子进程。普通用户界面暂不提供任意命令编辑入口：
 
 ```yaml
-models:
-  chat:
-    provider: openai              # 模型提供商
-    model_name: gpt-4o            # 模型名称
-    api_key: ""                   # API Key（留空则使用环境变量 NANAMIGOPHER_OPENAI_API_KEY）
-    base_url: ""                  # 自定义 API 地址（用于兼容 OpenAI 格式的本地/第三方服务）
-    temperature: 0.7              # 生成温度（0.0-2.0）
-    max_tokens: 4096              # 最大生成 token 数
-    timeout: 60                   # 请求超时秒数
-
-  embedding:
-    provider: local               # 嵌入模型提供商
-    model_name: bge-m3            # 默认使用本地 BGE-M3
-    dimensions: 1024              # 向量维度
-    batch_size: 64                # 批量处理大小
-
-  image_generation:
-    enabled: false                # 是否启用图像生成
-    provider: ""                  # 图像生成提供商（如 openai, stable-diffusion）
-    model_name: ""                # 图像生成模型名称
-    size: "1024x1024"             # 图像尺寸
-```
-
-### 支持的 Chat Model 提供商
-
-| 提供商 | provider 值 | 备注 |
-|--------|-------------|------|
-| OpenAI | `openai` | 默认配置，支持 GPT-4o、GPT-4 Turbo 等 |
-| Anthropic | `anthropic` | 支持 Claude 系列模型 |
-| 本地 Ollama | `ollama` | 需要本地运行 Ollama 服务 |
-| 本地 vLLM | `vllm` | 需要本地部署 vLLM 推理服务 |
-| 自定义 OpenAI 兼容 | `openai-compatible` | 设置 base_url 即可接入任意兼容服务 |
-
-### 切换模型
-
-在图形界面中：设置 > 模型配置 > Chat Model，从下拉列表中选择目标模型。
-
-命令行方式切换：
-
-```bash
-# 查看当前配置
-nanamigopher models show
-
-# 切换到 gpt-4o
-nanamigopher models set-chat gpt-4o
-
-# 切换到本地 Ollama 模型
-nanamigopher models set-chat ollama/llama3
-```
-
-### Embedding 模型
-
-默认使用本地的 BGE-M3 Embedding 模型，无需额外配置。如需更换：
-
-```yaml
-models:
-  embedding:
-    provider: local
-    model_name: bge-m3          # 或更换为其他本地模型
-    # provider: openai           # 也可使用 OpenAI 的 text-embedding-3-large
-    # model_name: text-embedding-3-large
-```
-
----
-
-## 存储配置
-
-NanamiGopher 采用本地优先的数据存储策略，使用 SQLite 存储结构化数据，ChromaDB 存储向量数据。
-
-### 基本结构
-
-```yaml
-storage:
-  # 根数据目录
-  data_dir: "~/.local/share/nanamigopher/data"
-
-  # SQLite 配置
-  sqlite:
-    db_path: "sqlite.db"        # 数据库文件名
-    journal_mode: WAL           # 日志模式，推荐 WAL 以获得更好的并发性能
-    sync_mode: NORMAL           # 同步模式
-
-  # ChromaDB 配置
-  chromadb:
-    enabled: true               # 是否启用 ChromaDB
-    path: "chroma_data"         # 本地持久化路径
-    collection_name: "default"  # 默认集合名称
-    distance_metric: "cosine"   # 距离度量方式：cosine / l2 / ip
-
-  # 向量数据库切换（可选）
-  vector_db:
-    backend: chromadb           # 当前后端：chromadb / qdrant / milvus
-    # 如果使用 Qdrant
-    # backend: qdrant
-    # url: "http://localhost:6333"
-    # api_key: ""
-    # 如果使用 Milvus
-    # backend: milvus
-    # uri: "http://localhost:19530"
-```
-
-### 存储迁移
-
-从一种向量数据库迁移到另一种：
-
-```bash
-# 导出所有向量数据
-nanamigopher storage export --output ./vector_backup.json
-
-# 修改 config.yaml 中的 vector_db.backend
-
-# 导入数据到新后端
-nanamigopher storage import --input ./vector_backup.json
-```
-
-### 数据备份
-
-```bash
-# 备份整个数据目录
-tar czf nanamigopher-backup-$(date +%Y%m%d).tar.gz ~/.local/share/nanamigopher/
-
-# 仅备份 SQLite 数据库
-cp ~/.local/share/nanamigopher/data/sqlite.db ~/backup/
-```
-
----
-
-## 权限模式配置
-
-权限模式决定了 NanamiGopher 在执行操作时的自主程度。
-
-### 基本结构
-
-```yaml
-permissions:
-  mode: manual                  # 权限模式：manual / accept_edits / plan / auto
-  # 工具权限分级（L1-L5）
-  tool_levels:
-    l1_safe:                    # L1：只读、无副作用操作
+mcp:
+  servers:
+    local_tools:
       enabled: true
-      auto_approve: true
-    l2_low_risk:                # L2：低风险的写操作
-      enabled: true
-      auto_approve: false
-    l3_medium_risk:             # L3：中等风险操作
-      enabled: true
-      auto_approve: false
-    l4_high_risk:               # L4：高风险操作
-      enabled: true
-      auto_approve: false
-    l5_critical:                # L5：关键操作（网络、系统级别）
-      enabled: true
-      auto_approve: false
+      command: "python3"
+      args: ["-m", "my_mcp_server", "--workspace", "{workspace}"]
+      cwd: "{workspace}"
+      env_allowlist: ["MY_MCP_TOKEN"]
 ```
 
-### 四种权限模式详解
+`command` 以 argv 方式直接执行，不经过 shell；`cwd` 必须位于 Workspace。`env_allowlist` 只声明可从启动环境传入的变量名，Secret 值不得写入 YAML。工具会命名为 `<server>__<tool>`，并与 Native Tool 经过同一 ToolPolicy、审批和审计入口。SkillGrant、健康重启、空闲回收和非 stdio transport 属于后续阶段。
 
-#### Manual（手动确认）
+## 8. 凭证
 
-- 每次工具调用前都会弹出确认对话框
-- 适合新手用户或对安全性要求极高的场景
-- 所有操作都需要用户显式批准
+- 桌面模式使用操作系统密钥存储。
+- 服务器模式使用 Vault/KMS/Secret Manager。
+- 加密文件仅作为显式 fallback。
+- UI 和 API 只显示凭证引用及元数据，不回显 Secret。
 
-#### AcceptEdits（接受编辑）
+## 9. Memory
 
-- 文件读写操作自动批准
-- 终端命令和网络请求仍需确认
-- 适合日常开发辅助场景
+可配置保留期、上下文预算、用户记忆开关和索引 Provider。配置不改变以下不变量：
 
-#### Plan（仅规划）
+- Secret 不进入 Memory。
+- Workspace 之间默认隔离。
+- 用户可查看、修改、导出和遗忘 User Memory。
+- 原始消息/文档删除后派生索引必须清理。
 
-- 不会执行任何实际操作
-- 只会生成执行计划和步骤说明
-- 适合方案讨论和任务规划
+详见 [Memory](../agent-capabilities/memory/memory-system.md)。
 
-#### Auto（完全自动）
+## 10. 生效范围
 
-- 所有操作自动执行，无需确认
-- 仅在 L5 级别（关键操作）会弹出确认
-- 适合高级用户和自动化工作流
-
-### 工具权限 L1-L5 分级说明
-
-| 级别 | 名称 | 说明 | 示例操作 |
-|------|------|------|----------|
-| L1 | 安全 | 只读、无副作用 | 读取文件、列出目录、搜索文本 |
-| L2 | 低风险 | 低风险的写操作 | 创建文件、修改文件内容、todo 写入 | |
-| L3 | 中等风险 | 可能影响多个文件的操作 | 批量编辑、复杂 bash 命令 |
-| L4 | 高风险 | 系统级或网络操作 | 安装软件包、修改系统配置 |
-| L5 | 关键 | 不可逆或危险操作 | 删除文件/目录、网络请求 |
-
----
-
-## 工具配置
-
-NanamiGopher Phase 1 提供了 10 个核心工具，每个工具都可以进行参数配置。
-
-### 基本结构
-
-```yaml
-tools:
-  # 文件读取
-  file_read:
-    enabled: true
-    max_file_size: 1048576      # 最大读取文件大小（字节），默认 1MB
-    allowed_extensions: []      # 允许读取的文件扩展名，空表示全部允许
-
-  # 文件写入
-  file_write:
-    enabled: true
-    max_file_size: 1048576      # 最大写入文件大小（字节），默认 1MB
-    auto_backup: true           # 写入前是否自动备份原文件
-    backup_dir: ".nanamigopher/backups"  # 备份目录
-
-  # 文件编辑
-  file_edit:
-    enabled: true
-    max_diff_size: 50           # 最大差异行数，超出需要用户确认
-    syntax_check: true          # 编辑后是否进行语法检查
-
-  # Bash 终端
-  bash:
-    enabled: true
-    timeout: 30                 # 命令超时时间（秒）
-    max_output_lines: 1000      # 最大输出行数
-    allowed_commands: []        # 允许的命令白名单，空表示全部允许
-    blocked_commands:           # 禁止的命令黑名单
-      - "rm -rf /"
-      - "mkfs"
-      - "dd if="
-
-  # 网页搜索
-  web_search:
-    enabled: true
-    engine: duckduckgo          # 搜索引擎：duckduckgo / google / bing
-    max_results: 10             # 最大搜索结果数
-    timeout: 15                 # 搜索超时时间（秒）
-
-  # 网页抓取
-  web_fetch:
-    enabled: true
-    timeout: 30                 # 页面加载超时时间（秒）
-    max_content_length: 524288  # 最大内容长度（字节），默认 512KB
-    user_agent: "NanamiGopher/1.0"  # 请求 User-Agent
-    follow_redirects: true      # 是否跟随重定向
-
-  # 文件匹配（Glob）
-  glob:
-    enabled: true
-    max_matches: 100            # 最大匹配数量
-    case_sensitive: false       # 是否区分大小写
-
-  # 全局搜索（Grep）
-  grep:
-    enabled: true
-    max_matches: 100            # 最大匹配数量
-    include_hidden: false       # 是否搜索隐藏文件
-    ignore_patterns:            # 忽略的文件/目录模式
-      - "node_modules"
-      - ".git"
-      - "__pycache__"
-      - "*.min.js"
-
-  # 任务列表
-  todo_write:
-    enabled: true
-    max_items: 100              # 最大任务项数
-    auto_archive_days: 30       # 超过多少天的完成任务自动归档
-
-  # 睡眠/延迟
-  sleep:
-    enabled: true
-    max_duration: 3600          # 最大睡眠时长（秒），默认 1 小时
-```
-
-### 工具白名单配置
-
-如果您希望限制某些工具的使用，可以配置白名单：
-
-```yaml
-tools:
-  whitelist:
-    enabled: true
-    allowed_tools:
-      - file_read
-      - file_write
-      - bash
-      - web_search
-```
-
----
-
-## Skill 管理配置
-
-NanamiGopher 的 Skill 体系基于 MCP（Model Context Protocol）Server 构建，每个 Skill 通过 `SKILL.md` 文件定义其行为和能力。
-
-### 基本结构
-
-```yaml
-skills:
-  # Skill 目录
-  directory: "~/.nanamigopher/skills"
-
-  # 自动加载
-  auto_load: true
-
-  # 加载超时
-  load_timeout: 10
-
-  # 全局 Skill 设置
-  global_settings:
-    max_concurrent_skills: 5    # 同时运行的最大 Skill 数
-    cache_enabled: true         # 是否缓存 Skill 元数据
-    cache_ttl: 3600             # 缓存过期时间（秒）
-```
-
-### SKILL.md 文件格式
-
-每个 Skill 目录中必须包含一个 `SKILL.md` 文件，格式如下：
-
-```markdown
-# Skill 名称
-
-## 描述
-简短描述 Skill 的功能和用途。
-
-## 触发条件
-什么情况下应该使用这个 Skill（自然语言描述）。
-
-## 参数
-- param1: 参数1的描述
-- param2: 参数2的描述
-
-## 使用示例
-示例 1：...
-示例 2：...
-
-## 注意事项
-使用此 Skill 时的限制和注意事项。
-```
-
-### Skill 安装
-
-通过图形界面：设置 > Skill 管理 > 安装 Skill，输入 Skill 的 Git 仓库地址或本地路径。
-
-通过命令行：
-
-```bash
-# 从 Git 仓库安装
-nanamigopher skills install https://github.com/user/my-skill
-
-# 从本地目录安装
-nanamigopher skills install /path/to/local-skill
-
-# 安装后自动加载
-nanamigopher skills install --auto-load <source>
-```
-
-### Skill 连接配置（MCP Server）
-
-对于基于 MCP Server 的 Skill，可以配置连接参数：
-
-```yaml
-skills:
-  mcp_servers:
-    - name: my-server
-      transport: stdio            # 传输方式：stdio / http
-      command: "npx"
-      args: ["-y", "@modelcontextprotocol/server-filesystem"]
-      env:
-        SERVER_DIR: "/path/to/allowed/dir"
-      timeout: 30
-      retries: 3
-```
-
-### Skill 优先级
-
-当多个 Skill 都可能响应同一个请求时，使用优先级决定调用顺序：
-
-```yaml
-skills:
-  priority_order:
-    - "git-helper"
-    - "code-review"
-    - "documentation"
-```
-
----
-
-## 安全配置
-
-NanamiGopher 提供了多层次的安全机制，保护您的数据和操作安全。
-
-### 基本结构
-
-```yaml
-security:
-  # 沙箱模式
-  sandbox:
-    enabled: false                # 是否启用沙箱隔离
-    mode: "network-isolated"     # 沙箱模式：none / network-isolated / full
-    # network-isolated：隔离网络访问
-    # full：完全隔离（仅允许白名单内的操作）
-
-  # 命令白名单
-  command_whitelist:
-    enabled: false
-    allowed_patterns:
-      - "ls *"
-      - "cat *"
-      - "grep *"
-
-  # 凭证存储
-  credentials:
-    storage: "keychain"           # 存储方式：keychain / encrypted-file / env
-    # keychain：使用系统密钥链（macOS Keychain / Windows Credential Manager / libsecret）
-    # encrypted-file：加密存储在本地文件中
-    # env：仅从环境变量读取，不存储
-    file_path: "~/.nanamigopher/credentials.enc"  # 加密文件路径（当 storage=encrypted-file 时）
-
-  # 网络限制
-  network:
-    allow_outbound: true          # 是否允许出站网络请求
-    allow_inbound: false          # 是否允许入站连接
-    blocked_domains: []           # 阻止的域名列表
-    allowed_domains: []           # 允许的域名列表（为空表示不限制）
-
-  # 审计日志
-  audit_log:
-    enabled: true
-    path: "audit.log"             # 日志文件路径
-    rotation_size_mb: 50          # 日志轮转大小（MB）
-    retention_days: 90            # 日志保留天数
-```
-
-### 沙箱模式详解
-
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| none | 不启用沙箱 | 个人开发环境 |
-| network-isolated | 隔离网络访问，允许本地文件系统操作 | 处理敏感代码时 |
-| full | 完全隔离，仅允许白名单操作 | 高安全要求的生产环境 |
-
-### 凭证加密
-
-使用加密文件存储凭证时，需要设置主密码：
-
-```bash
-# 设置主密码
-nanamigopher security set-master-password
-
-# 更改主密码
-nanamigopher security update-master-password
-
-# 清除已存储的凭证
-nanamigopher security clear-credentials
-```
-
----
-
-## 快捷键自定义
-
-NanamiGopher 支持自定义快捷键，以满足个人的操作习惯。
-
-### 默认快捷键
-
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+B` | 切换左侧导航栏（显示/收起） |
-| `Ctrl+Shift+F` | 切换右侧文件管理器（显示/收起） |
-| `Ctrl+N` | 新建对话 |
-| `Ctrl+Shift+N` | 新建定时任务 |
-| `Ctrl+Shift+S` | 打开搜索面板 |
-| `Ctrl+P` | 快速切换模型 |
-| `Ctrl+Shift+P` | 命令面板 |
-| `Esc` | 取消当前操作 / 关闭弹窗 |
-| `Ctrl+Enter` | 发送对话消息 |
-
-### 自定义快捷键
-
-通过图形界面：设置 > 快捷键，找到对应功能并修改按键组合。
-
-通过配置文件：
-
-```yaml
-shortcuts:
-  toggle_sidebar:
-    - "Ctrl+B"
-    - "Cmd+B"                     # macOS 上 Cmd+B 也有效
-  toggle_file_manager:
-    - "Ctrl+Shift+F"
-  new_conversation:
-    - "Ctrl+N"
-  search:
-    - "Ctrl+Shift+S"
-  quick_model_switch:
-    - "Ctrl+P"
-  command_palette:
-    - "Ctrl+Shift+P"
-  send_message:
-    - "Ctrl+Enter"
-```
-
-### 冲突检测
-
-修改快捷键时，系统会自动检测与其他应用程序的冲突。如果检测到冲突，会在设置面板中显示警告提示。
-
-```bash
-# 检查快捷键冲突
-nanamigopher shortcuts check-conflicts
-```
+- 新会话设置通常不改变已经运行的 Task。
+- 权限缩减和凭证撤销应立即阻止新的 ToolCall。
+- 需要重启进程或重建索引的配置必须在 UI/CLI 中明确提示。
+- 无法识别的配置字段应报错或告警，不静默忽略。

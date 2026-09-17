@@ -1,21 +1,4 @@
-/**
- * 定时任务页
- *
- * 查看和管理 Agent 的定时任务。
- */
-
 <script setup lang="ts">
+import FeaturePlaceholder from '@/components/common/FeaturePlaceholder.vue'
 </script>
-
-<template>
-  <div class="scheduled-tasks-page">
-    <h1>定时任务</h1>
-    <p>管理和查看定时任务。</p>
-  </div>
-</template>
-
-<style scoped lang="scss">
-.scheduled-tasks-page {
-  padding: 24px;
-}
-</style>
+<template><FeaturePlaceholder eyebrow="Automation" title="定时任务" description="让 Agent 在合适的时间自动执行重复工作，并保留完整运行记录。" icon="clock" /></template>

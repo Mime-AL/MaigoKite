@@ -1,12 +1,23 @@
 # 模型路由策略
 
-> NanamiGopher Agent 的模型选择、路由与成本优化规范。
+> 状态：Current
+> NanamiGopher Agent 的模型选择、路由与成本优化规范；具体模型和地址属于部署配置，不是架构常量。本文明确区分 Phase 1 已实现子集与 Phase 2 目标，避免把目标架构误写成当前能力。
 
 ---
 
 ## 1. 概述
 
-NanamiGopher 采用多模型架构，根据不同任务类型、复杂度、成本约束自动选择最优模型。系统支持 Chat、Embedding、Image 三类模型，通过 ModelRegistry 统一管理，由 ModelProviderFactory 按需创建。
+NanamiGopher 的目标架构采用多模型路由，根据任务类型、复杂度和成本约束选择模型；完整 ModelRegistry、fallback 与成本路由属于 Phase 2。
+
+### 1.1 Phase 1 当前实现
+
+- 每个 Workspace 可保存最多 32 个 Chat 模型配置并指定一个默认模型；新会话继承默认值，现有会话可显式选择其他配置。
+- 支持 OpenAI、Anthropic、Ollama 和 OpenAI-compatible（LM Studio、vLLM 等）接口。
+- 非敏感配置集合保存在 `workspace_settings`；API Key 按模型配置 ID 隔离保存在 CredentialStore，并只同步到 Agent Core 内存。
+- 支持在保存前执行一次最小模型调用验证连接。
+- 聊天输入框支持会话级模型覆盖和 `fast / balanced / thorough` 输出预算；不支持多模型自动路由、自动 fallback、模型发现以及 Embedding/Image 的 UI 接入。
+
+以下 ModelRegistry、路由、降级和成本章节描述 Phase 2 目标设计，不能作为 Phase 1 已交付声明。
 
 ---
 
@@ -235,13 +246,13 @@ def route_task(task: Task, context: dict = None) -> str:
 
 | 维度 | 权重 | 说明 | 实现阶段 |
 |------|------|------|----------|
-| 指令长度 | 20% | Token 数量越多越复杂 | Phase 1 |
-| 工具调用数 | 25% | 需要调用的工具数量（来源：`context["tool_hints"]`） | Phase 1 |
-| 推理深度 | 30% | 是否需要多步推理 | Phase 1 启发式（关键词匹配）/ Phase 2 分类器 |
-| 语言类型 | —（不参与评分） | 中文任务偏好 qwen2.5，仅影响模型选择 | Phase 1 |
-| 预算约束 | 10% | 用户设定的成本上限 | Phase 1 |
+| 指令长度 | 20% | Token 数量越多越复杂 | Phase 2 目标 |
+| 工具调用数 | 25% | 需要调用的工具数量（来源：`context["tool_hints"]`） | Phase 2 目标 |
+| 推理深度 | 30% | 是否需要多步推理 | Phase 2 目标 |
+| 语言类型 | —（不参与评分） | 中文任务偏好 qwen2.5，仅影响模型选择 | Phase 2 目标 |
+| 预算约束 | 10% | 用户设定的成本上限 | Phase 2 目标 |
 
-> **Phase 1 实现说明**：推理深度维度使用关键词启发式匹配（如"分析"、"推理"、"为什么"、"步骤"等），不引入额外模型调用；语言类型维度**不参与复杂度评分**，仅在 `route()` 的模型选择阶段生效（中文任务偏好 qwen2.5）。Phase 2 起推理深度改由轻量分类器评估。
+> **实现边界**：Phase 1 不运行本节算法，只使用默认模型或用户为会话显式选择的模型。复杂度评估、语言偏好、预算路由和 fallback 均为 Phase 2 目标。
 
 ### 4.3 路由决策表
 

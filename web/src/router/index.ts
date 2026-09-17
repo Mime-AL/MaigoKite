@@ -4,7 +4,7 @@
  * 定义所有页面路由和懒加载组件。
  */
 
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
@@ -35,6 +35,12 @@ const routes: RouteRecordRaw[] = [
         name: 'Settings',
         component: () => import('@/views/Settings.vue'),
         meta: { title: '设置' }
+      },
+      {
+        path: 'audit',
+        name: 'AuditLog',
+        component: () => import('@/views/AuditLog.vue'),
+        meta: { title: '审计日志' }
       },
       {
         path: 'search',
@@ -89,7 +95,7 @@ const routes: RouteRecordRaw[] = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: location.protocol === 'file:' ? createWebHashHistory() : createWebHistory(),
   routes,
   scrollBehavior: () => ({ top: 0 })
 })

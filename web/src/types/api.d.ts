@@ -131,7 +131,7 @@ interface MemoryEntry {
 
 // ==================== 凭证 ====================
 
-interface CredentialEntry {
+export interface CredentialEntry {
   service: string
   configured: boolean
   validated?: boolean
@@ -145,19 +145,24 @@ interface BGEConfig {
   device: string
 }
 
-interface ChatModelConfig {
-  default: string
-  fallback: string
+export type ChatModelProvider = 'openai' | 'anthropic' | 'openai_compatible' | 'ollama'
+
+export interface ChatModelConfig {
+  provider: ChatModelProvider
+  model: string
+  baseUrl: string
+  temperature: number
+  maxTokens: number
+  timeoutSeconds: number
+  credentialConfigured: boolean
 }
 
 interface EmbeddingConfig {
   provider: string
-  bge?: BGEConfig
+  bge: BGEConfig
 }
 
-interface ModelConfig {
-  prefer_local: boolean
-  local_fallback_order: string[]
+export interface ModelConfig {
   chat: ChatModelConfig
   embedding: EmbeddingConfig
 }
@@ -170,7 +175,7 @@ interface SearchEngineProvider {
   cx?: string  // Google Custom Search CX
 }
 
-interface SearchEngineConfig {
+export interface SearchEngineConfig {
   default: string
   providers: {
     tavily: SearchEngineProvider
@@ -181,48 +186,24 @@ interface SearchEngineConfig {
 
 // ==================== 应用配置 ====================
 
-interface AppConfig {
-  app: {
-    name: string
-    version: string
-    environment: string
-    theme?: string
-    language?: string
-  }
-  models: ModelConfig
-  credentials: Record<string, CredentialEntry>
-  search_engines: SearchEngineConfig
-  permissions: {
-    default_mode: string
-    circuit_breaker: { enabled: boolean; blocked_patterns: string[] }
-  }
-  memory: {
-    storage: { sqlite_path: string; vector_db: string }
-  }
-  skills: {
-    scan_directories: string[]
-  }
-  observability: {
-    enabled: boolean
-    console_output: boolean
-    langfuse: { enabled: boolean; endpoint: string }
-  }
-  inspector: {
-    save_history: boolean
-    polling_interval_ms: number
-  }
+export interface AppConfig {
+  name: string
+  version: string
+  environment?: string
+  theme?: string
+  language?: string
 }
 
 // ==================== 设置页面 API 响应 ====================
 
 interface SettingsResponse {
-  app: AppConfig['app']
+  app: AppConfig
   models: ModelConfig
   credentials: Record<string, CredentialEntry>
   search_engines: SearchEngineConfig
-  permissions: AppConfig['permissions']
-  observability: AppConfig['observability']
-  inspector: AppConfig['inspector']
+  permissions: { defaultMode: string; circuitBreakerEnabled: boolean }
+  observability: Record<string, unknown>
+  inspector: Record<string, unknown>
 }
 
 export {}

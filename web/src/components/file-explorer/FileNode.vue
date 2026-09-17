@@ -1,91 +1,23 @@
-/**
- * 单个文件节点组件
- *
- * 渲染文件树中的一个节点，支持展开/收起目录。
- */
-
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
+import type { FileTreeNode } from '@/composables/useFileTree'
+import IconSymbol from '@/components/common/IconSymbol.vue'
 
-const props = defineProps<{
-  node: {
-    name: string
-    path: string
-    type: 'file' | 'directory'
-    children?: any[]
-  }
-  depth: number
-}>()
+const props = defineProps<{ node: FileTreeNode; depth: number }>()
+const emit = defineEmits<{ (event: 'expand' | 'select', node: FileTreeNode): void }>()
+const isExpanded = ref(props.depth === 0 && props.node.type === 'directory')
 
-const emit = defineEmits<{
-  (e: 'expand', node: any): void
-  (e: 'select', node: any): void
-}>()
-
-const isExpanded = ref(false)
-
-watch(
-  () => props.node.type,
-  (type) => {
-    if (type === 'directory') {
-      // 默认展开第一层
-      if (props.depth < 1) isExpanded.value = true
-    }
-  }
-)
-
-function handleClick() {
+function select() {
   emit('select', props.node)
   if (props.node.type === 'directory') {
+    isExpanded.value = !isExpanded.value
     emit('expand', props.node)
   }
 }
 </script>
 
-<template>
-  <div class="file-node" :style="{ paddingLeft: depth * 16 + 'px' }">
-    <div class="node-content" :class="node.type" @click="handleClick">
-      <span class="node-icon">
-        {{ node.type === 'directory' ? (isExpanded ? '📂' : '📁') : '📄' }}
-      </span>
-      <span class="node-name">{{ node.name }}</span>
-    </div>
-    <template v-if="node.type === 'directory' && isExpanded && node.children">
-      <FileNode
-        v-for="child in node.children"
-        :key="child.path"
-        :node="child"
-        :depth="depth + 1"
-        @expand="$emit('expand', $event)"
-        @select="$emit('select', $event)"
-      />
-    </template>
-  </div>
-</template>
+<template><div class="file-node"><button type="button" :style="{ paddingLeft: `${8 + depth * 14}px` }" @click="select"><IconSymbol v-if="node.type === 'directory'" name="chevron" :size="12" class="chevron" :class="{ expanded: isExpanded }" /><span v-else class="spacer" /><IconSymbol :name="node.type === 'directory' ? 'folder' : 'file'" :size="15" /><span>{{ node.name }}</span></button><div v-if="node.type === 'directory' && isExpanded"><FileNode v-for="child in node.children || []" :key="child.path" :node="child" :depth="depth + 1" @expand="emit('expand', $event)" @select="emit('select', $event)" /></div></div></template>
 
 <style scoped lang="scss">
-.file-node {
-  user-select: none;
-}
-
-.node-content {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-  border-radius: 4px;
-
-  &:hover {
-    background-color: #f0f0f0;
-  }
-}
-
-.node-icon {
-  font-size: 14px;
-}
-
-.node-name {
-  font-size: 13px;
-}
+.file-node button { display: flex; width: 100%; height: 29px; align-items: center; gap: 6px; padding-right: 8px; border: 0; border-radius: 8px; color: var(--text-secondary); background: transparent; cursor: pointer; text-align: left; }.file-node button:hover { color: var(--text-primary); background: var(--surface-strong); }.file-node button span:last-child { overflow: hidden; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }.chevron { transition: transform 140ms ease; }.chevron.expanded { transform: rotate(90deg); }.spacer { width: 12px; flex: none; }
 </style>

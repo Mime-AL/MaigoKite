@@ -1,30 +1,12 @@
-/**
- * 工具输出面板组件
- *
- * 展示 Agent 工具调用的输出结果。
- */
-
 <script setup lang="ts">
-import TerminalOutput from './TerminalOutput.vue'
 import CollapseCard from '../common/CollapseCard.vue'
+import TerminalOutput from './TerminalOutput.vue'
 
-defineProps<{
-  outputs?: Array<{
-    tool_name: string
-    output: string
-    error?: string
-    duration_ms?: number
-  }>
-}>()
+defineProps<{ outputs?: Array<{ tool_name: string; output: string; error?: string; duration_ms?: number }> }>()
 </script>
 
 <template>
-  <CollapseCard title="工具输出">
-    <TerminalOutput
-      v-for="(output, index) in outputs"
-      :key="index"
-      :content="output.error || output.output"
-      :title="output.tool_name"
-    />
+  <CollapseCard v-if="outputs?.length" :title="`${outputs.length} 次工具调用`" icon="terminal">
+    <TerminalOutput v-for="output in outputs" :key="`${output.tool_name}:${output.duration_ms}:${output.output.length}`" :content="output.error || output.output" :title="output.tool_name" />
   </CollapseCard>
 </template>

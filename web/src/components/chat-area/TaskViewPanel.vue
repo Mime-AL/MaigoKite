@@ -1,67 +1,24 @@
-/**
- * 任务视图面板组件
- *
- * 展示当前任务的整体信息和状态。
- */
-
 <script setup lang="ts">
 import CollapseCard from '../common/CollapseCard.vue'
 
-defineProps<{
-  task?: {
-    id: string
-    title: string
-    status: 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'timeout'
-    progress?: number
-  }
-}>()
+defineProps<{ task?: { id: string; title: string; status: 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'timeout'; progress?: number } }>()
 </script>
 
 <template>
-  <CollapseCard title="任务">
-    <div class="task-info" v-if="task">
-      <h4>{{ task.title }}</h4>
-      <p>状态: {{ task.status }}</p>
-      <div class="progress-bar" v-if="task.progress != null">
-        <div class="progress-fill" :style="{ width: task.progress + '%' }" />
-      </div>
+  <CollapseCard v-if="task" title="当前任务" icon="bolt" default-expanded>
+    <div class="task-row">
+      <div><strong>{{ task.title }}</strong><span>{{ task.status }}</span></div>
+      <small v-if="task.progress != null">{{ task.progress }}%</small>
     </div>
-    <p v-else class="empty">暂无活跃任务</p>
+    <div v-if="task.progress != null" class="progress"><span :style="{ width: `${task.progress}%` }" /></div>
   </CollapseCard>
 </template>
 
 <style scoped lang="scss">
-.task-info {
-  padding: 8px 16px;
-
-  h4 {
-    margin: 0 0 4px 0;
-  }
-
-  p {
-    margin: 0;
-    font-size: 13px;
-    color: #666;
-  }
-}
-
-.progress-bar {
-  height: 4px;
-  background-color: #e0e0e0;
-  border-radius: 2px;
-  margin-top: 8px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background-color: #0066cc;
-  transition: width 0.3s;
-}
-
-.empty {
-  padding: 8px 16px;
-  color: #999;
-  font-size: 13px;
-}
+.task-row { display: flex; align-items: center; justify-content: space-between; }
+.task-row div { display: flex; flex-direction: column; gap: 3px; }
+.task-row strong { font-size: 11px; }
+.task-row span, .task-row small { color: var(--text-tertiary); font-size: 9px; text-transform: capitalize; }
+.progress { height: 5px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: var(--surface-strong); }
+.progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #0a84ff, #6a8dff); transition: width 260ms ease; }
 </style>

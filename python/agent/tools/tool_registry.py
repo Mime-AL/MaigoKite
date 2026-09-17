@@ -1,35 +1,43 @@
-"""ToolRegistry - Central registry for tool discovery and invocation."""
-
+"""Single registry for native and MCP tools."""
 from __future__ import annotations
-
 from typing import Any
-
-from agent.tools.base import BaseTool
-
+from agent.tools.base import BaseTool, ExecutionContext, ToolResult, ToolResultStream
+from agent.tools.validator import ToolValidator
 
 class ToolRegistry:
-    """Manages registration, discovery, and invocation of tools."""
+    def __init__(self) -> None:
+        self._tools: dict[str, BaseTool] = {}
+        self.validator = ToolValidator(self.schema_for)
 
     def register(self, tool: BaseTool) -> None:
-        """Register a tool in the registry."""
-        ...
+        if not tool.name or tool.name in self._tools:
+            raise ValueError(f"tool already registered or invalid: {tool.name}")
+        self._tools[tool.name] = tool
 
     def unregister(self, tool_name: str) -> None:
-        """Unregister a tool by name."""
-        ...
+        self._tools.pop(tool_name, None)
 
     def get(self, tool_name: str) -> BaseTool | None:
-        """Retrieve a registered tool by name."""
-        ...
+        return self._tools.get(tool_name)
 
     def list_tools(self) -> list[BaseTool]:
-        """List all registered tools."""
-        ...
+        return [self._tools[name] for name in sorted(self._tools)]
+
+    async def discover_mcp(self, client: Any, namespace: str) -> list[BaseTool]:
+        from agent.tools.mcp_wrapper import MCPToolWrapper
+        discovered: list[BaseTool] = []
+        for definition in await client.list_tools():
+            tool = MCPToolWrapper(client, definition, namespace)
+            self.register(tool)
+            discovered.append(tool)
+        return discovered
 
     def schema_for(self, tool_name: str) -> dict[str, Any] | None:
-        """Get the JSON Schema for a specific tool's parameters."""
-        ...
+        tool = self.get(tool_name)
+        return None if tool is None else tool.parameters_schema
 
-    async def invoke(self, tool_name: str, arguments: dict[str, Any], context: Any) -> Any:
-        """Invoke a registered tool by name."""
-        ...
+    async def invoke(self, tool_name: str, arguments: dict[str, Any], context: ExecutionContext) -> ToolResult | ToolResultStream:
+        tool = self.get(tool_name)
+        if tool is None:
+            raise KeyError(f"unknown tool: {tool_name}")
+        return await tool.execute(context, self.validator.sanitize(tool_name, arguments))

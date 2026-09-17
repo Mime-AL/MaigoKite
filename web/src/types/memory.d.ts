@@ -25,4 +25,11 @@ interface UserMemory {
   get_facts(user_id: string): string[]
 }
 
+export interface MemoryItem {
+  id: string
+  content: string
+  type: string
+  metadata?: Record<string, unknown>
+}
+
 export {}

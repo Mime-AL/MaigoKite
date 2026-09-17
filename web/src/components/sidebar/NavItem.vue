@@ -1,43 +1,34 @@
-/**
- * 导航项组件
- *
- * 单个导航菜单项，支持图标和路由链接。
- */
-
 <script setup lang="ts">
-defineProps<{
-  icon: string
-  to: string
-  label: string
-}>()
+import { useLayoutStore } from '@/stores/layout'
+import IconSymbol from '@/components/common/IconSymbol.vue'
+
+defineProps<{ icon: string; to: string; label: string }>()
+const layoutStore = useLayoutStore()
 </script>
 
 <template>
-  <router-link :to="to" class="nav-item">
-    <span class="nav-icon">{{ icon }}</span>
-    <span class="nav-label">{{ label }}</span>
+  <router-link :to="to" class="nav-item" :title="layoutStore.sidebarCollapsed ? label : undefined">
+    <IconSymbol :name="icon" :size="17" />
+    <span v-show="!layoutStore.sidebarCollapsed" class="nav-label">{{ label }}</span>
   </router-link>
 </template>
 
 <style scoped lang="scss">
 .nav-item {
   display: flex;
+  height: 34px;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  color: #bac2de;
-  text-decoration: none;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-
-  &:hover {
-    background-color: #313244;
-  }
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 520;
+  transition: color 140ms ease, background 140ms ease, transform 140ms ease;
 }
-
-.nav-icon {
-  width: 20px;
-  text-align: center;
-}
+.nav-item:hover { color: var(--text-primary); background: var(--surface-strong); }
+.nav-item:active { transform: scale(0.98); }
+.nav-item.router-link-exact-active { color: var(--text-primary); background: rgba(255, 255, 255, 0.7); box-shadow: 0 1px 3px rgba(26, 33, 48, 0.08), inset 0 0 0 1px var(--border-color); }
+.nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-color-scheme: dark) { .nav-item.router-link-exact-active { background: rgba(255, 255, 255, 0.1); } }
 </style>

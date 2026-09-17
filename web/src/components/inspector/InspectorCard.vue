@@ -1,157 +1,16 @@
-/**
- * 对话卡片组件
- *
- * 展示单次 Agent 执行会话的概览信息。
- */
-
 <script setup lang="ts">
-import TimelineNode from './TimelineNode.vue'
+import type { InspectorCard as InspectorCardData, TimelineNode as TimelineNodeData } from '@/types'
 import { formatDuration } from '@/utils/format'
+import IconSymbol from '@/components/common/IconSymbol.vue'
+import TimelineNode from './TimelineNode.vue'
 
-defineProps<{
-  card: {
-    session_id: string
-    title: string
-    status: 'running' | 'completed' | 'failed' | 'paused'
-    current_step?: string
-    running_duration_sec?: number
-    total_duration_sec?: number
-    token_count?: number
-    tool_call_count?: number
-  }
-  expanded: boolean
-}>()
-
-const emit = defineEmits<{
-  (e: 'expand', sessionId: string): void
-  (e: 'collapse', sessionId: string): void
-  (e: 'stop', sessionId: string): void
-  (e: 'pause', sessionId: string): void
-}>()
-
-function getStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    running: '运行中',
-    completed: '已完成',
-    failed: '失败',
-    paused: '已暂停'
-  }
-  return labels[status] || status
-}
+defineProps<{ card: InspectorCardData; expanded: boolean; timeline?: TimelineNodeData[] }>()
+const emit = defineEmits<{ (event: 'expand' | 'collapse' | 'stop' | 'pause', sessionId: string): void }>()
+const statusLabels = { running: '运行中', completed: '已完成', failed: '失败', paused: '已暂停' }
 </script>
 
-<template>
-  <div class="inspector-card" :class="{ expanded }">
-    <div class="card-header" @click="expanded ? emit('collapse', card.session_id) : emit('expand', card.session_id)">
-      <span class="status-badge" :class="card.status">{{ getStatusLabel(card.status) }}</span>
-      <span class="card-title">{{ card.title }}</span>
-      <span class="card-meta">
-        {{ card.current_step || getStatusLabel(card.status) }}
-      </span>
-      <span class="card-stats">
-        <span v-if="card.token_count">Token: {{ card.token_count }}</span>
-        <span v-if="card.tool_call_count">工具: {{ card.tool_call_count }}</span>
-        <span>{{ formatDuration((card.running_duration_sec || card.total_duration_sec || 0) * 1000) }}</span>
-      </span>
-    </div>
-
-    <div class="card-actions" v-if="card.status === 'running'">
-      <button @click.stop="emit('pause', card.session_id)">暂停</button>
-      <button @click.stop="emit('stop', card.session_id)">停止</button>
-    </div>
-
-    <div class="card-timeline" v-if="expanded">
-      <TimelineNode
-        v-for="node in []"
-        :key="node.id"
-        :node="node"
-        :depth="0"
-      />
-    </div>
-  </div>
-</template>
+<template><article class="inspector-card" :class="card.status"><button class="card-main" type="button" @click="emit(expanded ? 'collapse' : 'expand', card.session_id)"><span class="status-mark"><IconSymbol :name="card.status === 'completed' ? 'check' : card.status === 'failed' ? 'alert' : 'activity'" :size="17" /></span><span class="card-copy"><strong>{{ card.title }}</strong><small>{{ card.current_step || statusLabels[card.status] }}</small></span><span class="stat" v-if="card.token_count">{{ card.token_count }} tokens</span><span class="stat" v-if="card.tool_call_count">{{ card.tool_call_count }} tools</span><span class="duration">{{ formatDuration((card.running_duration_sec || card.total_duration_sec || 0) * 1000) }}</span><IconSymbol name="chevron" :size="15" class="chevron" :class="{ expanded }" /></button><div v-if="card.status === 'running'" class="actions"><button type="button" @click="emit('pause', card.session_id)">暂停</button><button type="button" class="stop" @click="emit('stop', card.session_id)">停止</button></div><div v-if="expanded" class="timeline"><TimelineNode v-for="node in timeline || []" :key="node.id" :node="node" :depth="0" /><p v-if="!timeline?.length">等待时间线事件…</p></div></article></template>
 
 <style scoped lang="scss">
-.inspector-card {
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  overflow: hidden;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  cursor: pointer;
-  background-color: #fafafa;
-
-  &:hover {
-    background-color: #f0f0f0;
-  }
-}
-
-.status-badge {
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 12px;
-  color: #fff;
-
-  &.running {
-    background-color: #0066cc;
-  }
-
-  &.completed {
-    background-color: #28a745;
-  }
-
-  &.failed {
-    background-color: #dc3545;
-  }
-
-  &.paused {
-    background-color: #ffc107;
-    color: #333;
-  }
-}
-
-.card-title {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.card-meta {
-  font-size: 12px;
-  color: #666;
-}
-
-.card-stats {
-  display: flex;
-  gap: 12px;
-  font-size: 12px;
-  color: #999;
-}
-
-.card-actions {
-  padding: 8px 14px;
-  display: flex;
-  gap: 8px;
-  border-top: 1px solid #eee;
-}
-
-button {
-  padding: 4px 12px;
-  font-size: 12px;
-  border: 1px solid #ddd;
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-.card-timeline {
-  padding: 8px 14px;
-  border-top: 1px solid #eee;
-  background-color: #fff;
-}
+.inspector-card { margin-bottom: 8px; overflow: hidden; border: 1px solid var(--border-color); border-radius: 14px; background: var(--surface); }.card-main { display: flex; width: 100%; min-height: 60px; align-items: center; gap: 11px; padding: 10px 13px; border: 0; color: var(--text-secondary); background: transparent; cursor: pointer; text-align: left; }.card-main:hover { background: var(--surface-muted); }.status-mark { display: grid; width: 34px; height: 34px; flex: none; place-items: center; border-radius: 11px; color: var(--primary-color); background: var(--primary-soft); }.completed .status-mark { color: var(--success); background: var(--success-soft); }.failed .status-mark { color: var(--danger); background: var(--danger-soft); }.card-copy { min-width: 100px; display: flex; flex: 1; flex-direction: column; }.card-copy strong { overflow: hidden; color: var(--text-primary); font-size: 11.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }.card-copy small { margin-top: 4px; color: var(--text-tertiary); font-size: 9px; }.stat, .duration { color: var(--text-tertiary); font-family: var(--font-mono); font-size: 8.5px; }.chevron { transition: transform 160ms ease; }.chevron.expanded { transform: rotate(90deg); }.actions { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border-color); }.actions button { padding: 5px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--surface-muted); cursor: pointer; font-size: 9px; }.actions .stop { color: var(--danger); }.timeline { padding: 10px 15px; border-top: 1px solid var(--border-color); }.timeline > p { margin: 5px 0; color: var(--text-tertiary); font-size: 9.5px; }
 </style>
