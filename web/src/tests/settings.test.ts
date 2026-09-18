@@ -44,7 +44,7 @@ describe('settings store', () => {
 
     await store.loadSettings()
 
-    expect(store.models.chat).toEqual(profile)
+    expect(store.modelProfiles).toEqual([profile])
     expect(store.defaultModelId).toBe(profile.id)
     expect(store.loaded).toBe(true)
   })

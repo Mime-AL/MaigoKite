@@ -32,6 +32,10 @@ async def test_grpc_conversation_and_stream(core,tmp_path):
             ))
             loaded_preferences=await stub.GetUserPreferences(agent_pb2.UserPreferencesRequest(workspace_id="personal",subject_user_id="local-user"))
             assert preferences.assistant_name==loaded_preferences.assistant_name=="小七"
+            await stub.SetToolCredential(agent_pb2.SetToolCredentialRequest(
+                workspace_id="personal",service="tavily",api_key="secret-search-key",
+            ))
+            assert core._tool_credentials[("personal","tavily")]=="secret-search-key"
             conversation=await stub.CreateConversation(agent_pb2.ConversationRequest(workspace_id="personal",title="grpc"))
             await core.repository.ensure_workspace("team-a","Team A","team")
             foreign=await core.create_conversation("team-a","foreign")
@@ -56,7 +60,10 @@ async def test_grpc_conversation_and_stream(core,tmp_path):
             approval_events=[event async for event in stub.ProcessMessage(agent_pb2.ProcessMessageRequest(
                 workspace_id="personal",conversation_id=conversation.id,principal_id="local-user",content=command
             ))]
-            assert any(event.type=="approval.requested" for event in approval_events)
+            approval_types=[event.type for event in approval_events]
+            assert approval_types==[
+                "task.started","tool.proposed","task.waiting_approval","approval.requested",
+            ]
             approvals=await stub.ListApprovals(agent_pb2.ApprovalListRequest(
                 workspace_id="personal",conversation_id=conversation.id
             ))
@@ -66,7 +73,11 @@ async def test_grpc_conversation_and_stream(core,tmp_path):
                 workspace_id="personal",approval_id=approval.id,principal_id="local-user",
                 decision="allow",version=approval.version,
             ))]
-            assert any(event.type=="tool.completed" for event in decision_events)
+            decision_types=[event.type for event in decision_events]
+            assert decision_types==[
+                "approval.decided","tool.started","tool.completed","message.delta",
+                "message.completed","task.succeeded",
+            ]
             assert (tmp_path/"grpc.txt").read_text()=="ok"
             messages=await stub.ListMessages(agent_pb2.ConversationRequest(workspace_id="personal",conversation_id=conversation.id))
             assert len(messages.messages)==4

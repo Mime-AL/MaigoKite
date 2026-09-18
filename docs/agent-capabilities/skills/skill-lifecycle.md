@@ -1,11 +1,13 @@
 # Skill 生命周期管理
 
-> **状态**：Current
+> **状态**：Phase 2 Planned
 > **架构版本**：v1
-> **最后核验**：2026-09-14
+> **最后核验**：2026-09-18
 > **权威范围**：Skill 类型、Manifest、安装、授权、更新与卸载
 
 MCP运行时见 [MCP Integration](../mcp/mcp-integration.md)，工具风险见 [Tool Permission](../security/tool-permission.md)。
+
+Phase 1 仅支持由部署配置声明的受信 stdio MCP Server，并复用统一工具权限与审计链路；尚未交付 Skill 导入、安装、版本、Grant、依赖解析和管理页面/API。以下内容是 Phase 2 的目标契约，不能作为当前功能说明。
 
 ## 1. Skill 类型
 
@@ -49,7 +51,7 @@ timeout_seconds: 30
 - `name + version + content_hash` 唯一标识不可变版本。
 - entrypoint 必须拆分 command/args，不允许 shell 字符串。
 - capability 是请求，最终权限由 SkillGrant 和 ToolPolicy 决定。
-- Current 仅允许 `mcp-server` 使用 stdio。
+- Phase 2 首版仅允许 `mcp-server` 使用 stdio。
 - JSON Schema 另存或嵌入受验证字段，不从自然语言参数列表猜测。
 
 ## 3. 注册模型

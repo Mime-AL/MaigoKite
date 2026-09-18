@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nanamigopher-agent"
-version = "1.0.0"
+version = "0.1.0"
 description = "NanamiGopher AI Agent - Python backend"
 readme = "README.md"
 license = { text = "MIT" }

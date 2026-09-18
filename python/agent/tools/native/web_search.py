@@ -56,16 +56,47 @@ class WebSearchTool(BaseTool):
         self, context: ExecutionContext, arguments: dict[str, Any]
     ) -> ToolResult:
         query = arguments.get("query", "")
-        engine = arguments.get("engine", "tavily")
+        requested_engine = arguments.get("engine")
         max_results = arguments.get("max_results", 5)
 
-        # Load API key from credential store (via config_manager injected at runtime)
-        api_key = context.metadata.get("api_keys", {}).get(engine, "")
+        # Secrets are injected into execution memory by the Gateway and never enter
+        # the conversation, ToolResult, or persisted workspace settings.
+        api_keys = context.metadata.get("api_keys", {})
+        if not isinstance(api_keys, dict):
+            api_keys = {}
+        if requested_engine:
+            engine = str(requested_engine)
+        elif api_keys.get("tavily"):
+            engine = "tavily"
+        elif api_keys.get("google"):
+            engine = "google"
+        else:
+            engine = "duckduckgo"
+        api_key = str(api_keys.get(engine, ""))
+
+        if engine in {"tavily", "google"} and not api_key:
+            return ToolResult.failure(
+                data={"results": [], "error": "search provider is not configured", "engine": engine},
+                summary=f"{engine.title()} search is not configured.",
+                error_code="SEARCH_PROVIDER_NOT_CONFIGURED",
+                user_hint=f"请在“设置 → 联网工具”中配置 {engine.title()}，或改用 DuckDuckGo。",
+                action={"label": "配置联网工具", "to": "/settings?tab=tools"},
+            )
+        if engine == "google":
+            key, separator, cx = api_key.partition(":")
+            if not separator or not key.strip() or not cx.strip():
+                return ToolResult.failure(
+                    data={"results": [], "error": "search provider configuration is invalid", "engine": engine},
+                    summary="Google search configuration is invalid.",
+                    error_code="SEARCH_PROVIDER_INVALID_CONFIGURATION",
+                    user_hint="Google 搜索需要 API Key 和搜索引擎 ID（CX），请在“设置 → 联网工具”中重新配置。",
+                    action={"label": "配置联网工具", "to": "/settings?tab=tools"},
+                )
 
         try:
-            if engine == "tavily" and api_key:
+            if engine == "tavily":
                 results = await self._tavily_search(query, api_key, max_results)
-            elif engine == "google" and api_key:
+            elif engine == "google":
                 results = await self._google_search(query, api_key, max_results)
             else:
                 # DuckDuckGo doesn't require an API key
@@ -79,9 +110,12 @@ class WebSearchTool(BaseTool):
             )
         except Exception as e:
             logger.error("Web search failed (%s)", type(e).__name__)
-            return ToolResult(
-                data={"results": [], "error": "search provider request failed"},
+            return ToolResult.failure(
+                data={"results": [], "error": "search provider request failed", "engine": engine},
                 summary="Web search provider request failed.",
+                error_code="SEARCH_PROVIDER_UNAVAILABLE",
+                user_hint="联网搜索暂不可用。请检查网络，或在“设置 → 联网工具”中配置其他搜索服务。",
+                action={"label": "配置联网工具", "to": "/settings?tab=tools"},
             )
 
     async def _tavily_search(
@@ -116,8 +150,7 @@ class WebSearchTool(BaseTool):
         """Search via Google Custom Search API."""
         import httpx
 
-        cx = api_key.split(":")[1] if ":" in api_key else ""
-        key = api_key.split(":")[0] if ":" in api_key else api_key
+        key, _, cx = api_key.partition(":")
         url = "https://www.googleapis.com/customsearch/v1"
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, params={"key": key, "cx": cx, "q": query, "num": max_results}, timeout=15.0)

@@ -140,6 +140,12 @@ func (c *AgentClient) SetChatModelProfileCredential(ctx context.Context, workspa
 	})
 	return err
 }
+func (c *AgentClient) SetToolCredential(ctx context.Context, workspaceID, service, apiKey string) error {
+	_, err := c.client.SetToolCredential(ctx, &agentv1.SetToolCredentialRequest{
+		WorkspaceId: workspaceID, Service: service, ApiKey: apiKey,
+	})
+	return err
+}
 func (c *AgentClient) GetUserPreferences(ctx context.Context, workspaceID, subjectUserID string) (*agentv1.UserPreferences, error) {
 	return c.client.GetUserPreferences(ctx, &agentv1.UserPreferencesRequest{WorkspaceId: workspaceID, SubjectUserId: subjectUserID})
 }

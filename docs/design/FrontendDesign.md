@@ -54,11 +54,10 @@ Phase 1 当前采用可折叠三栏布局：左栏是会话与导航，中栏是
 | 界面 | Phase 1 状态 |
 |---|---|
 | 总览、会话、审计日志 | 可用 |
-| 用户称呼、多模型配置、默认模型与权限设置 | 可用 |
+| 用户称呼、多模型配置、默认模型、联网工具凭证、权限及工作区运行状态 | 可用 |
 | 会话模型/速度/权限切换、Tool 状态与审批卡片 | 可用 |
 | Workspace 文件树、只读预览、Git Diff | 可用 |
-| Inspector | 未挂载，等待快照/事件 API |
-| 搜索、定时任务、浏览器、Skill/包管理、回顾/归档 | 路由可保留明确的规划页，不进入主导航 |
+| Inspector、搜索、定时任务、浏览器、Skill/包管理、回顾/归档 | Planned；后端契约完成前不注册路由 |
 
 文件栏只消费 Gateway 提供的受限只读契约，不从渲染进程直接访问 Node 文件系统。路由按 feature 划分，真正的访问授权和路径边界仍由 Gateway 执行。
 
@@ -83,14 +82,21 @@ Phase 1 的模型设置采用渐进式的“配置行 → 单一编辑器 → �
 - `工作区` 是新安装的推荐默认值：工作区读取、编辑和安全命令自动执行，联网与高风险命令请求批准。
 - 会话可以覆盖 Workspace 默认档位；hard-deny、路径边界和风险动态升级始终由服务端 ToolPolicy 判定。
 
-### 3.3 文件与 Diff
+### 3.3 工作区与运行状态
+
+- 设置页只读展示 Gateway 返回的规范化 Workspace 根目录，前端不从 Node 或浏览器环境猜测实际路径。
+- Gateway 和 Agent Core 状态分别显示；Core 不可用时仍保留 Gateway 与 Workspace 信息。
+- 页面区分即时生效设置与进程启动配置。当前 UI 没有可产生“待重启”状态的编辑器，外部 YAML/环境变量变化由下次启动加载。
+- 本地路径属于 Workspace Owner 范围，不通过公共健康检查暴露。
+
+### 3.4 文件与 Diff
 
 - 文件树按目录懒加载，默认忽略 `.git`、依赖目录、虚拟环境和构建产物。
 - 文件内容只读预览，单次最多读取 512 KiB；二进制内容不进入页面。
 - “变更”页一次读取当前 Workspace 的 staged、unstaged 和 untracked 状态，选中文件后再懒加载其增加/删除统计与统一 Diff。
 - Gateway 对相对路径、路径穿越和逃逸 Workspace 的符号链接执行强制校验；前端传入的路径不是授权依据。
 
-### 3.4 对话与执行活动
+### 3.5 对话与执行活动
 
 聊天记录与 Agent 执行过程是两类不同的界面对象，不共用消息气泡：
 
@@ -100,22 +106,26 @@ Phase 1 的模型设置采用渐进式的“配置行 → 单一编辑器 → �
 - 运行中默认展开，完成后允许折叠；参数与结果放在二级详情中，避免挤占对话主阅读路径。
 - 输入组件只负责编辑和提交用户消息。运行状态通过活动流和 `aria-busy` 表达，不修改输入框内容或占位文本。
 - `message.delta` 只承载面向用户的最终回答增量；过程信息必须使用独立事件类型。前端不得再根据文字内容猜测它属于回答还是执行过程。
+- 可恢复的 Tool 失败通过事件携带稳定错误码、简短 `user_hint` 和受限的内部设置路由；活动流自动展开该提示，原始 JSON 继续收在二级详情中。
 - 助手最终回复按 GitHub Flavored Markdown 渲染。完整的重复 JSON 字符串编码和代码块外的 Markdown 结构转义可在展示层规范化；代码、正则与公式中的反斜杠必须保留。
 - Markdown 生成的 HTML 必须经过 allowlist 清洗后才能进入 DOM；脚本、事件属性、表单和主动加载的媒体资源不得渲染。
 
+### 3.6 Phase 2 设置页面准入
+
+Memory、MCP/Skill、Embedding/索引和数据管理页面只有在对应 Gateway API、Agent Core 领域能力、持久化与自动化测试全部存在后才能进入路由和导航。不得用只能修改前端内存的控件或静态假数据代替功能闭环。
+
 ## 4. 状态管理
 
-建议 Store 边界：
+当前与目标 Store 边界如下；Planned 项不得仅为占位而创建空 Store：
 
-| Store | 状态 |
-|---|---|
-| identity | 当前主体和认证状态 |
-| workspace | Workspace 列表、当前 Workspace、Membership |
-| conversation | 会话目录和当前会话 |
-| task | 当前任务快照、取消/重试操作状态 |
-| inspector | 事件窗口、筛选、连接状态 |
-| approval | 待审批项目和用户草稿决定 |
-| settings | 用户级和 Workspace 级设置 |
+| Store | 职责 | 阶段 |
+|---|---|---|
+| session | 当前 Workspace 的会话、消息、任务活动和审批投影 | Phase 1 Current |
+| settings | 用户偏好、模型、权限、凭证引用与运行状态 | Phase 1 Current |
+| layout | 三栏布局与纯界面状态 | Phase 1 Current |
+| identity / workspace | 多主体认证、Workspace 列表和 Membership 管理 | Planned |
+| inspector | 可恢复事件窗口、筛选和独立快照 | Planned |
+| memory / skill | 对应领域 API 的客户端投影 | Phase 2 Planned |
 
 服务端状态以快照为准；WebSocket事件用于增量更新。重连后先恢复快照，再消费新事件。
 

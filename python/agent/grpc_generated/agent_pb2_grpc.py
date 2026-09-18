@@ -139,6 +139,11 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.SetChatModelCredentialRequest.SerializeToString,
                 response_deserializer=agent__pb2.Empty.FromString,
                 _registered_method=True)
+        self.SetToolCredential = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/SetToolCredential',
+                request_serializer=agent__pb2.SetToolCredentialRequest.SerializeToString,
+                response_deserializer=agent__pb2.Empty.FromString,
+                _registered_method=True)
         self.GetUserPreferences = channel.unary_unary(
                 '/nanamigopher.agent.v1.AgentService/GetUserPreferences',
                 request_serializer=agent__pb2.UserPreferencesRequest.SerializeToString,
@@ -295,6 +300,12 @@ class AgentServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetToolCredential(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetUserPreferences(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -431,6 +442,11 @@ def add_AgentServiceServicer_to_server(servicer, server):
             'SetChatModelCredential': grpc.unary_unary_rpc_method_handler(
                     servicer.SetChatModelCredential,
                     request_deserializer=agent__pb2.SetChatModelCredentialRequest.FromString,
+                    response_serializer=agent__pb2.Empty.SerializeToString,
+            ),
+            'SetToolCredential': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetToolCredential,
+                    request_deserializer=agent__pb2.SetToolCredentialRequest.FromString,
                     response_serializer=agent__pb2.Empty.SerializeToString,
             ),
             'GetUserPreferences': grpc.unary_unary_rpc_method_handler(
@@ -1025,6 +1041,33 @@ class AgentService:
             target,
             '/nanamigopher.agent.v1.AgentService/SetChatModelCredential',
             agent__pb2.SetChatModelCredentialRequest.SerializeToString,
+            agent__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetToolCredential(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/SetToolCredential',
+            agent__pb2.SetToolCredentialRequest.SerializeToString,
             agent__pb2.Empty.FromString,
             options,
             channel_credentials,

@@ -2049,6 +2049,66 @@ func (x *SetChatModelCredentialRequest) GetModelId() string {
 	return ""
 }
 
+type SetToolCredentialRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId   string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	Service       string                 `protobuf:"bytes,2,opt,name=service,proto3" json:"service,omitempty"`
+	ApiKey        string                 `protobuf:"bytes,3,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetToolCredentialRequest) Reset() {
+	*x = SetToolCredentialRequest{}
+	mi := &file_agent_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetToolCredentialRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetToolCredentialRequest) ProtoMessage() {}
+
+func (x *SetToolCredentialRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetToolCredentialRequest.ProtoReflect.Descriptor instead.
+func (*SetToolCredentialRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *SetToolCredentialRequest) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *SetToolCredentialRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *SetToolCredentialRequest) GetApiKey() string {
+	if x != nil {
+		return x.ApiKey
+	}
+	return ""
+}
+
 type UserPreferencesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	WorkspaceId   string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
@@ -2059,7 +2119,7 @@ type UserPreferencesRequest struct {
 
 func (x *UserPreferencesRequest) Reset() {
 	*x = UserPreferencesRequest{}
-	mi := &file_agent_proto_msgTypes[31]
+	mi := &file_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2071,7 +2131,7 @@ func (x *UserPreferencesRequest) String() string {
 func (*UserPreferencesRequest) ProtoMessage() {}
 
 func (x *UserPreferencesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[31]
+	mi := &file_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2084,7 +2144,7 @@ func (x *UserPreferencesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserPreferencesRequest.ProtoReflect.Descriptor instead.
 func (*UserPreferencesRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{31}
+	return file_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *UserPreferencesRequest) GetWorkspaceId() string {
@@ -2110,7 +2170,7 @@ type UserPreferences struct {
 
 func (x *UserPreferences) Reset() {
 	*x = UserPreferences{}
-	mi := &file_agent_proto_msgTypes[32]
+	mi := &file_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2122,7 +2182,7 @@ func (x *UserPreferences) String() string {
 func (*UserPreferences) ProtoMessage() {}
 
 func (x *UserPreferences) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[32]
+	mi := &file_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2135,7 +2195,7 @@ func (x *UserPreferences) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserPreferences.ProtoReflect.Descriptor instead.
 func (*UserPreferences) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{32}
+	return file_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *UserPreferences) GetAssistantName() string {
@@ -2156,7 +2216,7 @@ type UpdateUserPreferencesRequest struct {
 
 func (x *UpdateUserPreferencesRequest) Reset() {
 	*x = UpdateUserPreferencesRequest{}
-	mi := &file_agent_proto_msgTypes[33]
+	mi := &file_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2168,7 +2228,7 @@ func (x *UpdateUserPreferencesRequest) String() string {
 func (*UpdateUserPreferencesRequest) ProtoMessage() {}
 
 func (x *UpdateUserPreferencesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[33]
+	mi := &file_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2181,7 +2241,7 @@ func (x *UpdateUserPreferencesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateUserPreferencesRequest.ProtoReflect.Descriptor instead.
 func (*UpdateUserPreferencesRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{33}
+	return file_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *UpdateUserPreferencesRequest) GetWorkspaceId() string {
@@ -2215,7 +2275,7 @@ type PermissionSettings struct {
 
 func (x *PermissionSettings) Reset() {
 	*x = PermissionSettings{}
-	mi := &file_agent_proto_msgTypes[34]
+	mi := &file_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2227,7 +2287,7 @@ func (x *PermissionSettings) String() string {
 func (*PermissionSettings) ProtoMessage() {}
 
 func (x *PermissionSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[34]
+	mi := &file_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2240,7 +2300,7 @@ func (x *PermissionSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PermissionSettings.ProtoReflect.Descriptor instead.
 func (*PermissionSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{34}
+	return file_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *PermissionSettings) GetDefaultMode() string {
@@ -2267,7 +2327,7 @@ type UpdatePermissionSettingsRequest struct {
 
 func (x *UpdatePermissionSettingsRequest) Reset() {
 	*x = UpdatePermissionSettingsRequest{}
-	mi := &file_agent_proto_msgTypes[35]
+	mi := &file_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2279,7 +2339,7 @@ func (x *UpdatePermissionSettingsRequest) String() string {
 func (*UpdatePermissionSettingsRequest) ProtoMessage() {}
 
 func (x *UpdatePermissionSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[35]
+	mi := &file_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2292,7 +2352,7 @@ func (x *UpdatePermissionSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePermissionSettingsRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePermissionSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{35}
+	return file_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *UpdatePermissionSettingsRequest) GetWorkspaceId() string {
@@ -2475,7 +2535,11 @@ const file_agent_proto_rawDesc = "" +
 	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12\x17\n" +
 	"\aapi_key\x18\x02 \x01(\tR\x06apiKey\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x19\n" +
-	"\bmodel_id\x18\x04 \x01(\tR\amodelId\"c\n" +
+	"\bmodel_id\x18\x04 \x01(\tR\amodelId\"p\n" +
+	"\x18SetToolCredentialRequest\x12!\n" +
+	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12\x18\n" +
+	"\aservice\x18\x02 \x01(\tR\aservice\x12\x17\n" +
+	"\aapi_key\x18\x03 \x01(\tR\x06apiKey\"c\n" +
 	"\x16UserPreferencesRequest\x12!\n" +
 	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12&\n" +
 	"\x0fsubject_user_id\x18\x02 \x01(\tR\rsubjectUserId\"8\n" +
@@ -2494,7 +2558,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\x8b\x01\n" +
 	"\x1fUpdatePermissionSettingsRequest\x12!\n" +
 	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12E\n" +
-	"\bsettings\x18\x02 \x01(\v2).nanamigopher.agent.v1.PermissionSettingsR\bsettings2\xdc\x15\n" +
+	"\bsettings\x18\x02 \x01(\v2).nanamigopher.agent.v1.PermissionSettingsR\bsettings2\xc0\x16\n" +
 	"\fAgentService\x12c\n" +
 	"\x0eProcessMessage\x12,.nanamigopher.agent.v1.ProcessMessageRequest\x1a!.nanamigopher.agent.v1.AgentEvent0\x01\x12e\n" +
 	"\x12CreateConversation\x12*.nanamigopher.agent.v1.ConversationRequest\x1a#.nanamigopher.agent.v1.Conversation\x12b\n" +
@@ -2516,7 +2580,8 @@ const file_agent_proto_rawDesc = "" +
 	"\x0fDeleteChatModel\x12'.nanamigopher.agent.v1.ChatModelRequest\x1a\x1c.nanamigopher.agent.v1.Empty\x12d\n" +
 	"\x13SetDefaultChatModel\x12'.nanamigopher.agent.v1.ChatModelRequest\x1a$.nanamigopher.agent.v1.ChatModelList\x12t\n" +
 	"\x11ValidateChatModel\x12/.nanamigopher.agent.v1.ValidateChatModelRequest\x1a..nanamigopher.agent.v1.ModelValidationResponse\x12l\n" +
-	"\x16SetChatModelCredential\x124.nanamigopher.agent.v1.SetChatModelCredentialRequest\x1a\x1c.nanamigopher.agent.v1.Empty\x12k\n" +
+	"\x16SetChatModelCredential\x124.nanamigopher.agent.v1.SetChatModelCredentialRequest\x1a\x1c.nanamigopher.agent.v1.Empty\x12b\n" +
+	"\x11SetToolCredential\x12/.nanamigopher.agent.v1.SetToolCredentialRequest\x1a\x1c.nanamigopher.agent.v1.Empty\x12k\n" +
 	"\x12GetUserPreferences\x12-.nanamigopher.agent.v1.UserPreferencesRequest\x1a&.nanamigopher.agent.v1.UserPreferences\x12t\n" +
 	"\x15UpdateUserPreferences\x123.nanamigopher.agent.v1.UpdateUserPreferencesRequest\x1a&.nanamigopher.agent.v1.UserPreferences\x12k\n" +
 	"\x15GetPermissionSettings\x12'.nanamigopher.agent.v1.WorkspaceRequest\x1a).nanamigopher.agent.v1.PermissionSettings\x12}\n" +
@@ -2535,7 +2600,7 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_agent_proto_goTypes = []any{
 	(*Empty)(nil),                           // 0: nanamigopher.agent.v1.Empty
 	(*Attachment)(nil),                      // 1: nanamigopher.agent.v1.Attachment
@@ -2568,12 +2633,13 @@ var file_agent_proto_goTypes = []any{
 	(*ValidateChatModelRequest)(nil),        // 28: nanamigopher.agent.v1.ValidateChatModelRequest
 	(*ModelValidationResponse)(nil),         // 29: nanamigopher.agent.v1.ModelValidationResponse
 	(*SetChatModelCredentialRequest)(nil),   // 30: nanamigopher.agent.v1.SetChatModelCredentialRequest
-	(*UserPreferencesRequest)(nil),          // 31: nanamigopher.agent.v1.UserPreferencesRequest
-	(*UserPreferences)(nil),                 // 32: nanamigopher.agent.v1.UserPreferences
-	(*UpdateUserPreferencesRequest)(nil),    // 33: nanamigopher.agent.v1.UpdateUserPreferencesRequest
-	(*PermissionSettings)(nil),              // 34: nanamigopher.agent.v1.PermissionSettings
-	(*UpdatePermissionSettingsRequest)(nil), // 35: nanamigopher.agent.v1.UpdatePermissionSettingsRequest
-	nil,                                     // 36: nanamigopher.agent.v1.PermissionSettings.ToolLevelsEntry
+	(*SetToolCredentialRequest)(nil),        // 31: nanamigopher.agent.v1.SetToolCredentialRequest
+	(*UserPreferencesRequest)(nil),          // 32: nanamigopher.agent.v1.UserPreferencesRequest
+	(*UserPreferences)(nil),                 // 33: nanamigopher.agent.v1.UserPreferences
+	(*UpdateUserPreferencesRequest)(nil),    // 34: nanamigopher.agent.v1.UpdateUserPreferencesRequest
+	(*PermissionSettings)(nil),              // 35: nanamigopher.agent.v1.PermissionSettings
+	(*UpdatePermissionSettingsRequest)(nil), // 36: nanamigopher.agent.v1.UpdatePermissionSettingsRequest
+	nil,                                     // 37: nanamigopher.agent.v1.PermissionSettings.ToolLevelsEntry
 }
 var file_agent_proto_depIdxs = []int32{
 	1,  // 0: nanamigopher.agent.v1.ProcessMessageRequest.attachments:type_name -> nanamigopher.agent.v1.Attachment
@@ -2585,9 +2651,9 @@ var file_agent_proto_depIdxs = []int32{
 	23, // 6: nanamigopher.agent.v1.ChatModelList.models:type_name -> nanamigopher.agent.v1.ChatModelSettings
 	23, // 7: nanamigopher.agent.v1.UpsertChatModelRequest.settings:type_name -> nanamigopher.agent.v1.ChatModelSettings
 	23, // 8: nanamigopher.agent.v1.ValidateChatModelRequest.settings:type_name -> nanamigopher.agent.v1.ChatModelSettings
-	32, // 9: nanamigopher.agent.v1.UpdateUserPreferencesRequest.preferences:type_name -> nanamigopher.agent.v1.UserPreferences
-	36, // 10: nanamigopher.agent.v1.PermissionSettings.tool_levels:type_name -> nanamigopher.agent.v1.PermissionSettings.ToolLevelsEntry
-	34, // 11: nanamigopher.agent.v1.UpdatePermissionSettingsRequest.settings:type_name -> nanamigopher.agent.v1.PermissionSettings
+	33, // 9: nanamigopher.agent.v1.UpdateUserPreferencesRequest.preferences:type_name -> nanamigopher.agent.v1.UserPreferences
+	37, // 10: nanamigopher.agent.v1.PermissionSettings.tool_levels:type_name -> nanamigopher.agent.v1.PermissionSettings.ToolLevelsEntry
+	35, // 11: nanamigopher.agent.v1.UpdatePermissionSettingsRequest.settings:type_name -> nanamigopher.agent.v1.PermissionSettings
 	2,  // 12: nanamigopher.agent.v1.AgentService.ProcessMessage:input_type -> nanamigopher.agent.v1.ProcessMessageRequest
 	4,  // 13: nanamigopher.agent.v1.AgentService.CreateConversation:input_type -> nanamigopher.agent.v1.ConversationRequest
 	4,  // 14: nanamigopher.agent.v1.AgentService.GetConversation:input_type -> nanamigopher.agent.v1.ConversationRequest
@@ -2609,39 +2675,41 @@ var file_agent_proto_depIdxs = []int32{
 	27, // 30: nanamigopher.agent.v1.AgentService.SetDefaultChatModel:input_type -> nanamigopher.agent.v1.ChatModelRequest
 	28, // 31: nanamigopher.agent.v1.AgentService.ValidateChatModel:input_type -> nanamigopher.agent.v1.ValidateChatModelRequest
 	30, // 32: nanamigopher.agent.v1.AgentService.SetChatModelCredential:input_type -> nanamigopher.agent.v1.SetChatModelCredentialRequest
-	31, // 33: nanamigopher.agent.v1.AgentService.GetUserPreferences:input_type -> nanamigopher.agent.v1.UserPreferencesRequest
-	33, // 34: nanamigopher.agent.v1.AgentService.UpdateUserPreferences:input_type -> nanamigopher.agent.v1.UpdateUserPreferencesRequest
-	22, // 35: nanamigopher.agent.v1.AgentService.GetPermissionSettings:input_type -> nanamigopher.agent.v1.WorkspaceRequest
-	35, // 36: nanamigopher.agent.v1.AgentService.UpdatePermissionSettings:input_type -> nanamigopher.agent.v1.UpdatePermissionSettingsRequest
-	0,  // 37: nanamigopher.agent.v1.AgentService.Health:input_type -> nanamigopher.agent.v1.Empty
-	3,  // 38: nanamigopher.agent.v1.AgentService.ProcessMessage:output_type -> nanamigopher.agent.v1.AgentEvent
-	6,  // 39: nanamigopher.agent.v1.AgentService.CreateConversation:output_type -> nanamigopher.agent.v1.Conversation
-	6,  // 40: nanamigopher.agent.v1.AgentService.GetConversation:output_type -> nanamigopher.agent.v1.Conversation
-	7,  // 41: nanamigopher.agent.v1.AgentService.ListConversations:output_type -> nanamigopher.agent.v1.ConversationList
-	0,  // 42: nanamigopher.agent.v1.AgentService.DeleteConversation:output_type -> nanamigopher.agent.v1.Empty
-	6,  // 43: nanamigopher.agent.v1.AgentService.UpdateConversationPermission:output_type -> nanamigopher.agent.v1.Conversation
-	6,  // 44: nanamigopher.agent.v1.AgentService.UpdateConversationSettings:output_type -> nanamigopher.agent.v1.Conversation
-	11, // 45: nanamigopher.agent.v1.AgentService.ListMessages:output_type -> nanamigopher.agent.v1.MessageList
-	14, // 46: nanamigopher.agent.v1.AgentService.ListApprovals:output_type -> nanamigopher.agent.v1.ApprovalList
-	3,  // 47: nanamigopher.agent.v1.AgentService.DecideApproval:output_type -> nanamigopher.agent.v1.AgentEvent
-	18, // 48: nanamigopher.agent.v1.AgentService.CheckWorkspaceAccess:output_type -> nanamigopher.agent.v1.WorkspaceAccessResponse
-	20, // 49: nanamigopher.agent.v1.AgentService.ListAuditEvents:output_type -> nanamigopher.agent.v1.AuditEventList
-	0,  // 50: nanamigopher.agent.v1.AgentService.RecordAuditEvent:output_type -> nanamigopher.agent.v1.Empty
-	23, // 51: nanamigopher.agent.v1.AgentService.GetChatModelSettings:output_type -> nanamigopher.agent.v1.ChatModelSettings
-	23, // 52: nanamigopher.agent.v1.AgentService.UpdateChatModelSettings:output_type -> nanamigopher.agent.v1.ChatModelSettings
-	25, // 53: nanamigopher.agent.v1.AgentService.ListChatModels:output_type -> nanamigopher.agent.v1.ChatModelList
-	23, // 54: nanamigopher.agent.v1.AgentService.UpsertChatModel:output_type -> nanamigopher.agent.v1.ChatModelSettings
-	0,  // 55: nanamigopher.agent.v1.AgentService.DeleteChatModel:output_type -> nanamigopher.agent.v1.Empty
-	25, // 56: nanamigopher.agent.v1.AgentService.SetDefaultChatModel:output_type -> nanamigopher.agent.v1.ChatModelList
-	29, // 57: nanamigopher.agent.v1.AgentService.ValidateChatModel:output_type -> nanamigopher.agent.v1.ModelValidationResponse
-	0,  // 58: nanamigopher.agent.v1.AgentService.SetChatModelCredential:output_type -> nanamigopher.agent.v1.Empty
-	32, // 59: nanamigopher.agent.v1.AgentService.GetUserPreferences:output_type -> nanamigopher.agent.v1.UserPreferences
-	32, // 60: nanamigopher.agent.v1.AgentService.UpdateUserPreferences:output_type -> nanamigopher.agent.v1.UserPreferences
-	34, // 61: nanamigopher.agent.v1.AgentService.GetPermissionSettings:output_type -> nanamigopher.agent.v1.PermissionSettings
-	34, // 62: nanamigopher.agent.v1.AgentService.UpdatePermissionSettings:output_type -> nanamigopher.agent.v1.PermissionSettings
-	16, // 63: nanamigopher.agent.v1.AgentService.Health:output_type -> nanamigopher.agent.v1.HealthResponse
-	38, // [38:64] is the sub-list for method output_type
-	12, // [12:38] is the sub-list for method input_type
+	31, // 33: nanamigopher.agent.v1.AgentService.SetToolCredential:input_type -> nanamigopher.agent.v1.SetToolCredentialRequest
+	32, // 34: nanamigopher.agent.v1.AgentService.GetUserPreferences:input_type -> nanamigopher.agent.v1.UserPreferencesRequest
+	34, // 35: nanamigopher.agent.v1.AgentService.UpdateUserPreferences:input_type -> nanamigopher.agent.v1.UpdateUserPreferencesRequest
+	22, // 36: nanamigopher.agent.v1.AgentService.GetPermissionSettings:input_type -> nanamigopher.agent.v1.WorkspaceRequest
+	36, // 37: nanamigopher.agent.v1.AgentService.UpdatePermissionSettings:input_type -> nanamigopher.agent.v1.UpdatePermissionSettingsRequest
+	0,  // 38: nanamigopher.agent.v1.AgentService.Health:input_type -> nanamigopher.agent.v1.Empty
+	3,  // 39: nanamigopher.agent.v1.AgentService.ProcessMessage:output_type -> nanamigopher.agent.v1.AgentEvent
+	6,  // 40: nanamigopher.agent.v1.AgentService.CreateConversation:output_type -> nanamigopher.agent.v1.Conversation
+	6,  // 41: nanamigopher.agent.v1.AgentService.GetConversation:output_type -> nanamigopher.agent.v1.Conversation
+	7,  // 42: nanamigopher.agent.v1.AgentService.ListConversations:output_type -> nanamigopher.agent.v1.ConversationList
+	0,  // 43: nanamigopher.agent.v1.AgentService.DeleteConversation:output_type -> nanamigopher.agent.v1.Empty
+	6,  // 44: nanamigopher.agent.v1.AgentService.UpdateConversationPermission:output_type -> nanamigopher.agent.v1.Conversation
+	6,  // 45: nanamigopher.agent.v1.AgentService.UpdateConversationSettings:output_type -> nanamigopher.agent.v1.Conversation
+	11, // 46: nanamigopher.agent.v1.AgentService.ListMessages:output_type -> nanamigopher.agent.v1.MessageList
+	14, // 47: nanamigopher.agent.v1.AgentService.ListApprovals:output_type -> nanamigopher.agent.v1.ApprovalList
+	3,  // 48: nanamigopher.agent.v1.AgentService.DecideApproval:output_type -> nanamigopher.agent.v1.AgentEvent
+	18, // 49: nanamigopher.agent.v1.AgentService.CheckWorkspaceAccess:output_type -> nanamigopher.agent.v1.WorkspaceAccessResponse
+	20, // 50: nanamigopher.agent.v1.AgentService.ListAuditEvents:output_type -> nanamigopher.agent.v1.AuditEventList
+	0,  // 51: nanamigopher.agent.v1.AgentService.RecordAuditEvent:output_type -> nanamigopher.agent.v1.Empty
+	23, // 52: nanamigopher.agent.v1.AgentService.GetChatModelSettings:output_type -> nanamigopher.agent.v1.ChatModelSettings
+	23, // 53: nanamigopher.agent.v1.AgentService.UpdateChatModelSettings:output_type -> nanamigopher.agent.v1.ChatModelSettings
+	25, // 54: nanamigopher.agent.v1.AgentService.ListChatModels:output_type -> nanamigopher.agent.v1.ChatModelList
+	23, // 55: nanamigopher.agent.v1.AgentService.UpsertChatModel:output_type -> nanamigopher.agent.v1.ChatModelSettings
+	0,  // 56: nanamigopher.agent.v1.AgentService.DeleteChatModel:output_type -> nanamigopher.agent.v1.Empty
+	25, // 57: nanamigopher.agent.v1.AgentService.SetDefaultChatModel:output_type -> nanamigopher.agent.v1.ChatModelList
+	29, // 58: nanamigopher.agent.v1.AgentService.ValidateChatModel:output_type -> nanamigopher.agent.v1.ModelValidationResponse
+	0,  // 59: nanamigopher.agent.v1.AgentService.SetChatModelCredential:output_type -> nanamigopher.agent.v1.Empty
+	0,  // 60: nanamigopher.agent.v1.AgentService.SetToolCredential:output_type -> nanamigopher.agent.v1.Empty
+	33, // 61: nanamigopher.agent.v1.AgentService.GetUserPreferences:output_type -> nanamigopher.agent.v1.UserPreferences
+	33, // 62: nanamigopher.agent.v1.AgentService.UpdateUserPreferences:output_type -> nanamigopher.agent.v1.UserPreferences
+	35, // 63: nanamigopher.agent.v1.AgentService.GetPermissionSettings:output_type -> nanamigopher.agent.v1.PermissionSettings
+	35, // 64: nanamigopher.agent.v1.AgentService.UpdatePermissionSettings:output_type -> nanamigopher.agent.v1.PermissionSettings
+	16, // 65: nanamigopher.agent.v1.AgentService.Health:output_type -> nanamigopher.agent.v1.HealthResponse
+	39, // [39:66] is the sub-list for method output_type
+	12, // [12:39] is the sub-list for method input_type
 	12, // [12:12] is the sub-list for extension type_name
 	12, // [12:12] is the sub-list for extension extendee
 	0,  // [0:12] is the sub-list for field type_name
@@ -2659,7 +2727,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   37,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

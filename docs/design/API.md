@@ -77,7 +77,9 @@ POST /workspaces/{workspace_id}/approvals/{approval_id}/decision
 
 审批由 Agent Core 创建，外部 API 不提供任意创建审批请求的入口。审批决定必须包含目标审批 ID、decision 和审批版本；参数从服务端保存的规范化 ToolCall 读取，客户端不能在决定时替换参数，服务端同时验证版本与过期时间。
 
-### 3.4 Memory 与 Knowledge
+### 3.4 Memory 与 Knowledge（Phase 2 Planned）
+
+以下端点是目标契约，Phase 1 尚未注册：
 
 ```text
 GET    /workspaces/{workspace_id}/memories
@@ -91,7 +93,9 @@ DELETE /workspaces/{workspace_id}/documents/{document_id}
 POST   /workspaces/{workspace_id}/indexes:rebuild
 ```
 
-### 3.5 Skill
+### 3.5 Skill（Phase 2 Planned）
+
+以下端点是目标契约，Phase 1 尚未注册：
 
 ```text
 GET    /workspaces/{workspace_id}/skills
@@ -123,6 +127,7 @@ POST  /workspaces/{workspace_id}/credential-references
 DELETE /workspaces/{workspace_id}/credential-references/{credential_id}
 GET   /workspaces/{workspace_id}/preferences
 PATCH /workspaces/{workspace_id}/preferences
+GET   /workspaces/{workspace_id}/runtime-status
 ```
 
 读取凭证只返回引用和元数据，不返回 Secret 值。
@@ -131,9 +136,13 @@ Phase 1 中，模型 API 管理 Workspace 的 Chat 模型配置集合，并保�
 
 设置写入、目录发现、连接验证和凭证管理只允许 Workspace Owner。模型凭证按模型配置 ID 隔离（`model-profile.{id}`），保存后由 Gateway 同步到 Agent Core 内存，发送消息前再次从 OS CredentialStore 同步当前会话选择的配置。修改 Provider/Base URL 会使旧凭证失效，Secret 不进入领域数据库或事件。
 
+联网搜索凭证使用 `tavily`、`google` 引用名。Gateway 保存或删除引用时通过内部 gRPC 同步 Agent Core，并在每次消息任务开始前重新同步，以覆盖 Core 重启场景。搜索失败事件只携带稳定错误码、用户提示和设置路由，不携带 Secret。
+
 Phase 1 另提供 `GET/PATCH /workspaces/{workspace_id}/permissions` 管理三档默认执行模式：`read_only / workspace / full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`response_mode` 和 `permission_mode`。服务端验证模型属于当前 Workspace；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
 
 `preferences` 是当前主体在 Workspace 中的用户级偏好。Phase 1 支持 `assistant_name`（1–32 个字符），用于界面称呼；团队成员只修改自己的显示偏好，不会改变 Workspace 全局名称。
+
+`runtime-status` 是 Workspace Owner 可见的只读投影，返回规范化 Workspace 根目录及来源、Gateway/Agent Core 状态和版本、即时生效项与需重启项。它不修改部署配置，也不声称能够检测运行期间手工编辑的外部 YAML。
 
 ### 3.7 Workspace 文件与变更
 

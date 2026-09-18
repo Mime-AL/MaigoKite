@@ -1,429 +1,168 @@
-# 模型路由策略
+# 模型接入与路由
 
-> 状态：Current
-> NanamiGopher Agent 的模型选择、路由与成本优化规范；具体模型和地址属于部署配置，不是架构常量。本文明确区分 Phase 1 已实现子集与 Phase 2 目标，避免把目标架构误写成当前能力。
+> **状态**：Phase 1 Current + Phase 2 Planned
+>
+> **权威范围**：模型配置所有权、显式选择、未来路由与降级边界
+>
+> **最后核验**：2026-09-18
 
----
+具体模型名、Base URL、上下文长度、价格和速度不是架构常量。它们来自用户配置、Provider 目录或运行时观测，不能固化为 Agent 内置模型表。
 
-## 1. 概述
+## 1. 阶段边界
 
-NanamiGopher 的目标架构采用多模型路由，根据任务类型、复杂度和成本约束选择模型；完整 ModelRegistry、fallback 与成本路由属于 Phase 2。
+| 能力 | Phase 1 | Phase 2 |
+|---|---|---|
+| 多个 Chat 配置与一个默认配置 | Current | 延续 |
+| 会话显式选择 Chat 配置 | Current | 延续 |
+| `fast / balanced / thorough` 输出预算 | Current | 延续 |
+| 使用草稿 Base URL 手动获取模型目录 | Current | 延续并增强 |
+| 后台自动发现与能力探测 | 不支持 | Planned |
+| 自动路由、fallback、成本/延迟决策 | 不支持 | Planned |
+| Embedding Provider 与向量索引设置 | 不支持 | Planned |
+| Image 模型接入与设置 | 不支持 | Planned |
 
 ### 1.1 Phase 1 当前实现
 
-- 每个 Workspace 可保存最多 32 个 Chat 模型配置并指定一个默认模型；新会话继承默认值，现有会话可显式选择其他配置。
-- 支持 OpenAI、Anthropic、Ollama 和 OpenAI-compatible（LM Studio、vLLM 等）接口。
-- 非敏感配置集合保存在 `workspace_settings`；API Key 按模型配置 ID 隔离保存在 CredentialStore，并只同步到 Agent Core 内存。
-- 支持在保存前执行一次最小模型调用验证连接。
-- 聊天输入框支持会话级模型覆盖和 `fast / balanced / thorough` 输出预算；不支持多模型自动路由、自动 fallback、模型发现以及 Embedding/Image 的 UI 接入。
+- 每个 Workspace 最多保存 32 个 Chat 模型配置，并指定一个默认配置。
+- 支持 OpenAI、Anthropic、Ollama 和 OpenAI-compatible 协议；LM Studio、vLLM 等属于协议预设，不是硬编码模型。
+- 配置保存显示名称、Provider、服务端模型 ID 和 Base URL。生成参数由运行时使用稳定默认值，普通设置页不要求用户维护服务端能力参数。
+- 用户可以用尚未保存的表单值主动读取 Provider 模型目录；这不是后台自动发现，也不推断模型能力、价格或质量。
+- API Key 按模型配置 ID 存入 CredentialStore，只把“是否已配置”返回前端；Secret 仅在调用前同步到 Agent Core 内存。
+- 新会话继承 Workspace 默认模型，当前会话可以显式覆盖。单个任务固定使用会话选定模型。
 
-以下 ModelRegistry、路由、降级和成本章节描述 Phase 2 目标设计，不能作为 Phase 1 已交付声明。
+## 2. Phase 2 目标：ModelRegistry
 
----
+本节是目标结构，不是当前 YAML Schema、数据库 Schema 或已交付设置页面。
 
-## 2. ModelRegistry 配置结构
-
-### 2.1 配置层次
+### 2.1 概念结构
 
 ```yaml
 models:
-  # 默认模型配置
-  defaults:
-    chat: "qwen2.5"
-    embedding: "bge"
-    image: null
+  registry:
+    <profile_id>:
+      kind: chat                 # chat / embedding / image
+      provider: <adapter_id>
+      model: <provider_model_id>
+      endpoint: <user_or_deployment_value>
+      credential_ref: <secret_reference>
+      capabilities: {}           # Provider 探测或管理员声明，可为空
+      metadata_source: provider  # provider / operator / observed
 
-  # 备用模型（主模型失败时降级）
-  fallbacks:
+  routing:
     chat:
-      primary: "qwen2.5"
-      secondary: "gpt-4o"
-      tertiary: "claude"
+      default_profile_id: <profile_id>
+      fallback_profile_ids: []
     embedding:
-      primary: "bge"
-      secondary: "openai"
-      tertiary: "gte"
-
-  # Chat 模型详细配置
-  chat:
-    qwen2.5:
-      provider: "vllm"
-      endpoint: "http://localhost:8000/v1/chat/completions"
-      model_name: "Qwen/Qwen2.5-7B-Instruct"
-      max_tokens: 4096
-      temperature: 0.7
-      timeout: 30
-      cost_per_token: 0.0000001
-      speed_tier: "fast"          # fast / medium / slow
-      quality_tier: "standard"    # standard / high / highest
-
-    gpt-4o:
-      provider: "openai"
-      endpoint: "https://api.openai.com/v1/chat/completions"
-      model_name: "gpt-4o"
-      max_tokens: 8192
-      temperature: 0.7
-      timeout: 60
-      cost_per_token: 0.000025
-      speed_tier: "medium"
-      quality_tier: "high"
-
-    claude:
-      provider: "anthropic"
-      endpoint: "https://api.anthropic.com/v1/messages"
-      model_name: "claude-3-sonnet-20240229"
-      max_tokens: 8192
-      temperature: 0.7
-      timeout: 60
-      cost_per_token: 0.000003
-      speed_tier: "medium"
-      quality_tier: "high"
-
-    llama:
-      provider: "vllm"
-      endpoint: "http://localhost:8001/v1/chat/completions"
-      model_name: "meta-llama/Llama-3-8B-Instruct"
-      max_tokens: 4096
-      temperature: 0.7
-      timeout: 30
-      cost_per_token: 0.0
-      speed_tier: "fast"
-      quality_tier: "standard"
-
-  # Embedding 模型详细配置
-  embedding:
-    bge:
-      provider: "local"
-      model_name: "BAAI/bge-m3"
-      dimension: 1024
-      max_length: 8192
-      cost_per_token: 0.0
-      deployment: "cpu"
-
-    openai:
-      provider: "openai"
-      model_name: "text-embedding-3-large"
-      dimension: 3072
-      max_length: 8191
-      cost_per_token: 0.00000013
-      deployment: "api"
-
-    gte:
-      provider: "aliyun"
-      model_name: "text-embedding-v2"
-      dimension: 1024
-      max_length: 2048
-      cost_per_token: 0.00000007
-      deployment: "api"
-
-  # Image 模型（可选）
-  image:
-    flux:
-      provider: "local"
-      model_name: "black-forest-labs/FLUX.1-dev"
-      max_resolution: "1536x1536"
-      cost_per_image: 0.0
-    dall_e:
-      provider: "openai"
-      model_name: "dall-e-3"
-      max_resolution: "1024x1024"
-      cost_per_image: 0.04
+      default_profile_id: null
+      fallback_profile_ids: []
+    image:
+      default_profile_id: null
+      fallback_profile_ids: []
 ```
 
-### 2.2 模型能力标签
+占位符表示运行时数据，不代表内置模型。Registry 只保存选择所需的稳定引用；Provider 请求格式仍由 Adapter 负责。
 
-每个模型附带能力标签，用于路由决策：
+### 2.2 配置所有权
 
-| 标签 | 说明 |
-|------|------|
-| `reasoning` | 擅长逻辑推理 |
-| `coding` | 擅长代码生成 |
-| `creative` | 擅长创意写作 |
-| `multilingual` | 多语言支持 |
-| `fast` | 响应速度快 |
-| `cheap` | 成本低 |
-| `local` | 可本地部署 |
+| 数据 | 权威来源 | 是否允许硬编码到 Agent |
+|---|---|---|
+| Provider、模型 ID、Base URL、默认模型 | 用户或部署配置 | 否 |
+| API Key、Token | CredentialStore | 否 |
+| 上下文窗口、输入类型、Tool Calling 等能力 | Provider 探测或管理员声明 | 仅协议级默认值 |
+| Temperature、输出上限、超时 | 运行时策略与 Provider 约束 | 不作为模型目录事实 |
+| 价格 | Provider 账单/可更新的价格元数据 | 否 |
+| 延迟、成功率、限流情况 | Telemetry 观测 | 否 |
+| 路由权重、预算和数据驻留约束 | Workspace Policy | 否 |
 
----
+能力元数据必须带来源和更新时间。未知能力保持 `unknown`，不能根据模型名称字符串猜测。
 
-## 3. ModelProviderFactory 创建流程
+## 3. Phase 2 目标：路由决策
 
-### 3.1 工厂类设计
-
-```python
-class ModelProviderFactory:
-    """模型提供商工厂，负责创建和管理模型实例。"""
-
-    _registry: Dict[str, Type[IModelProvider]] = {}
-
-    @classmethod
-    def register(cls, provider_name: str, provider_class: Type[IModelProvider]):
-        """注册新的模型提供商。"""
-        cls._registry[provider_name.lower()] = provider_class
-
-    @classmethod
-    def create(cls, provider_name: str, config: Dict[str, Any]) -> IModelProvider:
-        """根据 provider_name 创建模型实例。"""
-        provider_class = cls._registry.get(provider_name.lower())
-        if not provider_class:
-            raise UnknownProviderError(f"Provider '{provider_name}' not registered")
-        return provider_class(config=config)
-
-    @classmethod
-    def create_from_registry(cls, model_key: str, registry: ModelRegistry) -> IModelProvider:
-        """从 ModelRegistry 配置创建模型实例。"""
-        model_config = registry.get_model(model_key)
-        return cls.create(model_config.provider, model_config.to_dict())
+```text
+任务请求
+→ 读取会话显式选择
+→ 若存在显式选择，验证可用性并使用
+→ 否则读取 Workspace 默认配置
+→ 按任务所需能力过滤候选
+→ 应用数据驻留、预算和权限约束
+→ 使用可观测数据排序
+→ 选定单个配置并记录决策依据
 ```
 
-### 3.2 提供商注册
+约束：
 
-| 提供商 | 注册名称 | 支持模型 |
-|--------|----------|----------|
-| vLLM | `vllm` | 本地部署的 HuggingFace 模型 |
-| OpenAI | `openai` | GPT-4o、text-embedding-3、DALL-E |
-| Anthropic | `anthropic` | Claude 系列 |
-| Alibaba | `aliyun` | GTE Embedding |
-| Local | `local` | 本地 CPU/GPU 推理 |
+- 用户显式选择优先，除非配置已删除、凭证失效或违反强制策略。
+- 自动路由只在 Phase 2 开启，Phase 1 不根据语言、模型名称或 Prompt 长度静默换模型。
+- 路由结果绑定到任务；任务执行中不因普通延迟随意更换模型。
+- 路由日志只保存配置引用和决策元数据，不保存 Secret 或完整 Prompt。
 
-### 3.3 创建时序
+## 4. Phase 2 目标：失败与降级
 
-```
-用户请求 / 系统调度
-  │
-  ├─ 确定模型类型（chat / embedding / image）
-  │
-  ├─ 查找 ModelRegistry 获取配置
-  │   ├─ 使用默认模型
-  │   └─ 或根据路由策略选择
-  │
-  ├─ ModelProviderFactory.create()
-  │   ├─ 根据 provider 类型选择对应工厂
-  │   ├─ 传入配置参数
-  │   └─ 返回 IModelProvider 实例
-  │
-  ├─ 缓存实例（避免重复创建）
-  │
-  └─ 返回模型实例供调用
+可降级错误包括连接超时、限流和 Provider 5xx；认证失败、无权限、数据驻留冲突及请求校验失败默认不跨 Provider 重试。
+
+```text
+主配置调用失败
+→ 错误分类
+→ 判断请求是否安全重试
+→ 验证 fallback 的能力、权限和数据边界
+→ 切换并通知用户
+→ 记录原配置、替代配置和原因
 ```
 
----
+- fallback 列表保存配置 ID，不保存厂商或模型常量。
+- 带副作用工具调用的续接必须复用已持久化 ToolCall 状态，不能重新执行已完成副作用。
+- 降级导致能力、费用或数据位置变化时必须向用户显示。
+- 重试次数、退避和超时由运行时策略控制，不写入模型目录条目。
 
-## 4. 路由策略
+## 5. Phase 2 目标：Embedding 与 Image
 
-### 4.1 任务复杂度评估
+Embedding 和 Image 使用与 Chat 相同的 Registry 标识、Credential Reference 和 Workspace 隔离，但拥有独立 Adapter；不能因为三个类型都叫“模型”就复用请求结构。
 
-系统根据任务特征自动选择模型：
+Embedding 设置启用前必须同时具备：
 
-```python
-def route_task(task: Task, context: dict = None) -> str:
-    """根据任务特征选择最优模型。"""
+- Provider Adapter 和连接验证。
+- 维度、最大输入和批处理能力探测。
+- 索引版本与重建流程。
+- Secret 隔离及费用/资源提示。
+- 对应 API、持久化 Schema 和测试。
 
-    # 复杂度由 5 维度加权评分得出，仅三级：simple / standard / complex
-    complexity = assess_complexity(task.content, context or {})
-    language = detect_language(task.content)
+Image 设置启用前必须同时具备：
 
-    if complexity == "simple":
-        # 简单任务 → 快速低成本模型
-        if (context or {}).get("budget") == "minimal":
-            return "llama"       # 本地模型，零成本
-        return "qwen2.5"         # 平衡型模型
+- Provider Adapter、输出类型和尺寸能力探测。
+- 生成内容的存储、清理和审计边界。
+- 对应 API、持久化 Schema 和测试。
 
-    elif complexity == "standard":
-        # 中等任务 → 标准模型；语言类型仅在此处影响选择
-        if language == "zh":
-            return "qwen2.5"     # 中文优化
-        return "gpt-4o"          # 通用能力强
+以上闭环未完成前，前端不得展示可保存的 Embedding/Image 设置表单。
 
-    else:  # complex
-        # 复杂任务 → 强模型
-        if task.requires_reasoning:
-            return "claude"      # 推理能力强
-        return "gpt-4o"          # 综合能力最强
-```
+## 6. API 与界面边界
 
-### 4.2 复杂度评估维度
+Phase 1 设置页只消费已经存在的 Chat 模型 API；Provider 预设只填充协议类型和常见 Base URL，不承诺具体模型可用。
 
-| 维度 | 权重 | 说明 | 实现阶段 |
-|------|------|------|----------|
-| 指令长度 | 20% | Token 数量越多越复杂 | Phase 2 目标 |
-| 工具调用数 | 25% | 需要调用的工具数量（来源：`context["tool_hints"]`） | Phase 2 目标 |
-| 推理深度 | 30% | 是否需要多步推理 | Phase 2 目标 |
-| 语言类型 | —（不参与评分） | 中文任务偏好 qwen2.5，仅影响模型选择 | Phase 2 目标 |
-| 预算约束 | 10% | 用户设定的成本上限 | Phase 2 目标 |
+Phase 2 增加 Registry、能力探测、路由策略或 Embedding/Image 页面时，必须同步交付：
 
-> **实现边界**：Phase 1 不运行本节算法，只使用默认模型或用户为会话显式选择的模型。复杂度评估、语言偏好、预算路由和 fallback 均为 Phase 2 目标。
+1. Gateway REST 契约。
+2. Agent Core 领域接口和持久化。
+3. Credential Reference 流程。
+4. 前端加载、保存、错误和空状态。
+5. 单元、集成和端到端测试。
+6. Current/Planned 文档更新。
 
-### 4.3 路由决策表
+不允许先加入空设置页、静态模型清单或只能修改前端内存的控件。
 
-| 任务类型 | 复杂度 | 首选模型 | 备选模型 |
-|----------|--------|----------|----------|
-| 文件读取 | simple | llama | qwen2.5 |
-| 代码生成 | complex | gpt-4o | claude |
-| 网页搜索 | simple | qwen2.5 | llama |
-| 知识检索 | standard | qwen2.5 | gpt-4o |
-| 多步规划 | complex | claude | gpt-4o |
-| 总结摘要 | simple | llama | qwen2.5 |
-| 创意写作 | standard | gpt-4o | claude |
-| 数据分析 | complex | claude | gpt-4o |
+## 7. 验收清单
 
----
+### Phase 1
 
-## 5. 降级策略
+- [x] Chat 配置、默认配置和会话覆盖使用同一配置 ID。
+- [x] 模型目录由用户主动从实际服务读取，不维护内置模型清单。
+- [x] Secret 不进入普通配置、事件或数据库。
+- [x] Provider/Base URL 变化时不复用旧凭证。
+- [x] 未声称已经支持自动路由、fallback、Embedding 或 Image 设置。
 
-### 5.1 降级决策树
+### Phase 2
 
-```
-主模型调用
-  │
-  ├─ 成功 → 返回结果
-  │
-  ├─ API 超时 (>timeout)
-  │   ├─ 有备用模型 → 切换到备用模型
-  │   └─ 无备用 → 返回超时错误
-  │
-  ├─ 速率限制 (429)
-  │   ├─ 等待重试（指数退避）
-  │   └─ 仍失败 → 切换到备用模型
-  │
-  ├─ 认证失败 (401)
-  │   ├─ 检查凭证是否过期
-  │   ├─ 刷新凭证后重试
-  │   └─ 仍失败 → 切换到备用模型
-  │
-  ├─ 模型返回错误响应
-  │   ├─ 解析错误 → 修正请求格式后重试
-  │   └─ 模型内部错误 → 切换到备用模型
-  │
-  └─ 成本超支
-      ├─ 降级到更便宜的模型
-      └─ 通知用户
-```
-
-### 5.2 降级规则
-
-| 故障类型 | 动作 | 重试次数 | 超时时间 |
-|----------|------|----------|----------|
-| 连接超时 | 切换到下一个备用模型 | 1 | 原 timeout × 1.5 |
-| 速率限制 | 指数退避重试 | 3 | 1s, 2s, 4s |
-| 服务器错误 (5xx) | 切换到备用模型 | 2 | 原 timeout |
-| 认证失败 | 刷新凭证后重试 | 1 | 原 timeout |
-| 模型输出截断 | 追加续接请求 | 1 | 原 timeout |
-| 成本超限 | 降级到低成本模型 | 0 | - |
-
-### 5.3 本地模型优先策略
-
-当满足以下条件时，优先使用本地模型：
-
-1. 网络不可达（离线模式）
-2. 任务复杂度为 simple 或 standard
-3. 本地模型质量评分 >= 阈值（默认 0.7）
-4. 用户明确偏好本地推理（隐私需求）
-
-```python
-def should_use_local_model(task: Task) -> bool:
-    """判断是否应优先使用本地模型。"""
-    if not network_available():
-        return True
-    if task.privacy_level == "high":
-        return True
-    if assess_complexity(task.content, {}) in ("simple", "standard"):
-        local_quality = get_local_model_quality_score()
-        return local_quality >= QUALITY_THRESHOLD
-    return False
-```
-
----
-
-## 6. 成本优化
-
-### 6.1 Token 统计
-
-每个模型调用记录 Token 使用情况：
-
-```python
-@dataclass
-class TokenUsage:
-    model_name: str
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-    cost: float
-    timestamp: datetime
-```
-
-**统计维度**：
-- 按模型分类统计
-- 按任务/会话分组统计
-- 按日/周/月聚合统计
-
-### 6.2 成本计算公式
-
-```
-单次调用成本 = total_tokens × cost_per_token
-日成本 = Σ(当日所有调用成本)
-月成本 = Σ(当月所有调用成本)
-```
-
-### 6.3 模型选择建议
-
-| 场景 | 推荐模型 | 理由 |
-|------|----------|------|
-| 日常对话 | qwen2.5 | 成本低、中文好 |
-| 代码审查 | gpt-4o | 代码理解能力强 |
-| 逻辑推理 | claude | 推理质量最高 |
-| 离线场景 | llama | 无需网络、零成本 |
-| 嵌入检索 | bge | 免费、中文效果好 |
-| 图像生成 | flux (本地) | 免费、可控 |
-
-### 6.4 成本限制配置
-
-```yaml
-cost_limits:
-  daily_chat: 1.00          # 每日 Chat 模型费用上限
-  monthly_embedding: 5.00   # 每月 Embedding 费用上限
-  per_request_max_tokens: 8192  # 单次请求最大 Token 数
-  fallback_on_limit_exceed: true  # 超限时自动降级
-```
-
----
-
-## 7. 支持模型列表
-
-### 7.1 Chat 模型
-
-| 模型 | 提供商 | 最大 Token | 速度 | 成本 | 语言能力 |
-|------|--------|-----------|------|------|----------|
-| qwen2.5 | Qwen / vLLM | 32K | 快 | 极低 | 中英双语优 |
-| gpt-4o | OpenAI | 128K | 中 | 高 | 多语言优 |
-| claude-3-sonnet | Anthropic | 200K | 中 | 中 | 多语言良 |
-| llama-3-8b | Meta / vLLM | 8K | 快 | 免费 | 英语优 |
-| gemini-pro | Google | 128K | 快 | 低 | 多语言良 |
-
-### 7.2 Embedding 模型
-
-| 模型 | 提供商 | 维度 | 最大长度 | 成本 | 部署方式 |
-|------|--------|------|----------|------|----------|
-| BGE-M3 | BAAI | 1024 | 8192 | 免费 | 本地 CPU/GPU |
-| text-embedding-3-large | OpenAI | 3072 | 8191 | 低 | API |
-| text-embedding-v2 | Alibaba | 1024 | 2048 | 极低 | API |
-
-### 7.3 Image 模型（可选）
-
-| 模型 | 提供商 | 最大分辨率 | 成本 | 部署方式 |
-|------|--------|-----------|------|----------|
-| FLUX.1-dev | Black Forest Labs | 1536x1536 | 免费 | 本地 GPU |
-| DALL-E 3 | OpenAI | 1024x1024 | 中 | API |
-
----
-
-## 附录：模型路由 Checklist
-
-- [ ] ModelRegistry 是否配置了默认模型和备用模型？
-- [ ] ModelProviderFactory 是否正确路由到对应提供商？
-- [ ] 路由策略是否覆盖 simple / standard / complex 三级复杂度？
-- [ ] 降级策略是否处理了超时、限流、认证失败等场景？
-- [ ] 本地模型优先策略是否生效？
-- [ ] Token 统计是否准确记录？
-- [ ] 成本限制是否可配置？
-- [ ] 所有支持的模型是否已在配置中声明？
+- [ ] ModelRegistry 的能力元数据包含来源与更新时间。
+- [ ] 路由仅使用满足能力和强制策略的候选配置。
+- [ ] fallback 对用户可见并保持工具副作用幂等。
+- [ ] 成本和延迟来自可更新数据源或观测，不写死在代码中。
+- [ ] Embedding/Image 在完整后端契约交付后再提供设置页面。

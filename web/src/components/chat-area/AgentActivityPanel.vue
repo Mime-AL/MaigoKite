@@ -4,7 +4,10 @@ import IconSymbol from '@/components/common/IconSymbol.vue'
 import type { AgentActivityGroup, AgentActivityItem } from '@/api/client'
 
 const props = defineProps<{ group: AgentActivityGroup }>()
-const expanded = ref(props.group.status === 'running')
+const hasAttention = computed(() =>
+  props.group.items.some((item) => item.status === 'failed' || item.status === 'denied' || item.hint),
+)
+const expanded = ref(props.group.status === 'running' || hasAttention.value)
 
 const isRunning = computed(
   () =>
@@ -15,11 +18,18 @@ const heading = computed(() => {
   if (props.group.status === 'failed') return '执行失败'
   if (props.group.status === 'cancelled') return '已停止'
   if (isRunning.value) return '正在工作'
+  const failed = props.group.items.filter(
+    (item) => item.status === 'failed' || item.status === 'denied',
+  ).length
+  if (failed) return `已完成，${failed} 项需要处理`
   return `已完成 ${props.group.items.length} 项操作`
 })
 
 watch(isRunning, (running) => {
   if (running) expanded.value = true
+})
+watch(hasAttention, (attention) => {
+  if (attention) expanded.value = true
 })
 
 function itemIcon(item: AgentActivityItem): string {
@@ -56,7 +66,7 @@ function detailText(item: AgentActivityItem): string {
     >
       <span class="activity-state" :class="{ pulse: isRunning }">
         <IconSymbol
-          :name="isRunning ? 'activity' : group.status === 'failed' ? 'alert' : 'check'"
+          :name="isRunning ? 'activity' : hasAttention ? 'alert' : 'check'"
           :size="14"
         />
       </span>
@@ -82,6 +92,11 @@ function detailText(item: AgentActivityItem): string {
             <small>{{ statusLabel(item) }}</small>
           </div>
           <p v-if="item.summary">{{ item.summary }}</p>
+          <aside v-if="item.hint" class="item-hint" role="status">
+            <IconSymbol name="info" :size="14" />
+            <span>{{ item.hint }}</span>
+            <router-link v-if="item.action" :to="item.action.to">{{ item.action.label }}</router-link>
+          </aside>
           <details v-if="detailText(item)" class="item-detail">
             <summary>查看详情</summary>
             <pre>{{ detailText(item) }}</pre>
@@ -244,6 +259,23 @@ function detailText(item: AgentActivityItem): string {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.item-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: var(--warning-soft);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.item-hint .icon-symbol { margin-top: 1px; flex: none; color: var(--warning); }
+.item-hint span { flex: 1; }
+.item-hint a { flex: none; color: var(--primary-color); font-weight: 650; }
+.item-hint a:hover { text-decoration: underline; }
 .item-detail {
   margin-top: 6px;
 }

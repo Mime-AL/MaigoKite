@@ -1,20 +1,41 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import ModelSettingsPanel from '@/components/settings/ModelSettingsPanel.vue'
 import PermissionSettingsPanel from '@/components/settings/PermissionSettingsPanel.vue'
+import RuntimeStatusPanel from '@/components/settings/RuntimeStatusPanel.vue'
+import SearchToolSettingsPanel from '@/components/settings/SearchToolSettingsPanel.vue'
 import { useSettingsStore } from '@/stores/settings'
 
-type SettingsTab = 'models' | 'permissions' | 'general'
+type SettingsTab = 'models' | 'tools' | 'permissions' | 'workspace' | 'general'
 
 const settings = useSettingsStore()
-const activeTab = ref<SettingsTab>('models')
+const route = useRoute()
+const router = useRouter()
+const isSettingsTab = (value: unknown): value is SettingsTab =>
+  ['models', 'tools', 'permissions', 'workspace', 'general'].includes(String(value))
+const activeTab = ref<SettingsTab>(isSettingsTab(route.query.tab) ? route.query.tab : 'models')
 const profileDraft = reactive({ assistantName: settings.profile.assistantName })
 const tabs: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'models', label: '模型服务', icon: 'brain' },
+  { id: 'tools', label: '联网工具', icon: 'globe' },
   { id: 'permissions', label: '权限', icon: 'shield' },
+  { id: 'workspace', label: '工作区', icon: 'folder' },
   { id: 'general', label: '通用', icon: 'settings' },
 ]
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (isSettingsTab(tab)) activeTab.value = tab
+  },
+)
+
+function selectTab(tab: SettingsTab) {
+  activeTab.value = tab
+  void router.replace({ query: { ...route.query, tab } })
+}
 
 onMounted(async () => {
   await Promise.all([settings.loadSettings(), settings.loadPreferences(), settings.loadPermissionSettings()])
@@ -33,7 +54,7 @@ async function handleSavePreferences() {
       <div>
         <p class="page-eyebrow">Preferences</p>
         <h1 class="page-title">设置</h1>
-        <p class="page-subtitle">管理多个模型配置、默认模型、执行权限与界面偏好。</p>
+        <p class="page-subtitle">管理模型、联网工具、执行权限，并查看当前工作区运行状态。</p>
       </div>
       <span class="version">NanamiGopher · Phase 1</span>
     </header>
@@ -44,7 +65,7 @@ async function handleSavePreferences() {
         :key="tab.id"
         type="button"
         :class="{ active: activeTab === tab.id }"
-        @click="activeTab = tab.id"
+        @click="selectTab(tab.id)"
       >
         <IconSymbol :name="tab.icon" :size="16" />
         {{ tab.label }}
@@ -52,7 +73,9 @@ async function handleSavePreferences() {
     </nav>
 
     <ModelSettingsPanel v-if="activeTab === 'models'" />
+    <SearchToolSettingsPanel v-else-if="activeTab === 'tools'" />
     <PermissionSettingsPanel v-else-if="activeTab === 'permissions'" />
+    <RuntimeStatusPanel v-else-if="activeTab === 'workspace'" />
 
     <section v-else class="general-card glass-card">
       <header>

@@ -99,6 +99,19 @@ export const useSessionStore = defineStore('session', () => {
             : event.payload.denied
               ? 'denied'
               : 'failed'
+    const rawAction = event.payload.action
+    const action =
+      rawAction &&
+      typeof rawAction === 'object' &&
+      typeof (rawAction as Record<string, unknown>).label === 'string' &&
+      typeof (rawAction as Record<string, unknown>).to === 'string' &&
+      String((rawAction as Record<string, unknown>).to).startsWith('/') &&
+      !String((rawAction as Record<string, unknown>).to).startsWith('//')
+        ? {
+            label: String((rawAction as Record<string, unknown>).label),
+            to: String((rawAction as Record<string, unknown>).to),
+          }
+        : existing?.action
     upsertActivity(id, {
       id: activityId,
       task_id: event.task_id || existing?.task_id || '',
@@ -106,6 +119,8 @@ export const useSessionStore = defineStore('session', () => {
       status,
       title: String(event.payload.tool_name || existing?.title || '工具调用'),
       summary: String(event.payload.summary || event.payload.message || existing?.summary || ''),
+      hint: String(event.payload.user_hint || existing?.hint || '') || undefined,
+      action,
       detail: {
         ...previousDetail,
         ...(event.payload.arguments ? { arguments: event.payload.arguments } : {}),
@@ -198,6 +213,8 @@ export const useSessionStore = defineStore('session', () => {
     const content = String(event.payload?.content || '')
     const taskId = event.task_id || ''
     if (event.type === 'task.started') setTaskActivityStatus(id, taskId, 'running')
+    if (event.type === 'task.waiting_approval')
+      setTaskActivityStatus(id, taskId, 'waiting_approval')
     if (event.type === 'task.succeeded') setTaskActivityStatus(id, taskId, 'completed')
     if (event.type === 'task.failed') setTaskActivityStatus(id, taskId, 'failed')
     if (event.type === 'task.cancelled') setTaskActivityStatus(id, taskId, 'cancelled')
@@ -245,6 +262,7 @@ export const useSessionStore = defineStore('session', () => {
       const approvalId = String(event.payload.approval_id || '')
       approvals.value[id] = (approvals.value[id] || []).filter((item) => item.id !== approvalId)
       isSending.value = event.payload.decision === 'allow'
+      if (event.payload.decision === 'allow') setTaskActivityStatus(id, taskId, 'running')
     }
     if (event.type === 'error' || event.type === 'task.failed') {
       error.value = event.payload?.message || 'Agent 执行失败'
@@ -338,7 +356,10 @@ export const useSessionStore = defineStore('session', () => {
         status: statuses[task_id] || 'running',
         items: (grouped.get(task_id) || []).slice().sort((a, b) => a.sequence - b.sequence),
       }))
-      .filter((group) => group.status === 'running' || group.items.length > 0)
+      .filter(
+        (group) =>
+          group.status === 'running' || group.status === 'waiting_approval' || group.items.length > 0,
+      )
   })
   return {
     sessions,

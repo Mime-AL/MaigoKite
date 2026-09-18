@@ -22,6 +22,7 @@ func TestNewRouterRegistersDistinctModelActionRoutes(t *testing.T) {
 	for _, expected := range []string{
 		"POST /api/v1/workspaces/:workspaceID/models/actions/validate",
 		"POST /api/v1/workspaces/:workspaceID/models/actions/discover",
+		"GET /api/v1/workspaces/:workspaceID/runtime-status",
 	} {
 		if !routes[expected] {
 			t.Fatalf("expected route %q to be registered", expected)

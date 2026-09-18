@@ -25,12 +25,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '对话' }
       },
       {
-        path: 'inspector',
-        name: 'Inspector',
-        component: () => import('@/views/Inspector.vue'),
-        meta: { title: 'Inspector' }
-      },
-      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/Settings.vue'),
@@ -41,54 +35,6 @@ const routes: RouteRecordRaw[] = [
         name: 'AuditLog',
         component: () => import('@/views/AuditLog.vue'),
         meta: { title: '审计日志' }
-      },
-      {
-        path: 'search',
-        name: 'Search',
-        component: () => import('@/views/Search.vue'),
-        meta: { title: '搜索' }
-      },
-      {
-        path: 'scheduled-tasks',
-        name: 'ScheduledTasks',
-        component: () => import('@/views/ScheduledTasks.vue'),
-        meta: { title: '定时任务' }
-      },
-      {
-        path: 'browser',
-        name: 'Browser',
-        component: () => import('@/views/Browser.vue'),
-        meta: { title: '浏览器控制' }
-      },
-      {
-        path: 'packages',
-        name: 'PackageManager',
-        component: () => import('@/views/PackageManager.vue'),
-        meta: { title: '包管理' }
-      },
-      {
-        path: 'skills',
-        name: 'SkillManager',
-        component: () => import('@/views/SkillManager.vue'),
-        meta: { title: 'Skill 管理' }
-      },
-      {
-        path: 'daily-review',
-        name: 'DailyReview',
-        component: () => import('@/views/DailyReview.vue'),
-        meta: { title: '每日回顾' }
-      },
-      {
-        path: 'long-term-plan',
-        name: 'LongTermPlan',
-        component: () => import('@/views/LongTermPlan.vue'),
-        meta: { title: '长期计划' }
-      },
-      {
-        path: 'archive',
-        name: 'Archive',
-        component: () => import('@/views/Archive.vue'),
-        meta: { title: '归档' }
       }
     ]
   }

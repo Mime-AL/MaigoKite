@@ -42,6 +42,11 @@ func (h *CredentialHandler) Save(c *gin.Context) {
 			grpcError(c, err)
 			return
 		}
+	} else if req.Service == "tavily" || req.Service == "google" {
+		if err := h.client.SetToolCredential(c.Request.Context(), c.Param("workspaceID"), req.Service, req.APIKey); err != nil {
+			grpcError(c, err)
+			return
+		}
 	}
 	_ = h.client.RecordAuditEvent(c.Request.Context(), c.Param("workspaceID"), "local-user", "credential.saved", req.Service, "success")
 
@@ -112,6 +117,11 @@ func (h *CredentialHandler) Update(c *gin.Context) {
 			grpcError(c, err)
 			return
 		}
+	} else if service == "tavily" || service == "google" {
+		if err := h.client.SetToolCredential(c.Request.Context(), c.Param("workspaceID"), service, req.APIKey); err != nil {
+			grpcError(c, err)
+			return
+		}
 	}
 	_ = h.client.RecordAuditEvent(c.Request.Context(), c.Param("workspaceID"), "local-user", "credential.updated", service, "success")
 
@@ -131,6 +141,11 @@ func (h *CredentialHandler) Delete(c *gin.Context) {
 	}
 	if strings.HasPrefix(service, "model.") {
 		if err := h.client.SetChatModelCredential(c.Request.Context(), c.Param("workspaceID"), strings.TrimPrefix(service, "model."), ""); err != nil {
+			grpcError(c, err)
+			return
+		}
+	} else if service == "tavily" || service == "google" {
+		if err := h.client.SetToolCredential(c.Request.Context(), c.Param("workspaceID"), service, ""); err != nil {
 			grpcError(c, err)
 			return
 		}

@@ -165,6 +165,10 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
     async def SetChatModelCredential(self,request,context):
         await self._core.set_chat_model_credential(request.workspace_id or "personal",request.provider,request.api_key,request.model_id)
         return agent_pb2.Empty()
+    async def SetToolCredential(self,request,context):
+        try:await self._core.set_tool_credential(request.workspace_id or "personal",request.service,request.api_key)
+        except ValueError as exc:await context.abort(grpc.StatusCode.INVALID_ARGUMENT,str(exc))
+        return agent_pb2.Empty()
     async def GetUserPreferences(self,request,context):
         item=await self._core.get_user_preferences(request.workspace_id or "personal",request.subject_user_id or "local-user")
         return agent_pb2.UserPreferences(**item)

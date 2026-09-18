@@ -133,7 +133,13 @@ func (m *Manager) validateAPIKey(engine, apiKey string) error {
 		return err
 	}
 	switch engine {
-	case "tavily", "google", "model.openai", "model.anthropic", "model.openai_compatible":
+	case "google":
+		key, cx, found := strings.Cut(trimmed, ":")
+		if !found || strings.TrimSpace(key) == "" || strings.TrimSpace(cx) == "" {
+			return errors.New("Google search requires both an API key and a search engine ID (CX)")
+		}
+		return nil
+	case "tavily", "model.openai", "model.anthropic", "model.openai_compatible":
 		return nil
 	default:
 		return fmt.Errorf("unsupported credential service %q", engine)

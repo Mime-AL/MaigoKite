@@ -24,6 +24,7 @@ service AgentService {
   rpc SetDefaultChatModel(ChatModelRequest) returns (ChatModelList);
   rpc ValidateChatModel(ValidateChatModelRequest) returns (ModelValidationResponse);
   rpc SetChatModelCredential(SetChatModelCredentialRequest) returns (Empty);
+  rpc SetToolCredential(SetToolCredentialRequest) returns (Empty);
   rpc GetUserPreferences(UserPreferencesRequest) returns (UserPreferences);
   rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (UserPreferences);
   rpc GetPermissionSettings(WorkspaceRequest) returns (PermissionSettings);
@@ -152,6 +153,11 @@ message SetChatModelCredentialRequest {
   string api_key = 2;
   string provider = 3;
   string model_id = 4;
+}
+message SetToolCredentialRequest {
+  string workspace_id = 1;
+  string service = 2;
+  string api_key = 3;
 }
 message UserPreferencesRequest {
   string workspace_id = 1;

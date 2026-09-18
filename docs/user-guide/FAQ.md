@@ -17,7 +17,7 @@ Native Tool 在 Python Agent Core 进程内执行；MCP Tool 由 Python MCPClien
 
 ## 如何安装 Skill？
 
-本地文件使用 import，受支持的注册源使用 install。安装前系统会验证 manifest、来源、能力、资源和凭证请求。格式见 [Skill Lifecycle](../agent-capabilities/skills/skill-lifecycle.md)。
+Phase 1 没有 Skill 安装或管理页面/API；部署者只能通过服务端配置声明受信的 stdio MCP Server。Skill 的本地 import、注册源 install、版本与 Workspace 授权是 Phase 2 目标，格式见 [Skill Lifecycle](../agent-capabilities/skills/skill-lifecycle.md)。
 
 ## 数据存在哪里？
 
@@ -25,7 +25,7 @@ Native Tool 在 Python Agent Core 进程内执行；MCP Tool 由 Python MCPClien
 
 ## Memory 和知识库有什么区别？
 
-Memory 保存 Agent 运行和用户相关信息；知识库保存用户导入或授权接入的外部资料。消息和原始文档是事实来源，摘要与向量索引可以重建。详见 [Memory](../agent-capabilities/memory/memory-system.md)。
+Phase 1 只持久化会话消息，并保存少量显式用户偏好（当前为界面称呼）。完整 User Memory、知识库、摘要、Embedding 与向量索引属于 Phase 2；其中消息和原始文档是事实来源，摘要与索引均可重建。详见 [Memory](../agent-capabilities/memory/memory-system.md)。
 
 ## WebSocket 断开会取消任务吗？
 

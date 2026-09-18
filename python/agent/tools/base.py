@@ -51,6 +51,10 @@ class ToolResult:
     summary: str
     raw: str | bytes | None
     metadata: dict[str, Any]
+    success: bool
+    error_code: str | None
+    user_hint: str | None
+    action: dict[str, str] | None
 
     def __init__(
         self,
@@ -58,11 +62,44 @@ class ToolResult:
         summary: str,
         raw: str | bytes | None = None,
         metadata: dict[str, Any] | None = None,
+        *,
+        success: bool = True,
+        error_code: str | None = None,
+        user_hint: str | None = None,
+        action: dict[str, str] | None = None,
     ) -> None:
         self.data = data
         self.summary = summary
         self.raw = raw
         self.metadata = metadata or {}
+        self.success = success
+        self.error_code = error_code
+        self.user_hint = user_hint
+        self.action = action
+
+    @classmethod
+    def failure(
+        cls,
+        data: dict[str, Any],
+        summary: str,
+        *,
+        error_code: str,
+        user_hint: str | None = None,
+        action: dict[str, str] | None = None,
+        raw: str | bytes | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> "ToolResult":
+        """Build a recoverable tool failure that the model may still reason about."""
+        return cls(
+            data,
+            summary,
+            raw,
+            metadata,
+            success=False,
+            error_code=error_code,
+            user_hint=user_hint,
+            action=action,
+        )
 
 
 class ToolResultStream:

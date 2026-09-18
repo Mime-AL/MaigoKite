@@ -3,7 +3,7 @@
 # App settings
 app:
   name: "NanamiGopher"
-  version: "1.0.0"
+  version: "0.1.0"
   environment: "development"
 
 # Model configuration
@@ -36,6 +36,12 @@ workspace:
 # Permission settings
 permissions:
   default_mode: "workspace"
+  # Empty arrays leave the corresponding dimension unrestricted. When set,
+  # these allowlists further narrow (never broaden) the ToolPolicy boundary.
+  allowlist:
+    tools: []
+    command_prefixes: []
+    paths: []
   circuit_breaker:
     enabled: true
     blocked_patterns:

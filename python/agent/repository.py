@@ -18,6 +18,16 @@ def _now() -> str:
 
 
 class SQLiteRepository:
+    TASK_STATUSES = {
+        "created", "queued", "running", "waiting_approval", "retry_wait",
+        "succeeded", "failed", "rejected", "expired", "cancelled", "timed_out",
+    }
+    TOOL_CALL_STATUSES = {
+        "proposed", "waiting_approval", "running", "succeeded",
+        "failed", "denied", "cancelled", "timed_out", "expired",
+    }
+    APPROVAL_STATUSES = {"pending", "consumed", "rejected", "expired"}
+
     def __init__(self, path: str | Path) -> None:
         raw = str(path)
         self.path = raw if raw == ":memory:" else str(Path(raw).expanduser().resolve())
@@ -82,6 +92,7 @@ class SQLiteRepository:
               id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
               task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, tool_name TEXT NOT NULL,
               arguments_json TEXT NOT NULL, assistant_content TEXT NOT NULL DEFAULT '',
+              continuation_json TEXT NOT NULL DEFAULT '{}',
               result_json TEXT, summary TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
               risk_level TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             );
@@ -111,6 +122,13 @@ class SQLiteRepository:
         if "response_mode" not in conversation_columns:
             connection.execute(
                 "ALTER TABLE conversations ADD COLUMN response_mode TEXT NOT NULL DEFAULT 'balanced'"
+            )
+        tool_call_columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(tool_calls)").fetchall()
+        }
+        if "continuation_json" not in tool_call_columns:
+            connection.execute(
+                "ALTER TABLE tool_calls ADD COLUMN continuation_json TEXT NOT NULL DEFAULT '{}'"
             )
         connection.execute(
             """UPDATE conversations SET permission_mode=CASE permission_mode
@@ -348,6 +366,7 @@ class SQLiteRepository:
     async def create_task_state(
         self, task_id: str, workspace_id: str, conversation_id: str, title: str, status: str
     ) -> None:
+        self._require_status(status, self.TASK_STATUSES, "task")
         now = _now()
         async with self._lock:
             self._db().execute(
@@ -357,23 +376,26 @@ class SQLiteRepository:
             self._db().commit()
 
     async def update_task_status(self, task_id: str, status: str) -> None:
+        self._require_status(status, self.TASK_STATUSES, "task")
         async with self._lock:
             self._db().execute("UPDATE tasks SET status=?,updated_at=? WHERE id=?", (status, _now(), task_id))
             self._db().commit()
 
     async def create_tool_call(
         self, tool_call_id: str, workspace_id: str, conversation_id: str, task_id: str,
-        tool_name: str, arguments: dict[str, Any], assistant_content: str = ""
+        tool_name: str, arguments: dict[str, Any], assistant_content: str = "",
+        continuation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = _now()
         async with self._lock:
             self._db().execute(
                 """INSERT INTO tool_calls(
                      id,workspace_id,conversation_id,task_id,tool_name,arguments_json,
-                     assistant_content,status,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                     assistant_content,continuation_json,status,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (tool_call_id, workspace_id, conversation_id, task_id, tool_name,
                  json.dumps(arguments, ensure_ascii=False, sort_keys=True), assistant_content,
+                 json.dumps(continuation or {}, ensure_ascii=False, sort_keys=True, default=str),
                  "proposed", now, now),
             )
             self._db().commit()
@@ -388,14 +410,20 @@ class SQLiteRepository:
 
     async def update_tool_call(
         self, tool_call_id: str, status: str, *, risk_level: str = "",
+        arguments: dict[str, Any] | None = None,
         result: dict[str, Any] | None = None, summary: str = ""
     ) -> None:
+        self._require_status(status, self.TOOL_CALL_STATUSES, "tool call")
         async with self._lock:
             self._db().execute(
                 """UPDATE tool_calls SET status=?,risk_level=CASE WHEN ?='' THEN risk_level ELSE ? END,
+                   arguments_json=COALESCE(?,arguments_json),
                    result_json=COALESCE(?,result_json),summary=CASE WHEN ?='' THEN summary ELSE ? END,
                    updated_at=? WHERE id=?""",
                 (status, risk_level, risk_level,
+                 None if arguments is None else json.dumps(
+                     arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                 ),
                  None if result is None else json.dumps(result, ensure_ascii=False, default=str),
                  summary, summary, _now(), tool_call_id),
             )
@@ -514,7 +542,7 @@ class SQLiteRepository:
             current_hash = "" if call is None else hashlib.sha256(str(call["arguments_json"]).encode("utf-8")).hexdigest()
             if not hmac.compare_digest(str(item["arguments_hash"]), current_hash):
                 self._db().execute(
-                    "UPDATE approvals SET status='denied',decided_at=?,version=version+1 WHERE id=?",
+                    "UPDATE approvals SET status='rejected',decided_at=?,version=version+1 WHERE id=?",
                     (now.isoformat(), approval_id),
                 )
                 self._db().execute(
@@ -533,8 +561,8 @@ class SQLiteRepository:
                 self._db().execute("UPDATE tasks SET status='timed_out',updated_at=? WHERE id=?", (now.isoformat(), item["task_id"]))
                 self._db().commit()
                 raise ValueError("approval has expired")
-            approval_status = "approved" if decision == "allow" else "denied"
-            call_status = "approved" if decision == "allow" else "denied"
+            approval_status = "consumed" if decision == "allow" else "rejected"
+            call_status = "running" if decision == "allow" else "denied"
             task_status = "running" if decision == "allow" else "cancelled"
             self._db().execute(
                 "UPDATE approvals SET status=?,decided_at=?,version=version+1 WHERE id=?",
@@ -550,6 +578,11 @@ class SQLiteRepository:
             )
             self._db().commit()
         return await self.get_approval(workspace_id, approval_id)
+
+    @staticmethod
+    def _require_status(status: str, allowed: set[str], resource: str) -> None:
+        if status not in allowed:
+            raise ValueError(f"invalid {resource} status: {status}")
 
     async def list_todos(self, workspace_id: str) -> list[dict[str, Any]]:
         async with self._lock:

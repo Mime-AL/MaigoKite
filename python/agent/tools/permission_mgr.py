@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from typing import Any
+from agent.security.whitelist import Whitelist
 
 class RiskLevel(IntEnum):
     L1=1; L2=2; L3=3; L4=4; L5=5
@@ -16,6 +17,7 @@ class PolicyDecision:
     risk: RiskLevel
     reason: str
     arguments: dict[str, Any]
+    resource_scope: str = ""
 
 class PermissionRequired(PermissionError):
     def __init__(self, decision: PolicyDecision) -> None:
@@ -34,7 +36,7 @@ class PermissionManager:
         "plan":"read_only","manual":"read_only",
         "accept_edits":"workspace","auto":"full_access",
     }
-    _HARD_DENY=re.compile(r"(^|\s)(rm\s+-rf\s+/($|\s)|mkfs(?:\.|\s)|shutdown($|\s)|reboot($|\s)|:\(\)\s*\{)",re.I)
+    _CORE_HARD_DENY=r"(^|\s)(rm\s+-rf\s+/($|\s)|mkfs(?:\.|\s)|shutdown($|\s)|reboot($|\s)|:\(\)\s*\{)"
     _LOW_RISK_COMMANDS={"pwd","ls","cat","head","tail","wc","rg","grep","git"}
 
     @classmethod
@@ -43,10 +45,18 @@ class PermissionManager:
         if normalized not in cls.MODES: raise ValueError(f"invalid permission mode: {mode}")
         return normalized
 
-    def __init__(self, mode: str="workspace", workspace_root: str|Path=".") -> None:
+    def __init__(
+        self, mode: str="workspace", workspace_root: str|Path=".",
+        allowlist: Whitelist|None=None, blocked_patterns:list[str]|None=None,
+    ) -> None:
         self.mode=self.normalize_mode(mode); self.workspace_root=Path(workspace_root).expanduser().resolve()
         if self.workspace_root == Path(self.workspace_root.anchor):
             raise ValueError("workspace root must not be a filesystem root")
+        self.allowlist=allowlist
+        extra=[re.escape(pattern) for pattern in (blocked_patterns or []) if pattern]
+        self._hard_deny=re.compile(
+            "|".join([f"(?:{self._CORE_HARD_DENY})", *extra]), re.I,
+        )
         self._grants:dict[str,set[str]]={}
     def grant(self, tool_name:str, permission:str)->None: self._grants.setdefault(tool_name,set()).add(permission)
     def revoke(self, tool_name:str, permission:str)->None: self._grants.get(tool_name,set()).discard(permission)
@@ -61,10 +71,14 @@ class PermissionManager:
         try: effective_mode = self.normalize_mode(mode or self.mode)
         except ValueError:
             return PolicyDecision("deny",RiskLevel.L5,"invalid permission mode",arguments)
+        if self.allowlist and self.allowlist.restricts_tools and not self.allowlist.is_tool_allowed(tool_name):
+            return PolicyDecision("deny",RiskLevel.L5,"tool is not in the configured allowlist",arguments)
         if tool_name not in self.BASE_RISK and risk_override is None: return PolicyDecision("deny",RiskLevel.L5,"unknown capability",arguments)
         base_risk=self.BASE_RISK.get(tool_name,RiskLevel(risk_override or 5))
         risk=RiskLevel(max(int(base_risk), int(risk_override or base_risk)))
         normalized=dict(arguments)
+        if tool_name=="glob": normalized.setdefault("root_dir", ".")
+        if tool_name=="grep": normalized.setdefault("path", ".")
         if tool_name.startswith("file_") or tool_name in {"glob","grep"}:
             key="root_dir" if tool_name=="glob" else "path"
             if key in normalized:
@@ -74,9 +88,13 @@ class PermissionManager:
                 try: resolved.relative_to(self.workspace_root)
                 except ValueError: return PolicyDecision("deny",RiskLevel.L5,"path is outside workspace",normalized)
                 normalized[key]=str(resolved)
+                if self.allowlist and self.allowlist.restricts_paths and not self.allowlist.is_path_allowed(str(resolved)):
+                    return PolicyDecision("deny",RiskLevel.L5,"path is not in the configured allowlist",normalized)
         if tool_name=="bash":
             command=str(normalized.get("command",""))
-            if self._HARD_DENY.search(command): return PolicyDecision("deny",RiskLevel.L5,"command matches hard-deny policy",normalized)
+            if self._hard_deny.search(command): return PolicyDecision("deny",RiskLevel.L5,"command matches hard-deny policy",normalized)
+            if self.allowlist and self.allowlist.restricts_commands and not self.allowlist.is_command_allowed(command):
+                return PolicyDecision("deny",RiskLevel.L5,"command is not in the configured allowlist",normalized)
             try: parts=shlex.split(command)
             except ValueError: return PolicyDecision("deny",RiskLevel.L5,"command has invalid quoting",normalized)
             if not parts: return PolicyDecision("deny",RiskLevel.L5,"command must not be empty",normalized)
@@ -108,6 +126,12 @@ class PermissionManager:
                 normalized["workdir"]=str(workdir)
             else:
                 normalized["workdir"]=str(self.workspace_root)
+            if self.allowlist and self.allowlist.restricts_paths and not self.allowlist.is_path_allowed(normalized["workdir"]):
+                return PolicyDecision("deny",RiskLevel.L5,"workdir is not in the configured allowlist",normalized)
+        resource_scope=str(
+            normalized.get("path") or normalized.get("root_dir")
+            or normalized.get("workdir") or normalized.get("url") or self.workspace_root
+        )
         auto=risk==RiskLevel.L1
         auto=auto or (effective_mode=="workspace" and (
             risk<=RiskLevel.L2 or (risk==RiskLevel.L4 and tool_name in {"file_write","file_edit"})
@@ -115,5 +139,5 @@ class PermissionManager:
         ))
         auto=auto or (effective_mode=="full_access" and risk<=RiskLevel.L4)
         if risk==RiskLevel.L5: auto=False
-        if approved or auto: return PolicyDecision("allow",risk,"allowed by policy",normalized)
-        return PolicyDecision("approval_required",risk,"explicit approval required",normalized)
+        if approved or auto: return PolicyDecision("allow",risk,"allowed by policy",normalized,resource_scope)
+        return PolicyDecision("approval_required",risk,"explicit approval required",normalized,resource_scope)

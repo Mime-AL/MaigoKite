@@ -1,5 +1,6 @@
 """JSON-Schema validation for tool arguments."""
 from __future__ import annotations
+from copy import deepcopy
 from typing import Any, Callable
 import re
 class ValidationError(ValueError):
@@ -56,5 +57,27 @@ class ToolValidator:
 
     def sanitize(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         self.validate(tool_name, arguments)
-        allowed = set((self._schema_provider(tool_name) or {}).get("properties", {}))
-        return {key: value for key, value in arguments.items() if key in allowed}
+        schema = self._schema_provider(tool_name) or {}
+        properties = schema.get("properties", {})
+        normalized: dict[str, Any] = {}
+        for name, rule in properties.items():
+            if name in arguments:
+                normalized[name] = self._apply_defaults(rule, arguments[name])
+            elif "default" in rule:
+                normalized[name] = self._apply_defaults(rule, deepcopy(rule["default"]))
+        self.validate(tool_name, normalized)
+        return normalized
+
+    def _apply_defaults(self, schema: dict[str, Any], value: Any) -> Any:
+        """Materialize JSON-Schema defaults before policy evaluates resource scope."""
+        if isinstance(value, dict):
+            result = dict(value)
+            for name, rule in schema.get("properties", {}).items():
+                if name in result:
+                    result[name] = self._apply_defaults(rule, result[name])
+                elif "default" in rule:
+                    result[name] = self._apply_defaults(rule, deepcopy(rule["default"]))
+            return result
+        if isinstance(value, list) and isinstance(schema.get("items"), dict):
+            return [self._apply_defaults(schema["items"], item) for item in value]
+        return value

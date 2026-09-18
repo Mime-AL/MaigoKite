@@ -180,7 +180,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		App: AppConfig{
 			Name:    "NanamiGopher",
-			Version: "1.0.0",
+			Version: "0.1.0",
 			Env:     "development",
 		},
 		HTTP:      HTTPConfig{Port: 8080},

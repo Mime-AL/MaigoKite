@@ -36,6 +36,20 @@ func TestValidateAndSave(t *testing.T) {
 	}
 }
 
+func TestGoogleCredentialRequiresKeyAndCX(t *testing.T) {
+	store := &fakeStore{}
+	manager := NewManager(store)
+	if err := manager.ValidateAndSaveForWorkspace("personal", "google", "google-api-key"); err == nil {
+		t.Fatal("expected Google credential without CX to be rejected")
+	}
+	if err := manager.ValidateAndSaveForWorkspace("personal", "google", "google-api-key:search-engine-id"); err != nil {
+		t.Fatal(err)
+	}
+	if store.value != "google-api-key:search-engine-id" {
+		t.Fatal("Google credential was not delegated to store")
+	}
+}
+
 func TestModelCredentialsAreProviderScoped(t *testing.T) {
 	store := &fakeStore{}
 	manager := NewManager(store)

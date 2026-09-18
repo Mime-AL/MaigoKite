@@ -48,8 +48,9 @@ sequenceDiagram
 
     E->>R: resolve(tool_name)
     R-->>E: NativeTool
-    E->>P: evaluate(context, capability, args, scope)
+    E->>P: validate + normalize + allowlist + evaluate
     P-->>E: allow
+    E-->>E: 发布 tool.started
     E->>T: execute(context, normalized_args)
     T-->>E: ToolResult
     E->>DB: 保存 ToolCall 状态与事件
@@ -67,7 +68,7 @@ sequenceDiagram
 
     E->>R: resolve(tool_name)
     R-->>E: MCPTool
-    E->>P: evaluate(context, capability, args, scope)
+    E->>P: validate + normalize + allowlist + evaluate
     P-->>E: allow
     E->>C: call_tool(server, tool, args)
     C->>S: tools/call over stdio
@@ -85,6 +86,7 @@ sequenceDiagram
     participant UI as Vue UI
 
     E->>DB: 创建 Approval，Task/ToolCall → waiting
+    E-->>G: task.waiting_approval
     E-->>G: approval.requested
     G-->>UI: WebSocket 通知
     UI->>G: POST approvals/{id}/decision
@@ -93,6 +95,7 @@ sequenceDiagram
     E->>DB: 校验版本、参数 hash、范围、过期时间
     E->>DB: 同事务消费审批并转换任务状态
     E-->>G: approval.decided
+    E-->>G: tool.started（仅 allow 后）
     G-->>UI: WebSocket/REST 结果
 ```
 

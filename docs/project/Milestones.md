@@ -1,6 +1,6 @@
 # NanamiGopher — 版本规划
 
-> 状态：v0.1 实现完成，发布待定
+> 状态：v0.1 核心闭环完成，阶段验收待补齐
 > 本文记录实现状态；正式发布状态仍以版本标签和发布记录为准。
 
 ## 概览
@@ -46,7 +46,7 @@ NanamiGopher 在 16 周的开发周期内发布 4 个主要版本，每个版本
   - [x] 工具注册中心
   - [x] MCP Tool 动态发现
   - [x] 工具参数校验
-- [x] 记忆系统
+- [x] Phase 1 上下文管理（完整 Memory 属于 Phase 2）
   - [x] 短期记忆（会话内上下文窗口）
   - [x] 最大 Token 限制管理
 - [x] 权限系统 v1
@@ -62,18 +62,21 @@ NanamiGopher 在 16 周的开发周期内发布 4 个主要版本，每个版本
   - [x] 模型接入设置（云端 API 与本地端口）
   - [x] 聊天级模型、响应速度和执行权限选择
   - [x] Workspace 文件树、文本预览与 Git Diff
+  - [x] Workspace 根目录与 Gateway/Agent Core 运行状态只读页
   - [x] 按用户持久化界面助手称呼
   - [x] 一阶段导航只暴露已连通的功能
 
 ### 已知限制
 
 - 单个任务固定使用当前会话选择的一个 LLM；自动模型路由和 fallback 属于 Phase 2
-- WebSocket 已传输 Provider 的真实增量，但尚无断线重放
+- WebSocket 已传输任务与消息事件，但单次模型输出会先缓冲到 ToolCall/Reasoning 分类完成，再发送可见内容；逐 token 可见增量和断线重放仍待 Phase 2
 - Workspace 可保存多个模型、按 Base URL 手动获取目录并由会话选择；仍无后台自动探测、按任务路由和自动 fallback
 - MCP 已完成显式配置的 stdio 启停、发现、统一权限和审计链路；SkillGrant、健康重启与空闲回收属于 Phase 2
 - 仅持久化会话消息和用户偏好，无向量长期记忆
 - 错误模型为 MVP 子集，尚无自动重试和恢复
 - 模型自主 Tool Calling、统一 ToolPolicy、持久化审批及审批恢复已接入；单任务最多执行 8 轮工具调用
+- ToolPolicy 支持部署级工具、命令前缀和路径白名单；白名单只收紧权限，不覆盖 Workspace 边界、审批或 hard-deny
+- 同一模型响应包含多个 ToolCall 时，审批点会持久化批次游标和已完成结果，恢复后继续执行剩余调用
 - 前端已接入审批决策、结构化 Tool 状态、会话级权限模式和 Workspace 风险设置
 - 文件浏览器、只读预览和 Git Diff 已接入；Inspector 尚未接入后端事件快照契约
 

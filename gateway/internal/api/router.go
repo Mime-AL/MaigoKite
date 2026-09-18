@@ -106,6 +106,12 @@ func (r *Router) routes() {
 	workspaces.GET("/permissions", permissions.Get)
 	workspaces.PATCH("/permissions", r.requireWorkspaceOwner(), permissions.Update)
 	workspace := newWorkspaceHandler(r.cfg.Workspace.Root)
+	var runtimeHealth agentHealthReader
+	if r.client != nil {
+		runtimeHealth = r.client
+	}
+	runtimeStatus := newRuntimeStatusHandler(r.cfg, workspace, runtimeHealth)
+	workspaces.GET("/runtime-status", r.requireWorkspaceOwner(), runtimeStatus.Get)
 	workspaces.GET("/files", workspace.ListFiles)
 	workspaces.GET("/files/content", workspace.ReadFile)
 	workspaces.GET("/changes", workspace.Changes)

@@ -68,6 +68,15 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		}
 		break
 	}
+	// Agent Core keeps secrets in memory only. Re-sync search credentials before
+	// every task so a Core restart does not silently fall back to another provider.
+	for _, service := range []string{"tavily", "google"} {
+		apiKey, _ := h.mgr.GetSearchKeyForWorkspace(c.Param("workspaceID"), service)
+		if err := h.client.SetToolCredential(c.Request.Context(), c.Param("workspaceID"), service, apiKey); err != nil {
+			grpcError(c, err)
+			return
+		}
+	}
 	streamContext, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	events, errs := h.client.ProcessMessage(streamContext, &agentv1.ProcessMessageRequest{WorkspaceId: c.Param("workspaceID"), ConversationId: conversationID, Content: req.Content, Attachments: attachments, PrincipalId: "local-user"})
 	first, ok := <-events

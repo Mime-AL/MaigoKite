@@ -1,6 +1,6 @@
 # 记忆系统设计
 
-> **状态**：Current
+> **状态**：Phase 1 Current + Phase 2 Planned
 > **架构版本**：v1
 > **最后核验**：2026-09-14
 > **权威范围**：记忆分类、职责、生命周期与检索规则
@@ -19,6 +19,18 @@ Agent 运行和用户相关信息               用户导入或授权接入的�
 ```
 
 Memory 不保存凭证；Knowledge Base 不替代对话消息或用户记忆。
+
+### 1.1 阶段边界
+
+| 能力 | 状态 |
+|---|---|
+| 会话消息持久化与按 token 裁剪的上下文 | Phase 1 Current |
+| 显式用户偏好（当前仅界面称呼） | Phase 1 Current |
+| 通用 User Memory 的提取、确认、检索和遗忘 | Phase 2 Planned |
+| Conversation Summary、文档库、Embedding 与向量索引 | Phase 2 Planned |
+| Memory 管理与索引设置页面/API | Phase 2 Planned |
+
+后续章节同时描述当前不变量和 Phase 2 目标模型；不能据此推断完整 Memory API、向量索引或管理页面已经交付。
 
 ## 2. 事实与派生数据
 
@@ -58,9 +70,9 @@ clear(task_id)
 - 容量按 token/字节控制，不按任意 priority 删除原始 Message。
 - 不直接保存 Embedding；语义检索属于持久化 Memory 或 Knowledge Base。
 
-## 4. Conversation Memory
+## 4. Conversation Memory（Phase 1 子集 + Phase 2 摘要）
 
-Conversation Memory 从持久化 Message 构建模型上下文：
+Phase 1 从持久化 Message 构建最近消息上下文；Conversation Summary、User Memory 和知识检索注入属于 Phase 2：
 
 ```text
 System/Policy Context
@@ -87,7 +99,7 @@ invalidate_summary(conversation_id)
 - Summary 不能覆盖未包含在其 source range 中的新消息。
 - 删除或编辑源消息后，相关 Summary 必须失效并重建。
 
-## 5. User Memory
+## 5. User Memory（Phase 2 目标）
 
 User Memory 保存对后续任务有用的偏好、事实或长期约束。
 
@@ -124,7 +136,7 @@ search(scope, query, limit)
 - Personal Memory 不得被 Team Workspace 查询，除非用户明确共享。
 - 用户可以查看、修改、导出和删除自己的记忆。
 
-## 6. Knowledge Base
+## 6. Knowledge Base（Phase 2 目标）
 
 Knowledge Base 管理用户授权的外部文档：
 
@@ -153,7 +165,7 @@ rebuild_index(workspace, version)
 - 索引不可用时允许降级到关键词检索或返回明确错误。
 - 删除文档后级联清理 chunk、FTS、Embedding 和缓存。
 
-## 7. 检索策略
+## 7. 检索策略（Phase 2 目标）
 
 ```text
 构建任务上下文
@@ -171,7 +183,7 @@ rebuild_index(workspace, version)
 5. 在 token budget 内组装上下文。
 6. 保留来源引用，避免把检索内容提升为系统指令。
 
-## 8. 生命周期
+## 8. 生命周期（Phase 2 目标）
 
 | 对象 | 清理/失效条件 |
 |---|---|
@@ -184,7 +196,7 @@ rebuild_index(workspace, version)
 
 清理必须是可审计流程。删除权威数据与清理派生索引通过事务事件协调。
 
-## 9. 存储适配
+## 9. 存储适配（Phase 2 目标）
 
 Memory 依赖 Repository，不在领域逻辑中判断部署模式：
 

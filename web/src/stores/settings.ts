@@ -3,13 +3,15 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type {
-  AppConfig,
-  ModelConfig,
-  CredentialEntry,
-} from '@/types/api'
-import { api, type ChatModelProfile, type PermissionSettings } from '@/api/client'
+import { ref } from 'vue'
+import {
+  api,
+  type ChatModelProfile,
+  type ChatModelSettings,
+  type CredentialEntry,
+  type PermissionSettings,
+  type WorkspaceRuntimeStatus,
+} from '@/api/client'
 
 const PREFERENCES_CACHE_KEY = 'nanamigopher_user_preferences'
 
@@ -28,31 +30,14 @@ function cacheAssistantName(assistantName: string) {
 }
 
 export const useSettingsStore = defineStore('settings', () => {
-  const app = ref<AppConfig>({
-    name: 'NanamiGopher',
-    version: '1.0.0',
-    theme: 'dark',
-    language: 'zh-CN',
-  })
-
-  const models = ref<ModelConfig>({
-    chat: {
-      provider: 'ollama',
-      model: '',
-      baseUrl: 'http://127.0.0.1:11434',
-      temperature: 0.7,
-      maxTokens: 4096,
-      timeoutSeconds: 60,
-      credentialConfigured: false,
-    },
-    embedding: { provider: '', bge: { model: '', device: 'cpu' } },
-  })
-
   const credentials = ref<Record<string, CredentialEntry>>({})
   const modelProfiles = ref<ChatModelProfile[]>([])
   const defaultModelId = ref('')
   const profile = ref({ assistantName: cachedAssistantName() })
   const permissions = ref<PermissionSettings>({ default_mode: 'workspace' })
+  const runtimeStatus = ref<WorkspaceRuntimeStatus | null>(null)
+  const runtimeLoading = ref(false)
+  const runtimeError = ref<string | null>(null)
 
   const loaded = ref(false)
   const profileLoaded = ref(false)
@@ -62,8 +47,6 @@ export const useSettingsStore = defineStore('settings', () => {
   const validating = ref(false)
   const validation = ref<{ ok: boolean; message: string } | null>(null)
 
-  const hasChatModel = computed(() => !!models.value.chat.model)
-  const hasEmbeddingModel = computed(() => !!models.value.embedding.provider)
   let profileRequest: Promise<void> | null = null
 
   async function loadPreferences() {
@@ -120,6 +103,19 @@ export const useSettingsStore = defineStore('settings', () => {
     } finally { saving.value = false }
   }
 
+  async function loadRuntimeStatus() {
+    if (runtimeLoading.value) return
+    runtimeLoading.value = true
+    runtimeError.value = null
+    try {
+      runtimeStatus.value = await api.getWorkspaceRuntimeStatus()
+    } catch (reason) {
+      runtimeError.value = reason instanceof Error ? reason.message : String(reason)
+    } finally {
+      runtimeLoading.value = false
+    }
+  }
+
   /**
    * 从后端加载当前配置
    */
@@ -134,8 +130,6 @@ export const useSettingsStore = defineStore('settings', () => {
       ])
       modelProfiles.value = catalog.models
       defaultModelId.value = catalog.defaultModelId
-      const selected = catalog.models.find(item => item.id === catalog.defaultModelId) ?? catalog.models[0]
-      if (selected) models.value.chat = { ...selected }
       credentials.value = Object.fromEntries(statuses.map(item => [item.name, { service: item.name, configured: item.configured, validated: item.validated }]))
       loaded.value = true
     } catch (reason) {
@@ -145,40 +139,10 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  /**
-   * 保存模型配置
-   */
-  async function saveModels(cfg: ModelConfig, apiKey = '') {
-    saving.value = true
-    error.value = null
-    success.value = null
-    validation.value = null
-    try {
-      const savedProfile = await api.saveChatModel({
-        ...cfg.chat, id: defaultModelId.value, name: cfg.chat.model, isDefault: true,
-      }, apiKey)
-      if (!savedProfile.isDefault) await setDefaultModel(savedProfile.id)
-      const saved = savedProfile
-      models.value = { ...cfg, chat: saved }
-      const credentialService = `model-profile.${saved.id}`
-      credentials.value[credentialService] = { service: credentialService, configured: saved.credentialConfigured || !!apiKey, validated: false }
-      await loadModelProfiles()
-      success.value = '模型设置已保存并立即生效。'
-      return true
-    } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-      return false
-    } finally {
-      saving.value = false
-    }
-  }
-
   async function loadModelProfiles() {
     const catalog = await api.listChatModels()
     modelProfiles.value = catalog.models
     defaultModelId.value = catalog.defaultModelId
-    const selected = catalog.models.find(item => item.id === catalog.defaultModelId)
-    if (selected) models.value.chat = { ...selected }
   }
 
   async function saveModelProfile(profile: ChatModelProfile, apiKey = '') {
@@ -193,7 +157,6 @@ export const useSettingsStore = defineStore('settings', () => {
       else modelProfiles.value.push(saved)
       if (saved.isDefault || !defaultModelId.value) {
         defaultModelId.value = saved.id
-        models.value.chat = { ...saved }
       }
       success.value = `模型配置“${saved.name}”已保存。`
       return saved
@@ -212,8 +175,6 @@ export const useSettingsStore = defineStore('settings', () => {
       const catalog = await api.setDefaultChatModel(modelId)
       modelProfiles.value = catalog.models
       defaultModelId.value = catalog.defaultModelId
-      const selected = catalog.models.find(item => item.id === catalog.defaultModelId)
-      if (selected) models.value.chat = { ...selected }
       success.value = '默认模型已更新，新对话将自动使用它。'
       return true
     } catch (reason) {
@@ -236,7 +197,7 @@ export const useSettingsStore = defineStore('settings', () => {
     } finally { saving.value = false }
   }
 
-  async function validateChatModel(cfg: ModelConfig['chat'], apiKey = '') {
+  async function validateChatModel(cfg: ChatModelSettings, apiKey = '') {
     validating.value = true
     error.value = null
     success.value = null
@@ -275,8 +236,11 @@ export const useSettingsStore = defineStore('settings', () => {
         validated: false,
         updated_at: new Date().toISOString(),
       }
+      success.value = '联网工具凭证已保存并立即生效。'
+      return true
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
+      return false
     } finally {
       saving.value = false
     }
@@ -292,22 +256,25 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       await api.deleteCredential(service)
       delete credentials.value[service]
-      if (service === `model.${models.value.chat.provider}`) models.value.chat.credentialConfigured = false
+      success.value = '联网工具凭证已移除。'
+      return true
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
+      return false
     } finally {
       saving.value = false
     }
   }
 
   return {
-    app,
-    models,
     modelProfiles,
     defaultModelId,
     credentials,
     profile,
     permissions,
+    runtimeStatus,
+    runtimeLoading,
+    runtimeError,
     loaded,
     profileLoaded,
     saving,
@@ -315,15 +282,13 @@ export const useSettingsStore = defineStore('settings', () => {
     success,
     validating,
     validation,
-    hasChatModel,
-    hasEmbeddingModel,
     loadPreferences,
     savePreferences,
     loadPermissionSettings,
     savePermissionSettings,
+    loadRuntimeStatus,
     loadSettings,
     loadModelProfiles,
-    saveModels,
     saveModelProfile,
     setDefaultModel,
     removeModelProfile,

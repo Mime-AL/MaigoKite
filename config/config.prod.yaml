@@ -26,6 +26,10 @@ workspace:
 
 permissions:
   default_mode: "workspace"
+  allowlist:
+    tools: []
+    command_prefixes: []
+    paths: []
   circuit_breaker:
     enabled: true
 

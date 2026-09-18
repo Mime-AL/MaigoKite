@@ -48,7 +48,19 @@ Phase 1 的自动发现仅查询模型目录。多模型自动路由、能力/�
 
 模型列表和路由规则见 [Model Routing](../agent-capabilities/models/model-routing.md)。
 
-## 4. Workspace 与存储
+## 4. 联网工具
+
+打开“设置 → 联网工具”可以为 Web 搜索配置可选服务。系统未配置凭证时使用无需密钥的 DuckDuckGo；保存 Tavily 后优先使用 Tavily，保存 Google Programmable Search 时需要同时填写 API Key 和搜索引擎 ID（CX）。Secret 保存在操作系统密钥链，只将引用状态返回界面；Gateway 在任务开始前把当前 Workspace 的凭证同步到 Agent Core 内存，不写入会话、ToolResult 或普通配置。
+
+搜索服务请求失败时，活动流将工具标记为失败并显示检查网络或打开联网工具设置的提示；详细参数和原始结果仍收在二级详情中，模型可以根据失败结果继续给出说明。
+
+## 5. Workspace 与运行状态
+
+打开“设置 → 工作区”可以查看当前进程实际使用的 Workspace 根目录、配置来源、Gateway/Agent Core 状态和版本。该页面是只读状态投影，不允许浏览器直接修改本地路径或进程启动参数。
+
+模型、联网凭证、权限模式和界面称呼通过当前 API 即时生效。Workspace 根目录、MCP Server 启动配置及 Gateway/Agent Core 端口由启动配置或环境变量提供，修改后需要重启。页面不会假装检测运行期间手工修改的外部 YAML。
+
+### 5.1 存储边界
 
 - Personal 与 Team Workspace 使用同一配置模型。
 - 本地部署默认使用 SQLite 和本地内容存储。
@@ -57,7 +69,7 @@ Phase 1 的自动发现仅查询模型目录。多模型自动路由、能力/�
 
 存储语义见 [Database](../design/Database.md)。
 
-## 5. 权限模式
+## 6. 权限模式
 
 权限运行时提供三个面向用户的档位：
 
@@ -69,13 +81,23 @@ Hard-deny 规则任何模式都不能覆盖。完整矩阵见 [Tool Permission](
 
 Phase 1 的设置页只修改新对话默认档位，聊天输入框可覆盖当前对话档位。需要确认时，审批卡片展示规范化参数、资源范围、风险等级和有效期；决定只对保存的这一次 ToolCall 生效。L1–L5 是服务端内部风险模型，不再要求用户逐工具配置。
 
-## 6. Workspace 文件与 Diff
+部署者还可在 YAML 中配置额外白名单。空数组表示该维度不额外收紧；非空时，工具名、Bash 命令前缀和资源路径必须同时满足白名单。相对路径以 Workspace 根目录为基准，白名单只能缩小 ToolPolicy 的权限，不能绕过 Workspace 边界、审批或 hard-deny：
+
+```yaml
+permissions:
+  allowlist:
+    tools: [file_read, glob, grep, bash]
+    command_prefixes: ["git status", "git diff"]
+    paths: ["docs", "src"]
+```
+
+## 7. Workspace 文件与 Diff
 
 右侧栏的“文件”页按需读取当前 Workspace，可选择文本文件进行只读预览；“变更”页展示 Git staged、unstaged 与 untracked 文件，并在选中文件后加载逐文件 Diff。配置 `NANAMI_WORKSPACE_ROOT` 可显式指定本地运行时根目录。服务端拒绝绝对路径、目录穿越与逃逸根目录的符号链接。
 
-## 7. Skill
+## 8. Skill（Phase 2 管理界面）
 
-Skill 配置包含：
+目标 SkillGrant 配置包含：
 
 - 启用状态和版本。
 - Workspace 级能力授权。
@@ -100,16 +122,18 @@ mcp:
 
 `command` 以 argv 方式直接执行，不经过 shell；`cwd` 必须位于 Workspace。`env_allowlist` 只声明可从启动环境传入的变量名，Secret 值不得写入 YAML。工具会命名为 `<server>__<tool>`，并与 Native Tool 经过同一 ToolPolicy、审批和审计入口。SkillGrant、健康重启、空闲回收和非 stdio transport 属于后续阶段。
 
-## 8. 凭证
+## 9. 凭证
 
 - 桌面模式使用操作系统密钥存储。
 - 服务器模式使用 Vault/KMS/Secret Manager。
 - 加密文件仅作为显式 fallback。
 - UI 和 API 只显示凭证引用及元数据，不回显 Secret。
 
-## 9. Memory
+## 10. Memory（Phase 2）
 
-可配置保留期、上下文预算、用户记忆开关和索引 Provider。配置不改变以下不变量：
+Phase 1 只提供会话消息上下文和显式界面偏好，没有 Memory 管理或索引设置页面。保留期、上下文预算、通用 User Memory、Embedding 和索引 Provider 需要等 Phase 2 的 API、持久化、删除和重建闭环完成后再开放。
+
+Phase 2 配置不得改变以下不变量：
 
 - Secret 不进入 Memory。
 - Workspace 之间默认隔离。
@@ -118,7 +142,7 @@ mcp:
 
 详见 [Memory](../agent-capabilities/memory/memory-system.md)。
 
-## 10. 生效范围
+## 11. 生效范围
 
 - 新会话设置通常不改变已经运行的 Task。
 - 权限缩减和凭证撤销应立即阻止新的 ToolCall。

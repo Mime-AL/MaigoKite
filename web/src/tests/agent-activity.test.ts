@@ -69,7 +69,10 @@ describe('agent activity timeline', () => {
     ]
     store.taskActivityStatuses['conv-1'] = { 'task-1': 'completed' }
 
-    const wrapper = mount(MessageList, { props: { sessionId: 'conv-1' } })
+    const wrapper = mount(MessageList, {
+      props: { sessionId: 'conv-1' },
+      global: { stubs: { RouterLink: true } },
+    })
     const reply = wrapper.get('.agent-message .message-content')
     const activity = wrapper.get('[data-testid="agent-activity"]')
     const timeline = wrapper.findAll('[data-testid="agent-activity"], .agent-message')
@@ -80,5 +83,42 @@ describe('agent activity timeline', () => {
     expect(activity.text()).toContain('file_read')
     expect(activity.text()).toContain('子 Agent · Reviewer')
     expect(timeline[0].attributes('data-testid')).toBe('agent-activity')
+  })
+
+  it('surfaces an actionable hint instead of only raw failure JSON', () => {
+    const store = useSessionStore()
+    store.activeSessionId = 'conv-1'
+    store.messages['conv-1'] = [{
+      id: 'user-search',
+      conversation_id: 'conv-1',
+      role: 'user',
+      content: '搜索资料',
+      created_at: '2026-09-18T00:00:00Z',
+    }]
+    store.activities['conv-1'] = [{
+      id: 'tool-search',
+      task_id: 'task-search',
+      kind: 'tool',
+      status: 'failed',
+      title: 'web_search',
+      summary: 'Web search provider request failed.',
+      hint: '联网搜索暂不可用，请配置其他搜索服务。',
+      action: { label: '配置联网工具', to: '/settings?tab=tools' },
+      detail: { result: { results: [], error: 'search provider request failed' } },
+      sequence: 1,
+      created_at: '2026-09-18T00:00:01Z',
+    }]
+    store.taskActivityStatuses['conv-1'] = { 'task-search': 'completed' }
+
+    const wrapper = mount(MessageList, {
+      props: { sessionId: 'conv-1' },
+      global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } },
+    })
+
+    expect(wrapper.text()).toContain('1 项需要处理')
+    expect(wrapper.text()).toContain('联网搜索暂不可用')
+    expect(wrapper.get('.item-hint a').text()).toBe('配置联网工具')
+    expect(wrapper.get('.item-hint a').attributes('href')).toBe('/settings?tab=tools')
+    expect(wrapper.get('.activity-heading').attributes('aria-expanded')).toBe('true')
   })
 })

@@ -16,6 +16,18 @@ class Whitelist:
         self._command_prefixes = set(command_prefixes or ())
         self._allowed_paths = set(allowed_paths or ())
 
+    @property
+    def restricts_tools(self) -> bool:
+        return bool(self._tools)
+
+    @property
+    def restricts_commands(self) -> bool:
+        return bool(self._command_prefixes)
+
+    @property
+    def restricts_paths(self) -> bool:
+        return bool(self._allowed_paths)
+
     def add_tool(self, tool_name: str) -> None:
         self._tools.add(tool_name)
 

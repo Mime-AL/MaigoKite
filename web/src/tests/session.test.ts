@@ -49,6 +49,61 @@ describe('session store', () => {
     expect(api.decideApproval).toHaveBeenCalledWith('approval-1', 'allow', 1)
   })
 
+  it('shows a task as waiting until its approval is allowed', async () => {
+    const store = useSessionStore()
+    await store.switchSession('conv-1')
+    onEvent?.({
+      schema_version: 1,
+      event_id: 'wait-1',
+      sequence: 1,
+      type: 'task.waiting_approval',
+      conversation_id: 'conv-1',
+      task_id: 'task-waiting',
+      payload: { tool_call_id: 'call-1', approval_id: 'approval-1' },
+    })
+    expect(store.activeActivityGroups[0].status).toBe('waiting_approval')
+
+    onEvent?.({
+      schema_version: 1,
+      event_id: 'wait-2',
+      sequence: 2,
+      type: 'approval.decided',
+      conversation_id: 'conv-1',
+      task_id: 'task-waiting',
+      payload: { approval_id: 'approval-1', decision: 'allow' },
+    })
+    expect(store.activeActivityGroups[0].status).toBe('running')
+  })
+
+  it('keeps structured recovery guidance on failed tool activity', async () => {
+    const store = useSessionStore()
+    await store.switchSession('conv-1')
+    onEvent?.({
+      schema_version: 1,
+      event_id: 'tool-failed-1',
+      sequence: 1,
+      type: 'tool.failed',
+      conversation_id: 'conv-1',
+      task_id: 'task-search',
+      payload: {
+        tool_call_id: 'call-search',
+        tool_name: 'web_search',
+        message: 'Web search provider request failed.',
+        code: 'SEARCH_PROVIDER_UNAVAILABLE',
+        user_hint: '请检查网络，或配置其他搜索服务。',
+        action: { label: '配置联网工具', to: '/settings?tab=tools' },
+        data: { results: [], error: 'search provider request failed' },
+      },
+    })
+
+    expect(store.activeActivityGroups[0].items[0]).toMatchObject({
+      status: 'failed',
+      hint: '请检查网络，或配置其他搜索服务。',
+      action: { label: '配置联网工具', to: '/settings?tab=tools' },
+      detail: { result: { results: [], error: 'search provider request failed' } },
+    })
+  })
+
   it('adds an optimistic message and completes a streamed reply', async () => {
     vi.spyOn(api, 'sendMessage').mockResolvedValue({ task_id: 'task-1' })
     const store = useSessionStore()

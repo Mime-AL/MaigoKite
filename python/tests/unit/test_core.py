@@ -5,6 +5,7 @@ import shutil
 import pytest
 from agent.models.chat_provider import ChatResponse,ChatStreamChunk,IChatProvider,ToolCallChunk
 from agent.models.runtime import ChatModelSettings
+from agent.security.whitelist import Whitelist
 from agent.tools.base import ExecutionContext
 from agent.tools.permission_mgr import PermissionManager,RiskLevel
 from agent.utils.sandbox import _bubblewrap_works
@@ -27,6 +28,35 @@ class ToolCallingProvider(IChatProvider):
             index=0, id="call_read", name="file_read", arguments='{"path":"note.txt"',
         )])
         yield ChatStreamChunk(tool_call_chunks=[ToolCallChunk(index=0, arguments="}")])
+
+
+class MultiToolApprovalProvider(IChatProvider):
+    def __init__(self):
+        self.received_tool_ids = []
+
+    @property
+    def model_name(self):
+        return "multi-tool-fake"
+
+    async def chat(self, messages, **kwargs):
+        return ChatResponse("unused")
+
+    async def stream(self, messages, **kwargs):
+        tool_messages = [item for item in messages if item.role == "tool"]
+        if tool_messages:
+            self.received_tool_ids = [item.metadata.get("tool_call_id") for item in tool_messages]
+            yield ChatStreamChunk(content="两个工具都已完成")
+            return
+        yield ChatStreamChunk(tool_call_chunks=[
+            ToolCallChunk(
+                index=0, id="call_write_first", name="file_write",
+                arguments='{"path":"created.txt","content":"created"}',
+            ),
+            ToolCallChunk(
+                index=1, id="call_read_second", name="file_read",
+                arguments='{"path":"note.txt"}',
+            ),
+        ])
 
 @pytest.mark.asyncio
 async def test_conversation_and_message_round_trip(core):
@@ -80,6 +110,54 @@ async def test_read_only_write_requires_approval_and_approved_write_stays_in_wor
         await core.decide_approval(
             "personal",approval["approval_id"],"local-user","allow",approval["version"]
         )
+
+
+@pytest.mark.asyncio
+async def test_approval_event_order_and_consumed_state(core,tmp_path):
+    conversation=await core.create_conversation(title="event order")
+    events=[]
+    async def capture(kind,payload):events.append((kind,payload))
+    core.event_bus.subscribe("*",capture)
+
+    blocked=await core.run(
+        "/tool file_write "+json.dumps({"path":"ordered.txt","content":"ok"}),
+        {"conversation_id":conversation["id"]},
+    )
+
+    kinds=[kind for kind,_ in events]
+    assert "tool.started" not in kinds
+    assert kinds.index("tool.proposed") < kinds.index("task.waiting_approval")
+    assert kinds.index("task.waiting_approval") < kinds.index("approval.requested")
+    approval=blocked["approval"]
+    await core.decide_approval(
+        "personal",approval["approval_id"],"local-user","allow",approval["version"]
+    )
+    decided=await core.repository.get_approval("personal",approval["approval_id"])
+    assert decided["status"]=="consumed"
+    assert [kind for kind,_ in events].index("approval.decided") < [kind for kind,_ in events].index("tool.started")
+    assert (tmp_path/"ordered.txt").read_text(encoding="utf-8")=="ok"
+
+
+@pytest.mark.asyncio
+async def test_multi_tool_batch_resumes_all_calls_after_approval(core,tmp_path):
+    (tmp_path/"note.txt").write_text("note",encoding="utf-8")
+    provider=MultiToolApprovalProvider()
+    core.provider=provider
+    conversation=await core.create_conversation(title="multi tool",permission_mode="read_only")
+
+    blocked=await core.run("写文件后读取 note.txt",{"conversation_id":conversation["id"]})
+    assert blocked["status"]=="waiting_approval"
+    approval=blocked["approval"]
+    result=await core.decide_approval(
+        "personal",approval["approval_id"],"local-user","allow",approval["version"]
+    )
+
+    assert result["status"]=="succeeded"
+    assert result["response"]=="两个工具都已完成"
+    assert provider.received_tool_ids==["call_write_first","call_read_second"]
+    assert (await core.repository.get_tool_call("call_write_first"))["status"]=="succeeded"
+    assert (await core.repository.get_tool_call("call_read_second"))["status"]=="succeeded"
+    assert (tmp_path/"created.txt").read_text(encoding="utf-8")=="created"
 
 
 @pytest.mark.asyncio
@@ -237,6 +315,171 @@ async def test_read_only_mode_allows_workspace_reads(core,tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_glob_and_grep_defaults_are_scoped_to_workspace(core,tmp_path):
+    (tmp_path/"workspace-only.txt").write_text("workspace needle",encoding="utf-8")
+    conversation=await core.create_conversation(title="scoped search",permission_mode="read_only")
+
+    glob_result=await core.run(
+        "/tool glob "+json.dumps({"pattern":"workspace-only.txt"}),
+        {"conversation_id":conversation["id"]},
+    )
+    grep_result=await core.run(
+        "/tool grep "+json.dumps({"pattern":"workspace needle"}),
+        {"conversation_id":conversation["id"]},
+    )
+
+    assert "workspace-only.txt" in glob_result["response"]
+    assert "workspace-only.txt" in grep_result["response"]
+
+
+@pytest.mark.asyncio
+async def test_remaining_phase_one_native_tools_execute_through_policy(core,tmp_path,monkeypatch):
+    (tmp_path/"edit.txt").write_text("before",encoding="utf-8")
+    search_tool=core.tool_registry.get("web_search")
+    assert search_tool is not None
+
+    async def fake_search(query,max_results):
+        return [{"title":"Result","url":"https://example.com","snippet":query}]
+
+    monkeypatch.setattr(search_tool,"_duckduckgo_search",fake_search)
+    conversation=await core.create_conversation(title="native tools",permission_mode="full_access")
+
+    edited=await core.run(
+        "/tool file_edit "+json.dumps({
+            "path":"edit.txt","old_string":"before","new_string":"after",
+        }),
+        {"conversation_id":conversation["id"]},
+    )
+    slept=await core.run(
+        "/tool sleep "+json.dumps({"seconds":0.001}),
+        {"conversation_id":conversation["id"]},
+    )
+    searched=await core.run(
+        "/tool web_search "+json.dumps({"query":"阶段一","engine":"duckduckgo"}),
+        {"conversation_id":conversation["id"]},
+    )
+    fetched=await core.run(
+        "/tool web_fetch "+json.dumps({"url":"file:///etc/passwd"}),
+        {"conversation_id":conversation["id"]},
+    )
+
+    assert "1 replacement(s)" in edited["response"]
+    assert (tmp_path/"edit.txt").read_text(encoding="utf-8")=="after"
+    assert "slept" in slept["response"]
+    assert "example.com" in searched["response"]
+    assert "URL must start" in fetched["response"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_failure_emits_actionable_tool_event(core,monkeypatch):
+    search_tool=core.tool_registry.get("web_search")
+    assert search_tool is not None
+
+    async def failed_search(query,max_results):
+        raise RuntimeError("provider offline")
+
+    monkeypatch.setattr(search_tool,"_duckduckgo_search",failed_search)
+    conversation=await core.create_conversation(title="search failure",permission_mode="full_access")
+    events=[]
+    async def capture(kind,payload):events.append((kind,payload))
+    core.event_bus.subscribe("*",capture)
+
+    result=await core.run(
+        "/tool web_search "+json.dumps({"query":"NS Conjecture mathematics"}),
+        {"conversation_id":conversation["id"]},
+    )
+
+    assert result["status"]=="succeeded"
+    failed=[payload for kind,payload in events if kind=="tool.failed"]
+    assert len(failed)==1
+    assert failed[0]["code"]=="SEARCH_PROVIDER_UNAVAILABLE"
+    assert "设置 → 联网工具" in failed[0]["user_hint"]
+    assert failed[0]["action"]=={"label":"配置联网工具","to":"/settings?tab=tools"}
+    assert not [payload for kind,payload in events if kind=="tool.completed"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_uses_workspace_tool_credential(core,monkeypatch):
+    search_tool=core.tool_registry.get("web_search")
+    assert search_tool is not None
+    observed=[]
+
+    async def fake_tavily(query,api_key,max_results):
+        observed.append((query,api_key,max_results))
+        return [{"title":"Result","url":"https://example.com","snippet":"ok"}]
+
+    monkeypatch.setattr(search_tool,"_tavily_search",fake_tavily)
+    await core.set_tool_credential("personal","tavily","secret-tavily-key")
+    conversation=await core.create_conversation(title="configured search",permission_mode="full_access")
+    result=await core.run(
+        "/tool web_search "+json.dumps({"query":"configured provider","max_results":3}),
+        {"conversation_id":conversation["id"]},
+    )
+
+    assert result["status"]=="succeeded"
+    assert observed==[("configured provider","secret-tavily-key",3)]
+    assert "example.com" in result["response"]
+
+
+@pytest.mark.asyncio
+async def test_web_search_rejects_incomplete_google_credential(core):
+    await core.set_tool_credential("personal","google","google-api-key-without-cx")
+    conversation=await core.create_conversation(title="invalid search credential",permission_mode="full_access")
+    events=[]
+    async def capture(kind,payload):events.append((kind,payload))
+    core.event_bus.subscribe("*",capture)
+
+    result=await core.run(
+        "/tool web_search "+json.dumps({"query":"configured provider","engine":"google"}),
+        {"conversation_id":conversation["id"]},
+    )
+
+    assert result["status"]=="succeeded"
+    failed=[payload for kind,payload in events if kind=="tool.failed"]
+    assert failed[0]["code"]=="SEARCH_PROVIDER_INVALID_CONFIGURATION"
+    assert failed[0]["action"]["to"]=="/settings?tab=tools"
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_is_denied_before_started_event(core):
+    conversation=await core.create_conversation(title="unknown tool")
+    events=[]
+    async def capture(kind,payload):events.append((kind,payload))
+    core.event_bus.subscribe("*",capture)
+
+    result=await core.run("/tool missing_tool {}",{"conversation_id":conversation["id"]})
+
+    assert "Tool denied" in result["response"]
+    assert "tool.started" not in [kind for kind,_ in events]
+    failed=[payload for kind,payload in events if kind=="tool.failed"]
+    assert failed and failed[0]["denied"] is True
+    audit=await core.repository.list_audit_events("personal")
+    assert any(item["action"]=="tool.denied" and item["resource"]=="missing_tool" for item in audit)
+
+
+@pytest.mark.asyncio
+async def test_approved_tool_failure_marks_task_failed_and_emits_terminal_event(core):
+    conversation=await core.create_conversation(title="approved failure")
+    events=[]
+    async def capture(kind,payload):events.append((kind,payload))
+    core.event_bus.subscribe("*",capture)
+    blocked=await core.run(
+        "/tool file_write "+json.dumps({"path":".","content":"cannot write a directory"}),
+        {"conversation_id":conversation["id"]},
+    )
+    approval=blocked["approval"]
+
+    with pytest.raises(IsADirectoryError):
+        await core.decide_approval(
+            "personal",approval["approval_id"],"local-user","allow",approval["version"]
+        )
+
+    task=await core.task_manager.get_task(blocked["task_id"])
+    assert task is not None and task.status.value=="failed"
+    assert "task.failed" in [kind for kind,_ in events]
+
+
+@pytest.mark.asyncio
 async def test_file_read_reports_binary_input_cleanly(core,tmp_path):
     (tmp_path/"binary.dat").write_bytes(b"abc\x00def")
     conversation=await core.create_conversation(title="binary")
@@ -273,6 +516,47 @@ def test_policy_matrix_and_hard_deny(tmp_path):
     assert full_access.evaluate("web_search",{"query":"test"}).outcome=="allow"
     assert read_only.evaluate("fixture__echo",{"text":"ok"}).outcome=="deny"
     assert read_only.evaluate("fixture__echo",{"text":"ok"},risk_override=1).outcome=="allow"
+
+    configured=PermissionManager("full_access",tmp_path,blocked_patterns=["dd if="])
+    assert configured.evaluate(
+        "bash",{"command":"dd if=input.bin of=output.bin"},approved=True,
+    ).outcome=="deny"
+
+def test_allowlist_narrows_tools_commands_and_workspace_paths(tmp_path):
+    docs=tmp_path/"docs";docs.mkdir()
+    allowlist=Whitelist(
+        tools={"file_read","bash"},
+        command_prefixes={"git status"},
+        allowed_paths={str(docs)},
+    )
+    policy=PermissionManager("workspace",tmp_path,allowlist)
+
+    assert policy.evaluate("file_read",{"path":"docs/note.txt"}).outcome=="allow"
+    assert policy.evaluate("file_read",{"path":"private.txt"}).outcome=="deny"
+    assert policy.evaluate("file_write",{"path":"docs/note.txt"}).outcome=="deny"
+    assert policy.evaluate("bash",{"command":"git status","workdir":"docs"}).outcome=="allow"
+    assert policy.evaluate("bash",{"command":"pwd"}).outcome=="deny"
+
+
+@pytest.mark.asyncio
+async def test_core_loads_allowlist_configuration(tmp_path):
+    from agent.config_manager import ConfigManager
+    from agent.core import AgentCore
+    from agent.event_bus import EventBus
+    from agent.observability import Observability
+    from agent.repository import SQLiteRepository
+
+    config=ConfigManager()
+    config.set("workspace.root",str(tmp_path))
+    config.set("permissions.allowlist",{
+        "tools":["file_read"],"command_prefixes":[],"paths":["docs"],
+    })
+    configured=AgentCore(config,EventBus(),Observability(),repository=SQLiteRepository(":memory:"))
+    try:
+        assert configured._policy.evaluate("file_read",{"path":"docs/a.txt"}).outcome=="allow"
+        assert configured._policy.evaluate("grep",{"pattern":"a"}).outcome=="deny"
+    finally:
+        await configured.shutdown()
 
 def test_legacy_permission_modes_migrate_conservatively(tmp_path):
     assert PermissionManager("plan",tmp_path).mode=="read_only"

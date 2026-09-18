@@ -41,4 +41,36 @@ describe('API client errors', () => {
       }),
     }))
   })
+
+  it('maps workspace runtime status without deriving local values in the browser', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({
+        workspace_id: 'personal',
+        workspace_root: '/srv/workspace',
+        workspace_source: 'environment',
+        environment: 'production',
+        gateway: { status: 'serving', version: '0.1.0' },
+        agent_core: { status: 'serving', version: '0.1.0' },
+        restart: {
+          pending: false,
+          required_for: ['Workspace 根目录'],
+          hot_applied: ['权限模式'],
+          note: '当前没有待重启更改。',
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.getWorkspaceRuntimeStatus()).resolves.toMatchObject({
+      workspaceRoot: '/srv/workspace',
+      workspaceSource: 'environment',
+      agentCore: { status: 'serving', version: '0.1.0' },
+      restart: { requiredFor: ['Workspace 根目录'], hotApplied: ['权限模式'] },
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/workspaces/personal/runtime-status'),
+      expect.any(Object),
+    )
+  })
 })

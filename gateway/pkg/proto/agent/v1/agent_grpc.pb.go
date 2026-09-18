@@ -40,6 +40,7 @@ const (
 	AgentService_SetDefaultChatModel_FullMethodName          = "/nanamigopher.agent.v1.AgentService/SetDefaultChatModel"
 	AgentService_ValidateChatModel_FullMethodName            = "/nanamigopher.agent.v1.AgentService/ValidateChatModel"
 	AgentService_SetChatModelCredential_FullMethodName       = "/nanamigopher.agent.v1.AgentService/SetChatModelCredential"
+	AgentService_SetToolCredential_FullMethodName            = "/nanamigopher.agent.v1.AgentService/SetToolCredential"
 	AgentService_GetUserPreferences_FullMethodName           = "/nanamigopher.agent.v1.AgentService/GetUserPreferences"
 	AgentService_UpdateUserPreferences_FullMethodName        = "/nanamigopher.agent.v1.AgentService/UpdateUserPreferences"
 	AgentService_GetPermissionSettings_FullMethodName        = "/nanamigopher.agent.v1.AgentService/GetPermissionSettings"
@@ -72,6 +73,7 @@ type AgentServiceClient interface {
 	SetDefaultChatModel(ctx context.Context, in *ChatModelRequest, opts ...grpc.CallOption) (*ChatModelList, error)
 	ValidateChatModel(ctx context.Context, in *ValidateChatModelRequest, opts ...grpc.CallOption) (*ModelValidationResponse, error)
 	SetChatModelCredential(ctx context.Context, in *SetChatModelCredentialRequest, opts ...grpc.CallOption) (*Empty, error)
+	SetToolCredential(ctx context.Context, in *SetToolCredentialRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetUserPreferences(ctx context.Context, in *UserPreferencesRequest, opts ...grpc.CallOption) (*UserPreferences, error)
 	UpdateUserPreferences(ctx context.Context, in *UpdateUserPreferencesRequest, opts ...grpc.CallOption) (*UserPreferences, error)
 	GetPermissionSettings(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*PermissionSettings, error)
@@ -343,6 +345,16 @@ func (c *agentServiceClient) SetChatModelCredential(ctx context.Context, in *Set
 	return out, nil
 }
 
+func (c *agentServiceClient) SetToolCredential(ctx context.Context, in *SetToolCredentialRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, AgentService_SetToolCredential_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) GetUserPreferences(ctx context.Context, in *UserPreferencesRequest, opts ...grpc.CallOption) (*UserPreferences, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UserPreferences)
@@ -418,6 +430,7 @@ type AgentServiceServer interface {
 	SetDefaultChatModel(context.Context, *ChatModelRequest) (*ChatModelList, error)
 	ValidateChatModel(context.Context, *ValidateChatModelRequest) (*ModelValidationResponse, error)
 	SetChatModelCredential(context.Context, *SetChatModelCredentialRequest) (*Empty, error)
+	SetToolCredential(context.Context, *SetToolCredentialRequest) (*Empty, error)
 	GetUserPreferences(context.Context, *UserPreferencesRequest) (*UserPreferences, error)
 	UpdateUserPreferences(context.Context, *UpdateUserPreferencesRequest) (*UserPreferences, error)
 	GetPermissionSettings(context.Context, *WorkspaceRequest) (*PermissionSettings, error)
@@ -492,6 +505,9 @@ func (UnimplementedAgentServiceServer) ValidateChatModel(context.Context, *Valid
 }
 func (UnimplementedAgentServiceServer) SetChatModelCredential(context.Context, *SetChatModelCredentialRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetChatModelCredential not implemented")
+}
+func (UnimplementedAgentServiceServer) SetToolCredential(context.Context, *SetToolCredentialRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetToolCredential not implemented")
 }
 func (UnimplementedAgentServiceServer) GetUserPreferences(context.Context, *UserPreferencesRequest) (*UserPreferences, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserPreferences not implemented")
@@ -905,6 +921,24 @@ func _AgentService_SetChatModelCredential_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_SetToolCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetToolCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).SetToolCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_SetToolCredential_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).SetToolCredential(ctx, req.(*SetToolCredentialRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_GetUserPreferences_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UserPreferencesRequest)
 	if err := dec(in); err != nil {
@@ -1077,6 +1111,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetChatModelCredential",
 			Handler:    _AgentService_SetChatModelCredential_Handler,
+		},
+		{
+			MethodName: "SetToolCredential",
+			Handler:    _AgentService_SetToolCredential_Handler,
 		},
 		{
 			MethodName: "GetUserPreferences",

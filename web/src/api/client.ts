@@ -43,7 +43,7 @@ export interface Approval {
   arguments: Record<string, unknown>
   resource_scope: string
   risk_level: `L${1 | 2 | 3 | 4 | 5}`
-  status: 'pending' | 'approved' | 'denied' | 'expired'
+  status: 'pending' | 'approved' | 'consumed' | 'rejected' | 'denied' | 'expired'
   version: number
   expires_at: string
 }
@@ -59,13 +59,15 @@ export interface AgentActivityItem {
   title: string
   summary?: string
   detail?: unknown
+  hint?: string
+  action?: { label: string; to: string }
   sequence: number
   created_at: string
 }
 
 export interface AgentActivityGroup {
   task_id: string
-  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  status: 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled'
   items: AgentActivityItem[]
 }
 
@@ -151,6 +153,13 @@ export interface CredentialStatus {
   validated?: boolean
 }
 
+export interface CredentialEntry {
+  service: string
+  configured: boolean
+  validated?: boolean
+  updated_at?: string
+}
+
 export interface UserPreferences {
   assistantName: string
 }
@@ -159,6 +168,26 @@ export interface RuntimeHealth {
   status: 'ok' | 'degraded'
   agentCore?: string
   version?: string
+}
+
+export interface RuntimeServiceStatus {
+  status: 'serving' | 'unavailable' | string
+  version?: string
+}
+
+export interface WorkspaceRuntimeStatus {
+  workspaceId: string
+  workspaceRoot: string
+  workspaceSource: 'configuration' | 'environment'
+  environment: string
+  gateway: RuntimeServiceStatus
+  agentCore: RuntimeServiceStatus
+  restart: {
+    pending: boolean
+    requiredFor: string[]
+    hotApplied: string[]
+    note: string
+  }
 }
 
 function chatModelFromWire(value: ChatModelWire): ChatModelSettings {
@@ -233,6 +262,36 @@ export const api = {
       version?: string
     }>('/health')
     return { status: body.status, agentCore: body.agent_core, version: body.version }
+  },
+  async getWorkspaceRuntimeStatus(): Promise<WorkspaceRuntimeStatus> {
+    const body = await request<{
+      workspace_id: string
+      workspace_root: string
+      workspace_source: 'configuration' | 'environment'
+      environment: string
+      gateway: RuntimeServiceStatus
+      agent_core: RuntimeServiceStatus
+      restart: {
+        pending: boolean
+        required_for: string[]
+        hot_applied: string[]
+        note: string
+      }
+    }>(`${path}/runtime-status`)
+    return {
+      workspaceId: body.workspace_id,
+      workspaceRoot: body.workspace_root,
+      workspaceSource: body.workspace_source,
+      environment: body.environment,
+      gateway: body.gateway,
+      agentCore: body.agent_core,
+      restart: {
+        pending: body.restart.pending,
+        requiredFor: body.restart.required_for || [],
+        hotApplied: body.restart.hot_applied || [],
+        note: body.restart.note,
+      },
+    }
   },
   async getUserPreferences(): Promise<UserPreferences> {
     const body = await request<{ assistant_name: string }>(`${path}/preferences`)
