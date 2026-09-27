@@ -52,11 +52,9 @@ async function handleSavePreferences() {
   <main class="page-shell settings-page">
     <header class="settings-heading">
       <div>
-        <p class="page-eyebrow">Preferences</p>
         <h1 class="page-title">设置</h1>
-        <p class="page-subtitle">管理模型、联网工具、执行权限，并查看当前工作区运行状态。</p>
+        <p class="page-subtitle">管理助手称呼、模型、联网工具和执行权限。</p>
       </div>
-      <span class="version">NanamiGopher · Phase 1</span>
     </header>
 
     <nav class="settings-tabs" aria-label="设置分类">
@@ -83,7 +81,7 @@ async function handleSavePreferences() {
         <div><h2>界面称呼</h2><p>设置你希望在对话和工作区中看到的助手名称。</p></div>
       </header>
       <label class="setting-row">
-        <span><strong>助手称呼</strong><small>按用户保存，不会修改项目名或模型配置。</small></span>
+        <span><strong>助手称呼</strong><small>用于侧栏、欢迎页和对话提示。</small></span>
         <input v-model.trim="profileDraft.assistantName" type="text" maxlength="32" placeholder="例如：小七">
       </label>
       <div class="identity-preview">
@@ -114,7 +112,6 @@ async function handleSavePreferences() {
 <style scoped lang="scss">
 .settings-page { display: flex; flex-direction: column; gap: 22px; }
 .settings-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
-.version { margin-bottom: 4px; padding: 6px 10px; border-radius: 999px; color: var(--text-tertiary); background: var(--surface-strong); font-size: 9px; font-weight: 650; }
 .settings-tabs { display: inline-flex; align-self: flex-start; gap: 3px; padding: 4px; border: 1px solid var(--border-color); border-radius: 14px; background: var(--surface-strong); }
 .settings-tabs button { display: flex; height: 34px; align-items: center; gap: 7px; padding: 0 14px; border: 0; border-radius: 10px; color: var(--text-secondary); background: transparent; cursor: pointer; font-size: 11px; font-weight: 600; }
 .settings-tabs button.active { color: var(--text-primary); background: var(--surface-solid); box-shadow: 0 2px 8px rgba(28, 35, 48, 0.1); }

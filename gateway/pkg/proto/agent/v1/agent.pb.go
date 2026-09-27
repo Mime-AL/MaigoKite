@@ -203,6 +203,9 @@ type AgentEvent struct {
 	Message        string                 `protobuf:"bytes,6,opt,name=message,proto3" json:"message,omitempty"`
 	Retryable      bool                   `protobuf:"varint,7,opt,name=retryable,proto3" json:"retryable,omitempty"`
 	PayloadJson    string                 `protobuf:"bytes,8,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	EventId        string                 `protobuf:"bytes,9,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	Sequence       int64                  `protobuf:"varint,10,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	OccurredAt     string                 `protobuf:"bytes,11,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -289,6 +292,27 @@ func (x *AgentEvent) GetRetryable() bool {
 func (x *AgentEvent) GetPayloadJson() string {
 	if x != nil {
 		return x.PayloadJson
+	}
+	return ""
+}
+
+func (x *AgentEvent) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *AgentEvent) GetSequence() int64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *AgentEvent) GetOccurredAt() string {
+	if x != nil {
+		return x.OccurredAt
 	}
 	return ""
 }
@@ -829,6 +853,490 @@ func (x *MessageList) GetMessages() []*Message {
 	return nil
 }
 
+type TaskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId   string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskRequest) Reset() {
+	*x = TaskRequest{}
+	mi := &file_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskRequest) ProtoMessage() {}
+
+func (x *TaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskRequest.ProtoReflect.Descriptor instead.
+func (*TaskRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *TaskRequest) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *TaskRequest) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+type TaskListRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId    string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	Limit          int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TaskListRequest) Reset() {
+	*x = TaskListRequest{}
+	mi := &file_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskListRequest) ProtoMessage() {}
+
+func (x *TaskListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskListRequest.ProtoReflect.Descriptor instead.
+func (*TaskListRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *TaskListRequest) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *TaskListRequest) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *TaskListRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type Task struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	WorkspaceId    string                 `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	ConversationId string                 `protobuf:"bytes,3,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	Title          string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
+	Status         string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	InputText      string                 `protobuf:"bytes,6,opt,name=input_text,json=inputText,proto3" json:"input_text,omitempty"`
+	LastError      string                 `protobuf:"bytes,7,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	Version        int32                  `protobuf:"varint,8,opt,name=version,proto3" json:"version,omitempty"`
+	CreatedAt      string                 `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt      string                 `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *Task) Reset() {
+	*x = Task{}
+	mi := &file_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Task) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Task) ProtoMessage() {}
+
+func (x *Task) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Task.ProtoReflect.Descriptor instead.
+func (*Task) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *Task) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Task) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *Task) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *Task) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *Task) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *Task) GetInputText() string {
+	if x != nil {
+		return x.InputText
+	}
+	return ""
+}
+
+func (x *Task) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *Task) GetVersion() int32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *Task) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *Task) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+type TaskList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tasks         []*Task                `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskList) Reset() {
+	*x = TaskList{}
+	mi := &file_agent_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskList) ProtoMessage() {}
+
+func (x *TaskList) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskList.ProtoReflect.Descriptor instead.
+func (*TaskList) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *TaskList) GetTasks() []*Task {
+	if x != nil {
+		return x.Tasks
+	}
+	return nil
+}
+
+type TaskEventListRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId    string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	AfterSequence  int64                  `protobuf:"varint,3,opt,name=after_sequence,json=afterSequence,proto3" json:"after_sequence,omitempty"`
+	Limit          int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TaskEventListRequest) Reset() {
+	*x = TaskEventListRequest{}
+	mi := &file_agent_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskEventListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskEventListRequest) ProtoMessage() {}
+
+func (x *TaskEventListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskEventListRequest.ProtoReflect.Descriptor instead.
+func (*TaskEventListRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *TaskEventListRequest) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *TaskEventListRequest) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *TaskEventListRequest) GetAfterSequence() int64 {
+	if x != nil {
+		return x.AfterSequence
+	}
+	return 0
+}
+
+func (x *TaskEventListRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type TaskEvent struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	WorkspaceId    string                 `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	ConversationId string                 `protobuf:"bytes,3,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	TaskId         string                 `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Sequence       int64                  `protobuf:"varint,5,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	EventType      string                 `protobuf:"bytes,6,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	PayloadJson    string                 `protobuf:"bytes,7,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	OccurredAt     string                 `protobuf:"bytes,8,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TaskEvent) Reset() {
+	*x = TaskEvent{}
+	mi := &file_agent_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskEvent) ProtoMessage() {}
+
+func (x *TaskEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskEvent.ProtoReflect.Descriptor instead.
+func (*TaskEvent) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *TaskEvent) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *TaskEvent) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *TaskEvent) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *TaskEvent) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *TaskEvent) GetSequence() int64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *TaskEvent) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *TaskEvent) GetPayloadJson() string {
+	if x != nil {
+		return x.PayloadJson
+	}
+	return ""
+}
+
+func (x *TaskEvent) GetOccurredAt() string {
+	if x != nil {
+		return x.OccurredAt
+	}
+	return ""
+}
+
+type TaskEventList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Events        []*TaskEvent           `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskEventList) Reset() {
+	*x = TaskEventList{}
+	mi := &file_agent_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskEventList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskEventList) ProtoMessage() {}
+
+func (x *TaskEventList) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskEventList.ProtoReflect.Descriptor instead.
+func (*TaskEventList) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *TaskEventList) GetEvents() []*TaskEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
 type ApprovalListRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	WorkspaceId    string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
@@ -839,7 +1347,7 @@ type ApprovalListRequest struct {
 
 func (x *ApprovalListRequest) Reset() {
 	*x = ApprovalListRequest{}
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -851,7 +1359,7 @@ func (x *ApprovalListRequest) String() string {
 func (*ApprovalListRequest) ProtoMessage() {}
 
 func (x *ApprovalListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[12]
+	mi := &file_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -864,7 +1372,7 @@ func (x *ApprovalListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalListRequest.ProtoReflect.Descriptor instead.
 func (*ApprovalListRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{12}
+	return file_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ApprovalListRequest) GetWorkspaceId() string {
@@ -901,7 +1409,7 @@ type Approval struct {
 
 func (x *Approval) Reset() {
 	*x = Approval{}
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -913,7 +1421,7 @@ func (x *Approval) String() string {
 func (*Approval) ProtoMessage() {}
 
 func (x *Approval) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[13]
+	mi := &file_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -926,7 +1434,7 @@ func (x *Approval) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Approval.ProtoReflect.Descriptor instead.
 func (*Approval) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{13}
+	return file_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Approval) GetId() string {
@@ -1022,7 +1530,7 @@ type ApprovalList struct {
 
 func (x *ApprovalList) Reset() {
 	*x = ApprovalList{}
-	mi := &file_agent_proto_msgTypes[14]
+	mi := &file_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1034,7 +1542,7 @@ func (x *ApprovalList) String() string {
 func (*ApprovalList) ProtoMessage() {}
 
 func (x *ApprovalList) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[14]
+	mi := &file_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1047,7 +1555,7 @@ func (x *ApprovalList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalList.ProtoReflect.Descriptor instead.
 func (*ApprovalList) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{14}
+	return file_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ApprovalList) GetApprovals() []*Approval {
@@ -1070,7 +1578,7 @@ type ApprovalDecisionRequest struct {
 
 func (x *ApprovalDecisionRequest) Reset() {
 	*x = ApprovalDecisionRequest{}
-	mi := &file_agent_proto_msgTypes[15]
+	mi := &file_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1082,7 +1590,7 @@ func (x *ApprovalDecisionRequest) String() string {
 func (*ApprovalDecisionRequest) ProtoMessage() {}
 
 func (x *ApprovalDecisionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[15]
+	mi := &file_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1095,7 +1603,7 @@ func (x *ApprovalDecisionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApprovalDecisionRequest.ProtoReflect.Descriptor instead.
 func (*ApprovalDecisionRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{15}
+	return file_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ApprovalDecisionRequest) GetWorkspaceId() string {
@@ -1143,7 +1651,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_agent_proto_msgTypes[16]
+	mi := &file_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1155,7 +1663,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[16]
+	mi := &file_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1168,7 +1676,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{16}
+	return file_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *HealthResponse) GetStatus() string {
@@ -1195,7 +1703,7 @@ type WorkspaceAccessRequest struct {
 
 func (x *WorkspaceAccessRequest) Reset() {
 	*x = WorkspaceAccessRequest{}
-	mi := &file_agent_proto_msgTypes[17]
+	mi := &file_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1207,7 +1715,7 @@ func (x *WorkspaceAccessRequest) String() string {
 func (*WorkspaceAccessRequest) ProtoMessage() {}
 
 func (x *WorkspaceAccessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[17]
+	mi := &file_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1220,7 +1728,7 @@ func (x *WorkspaceAccessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceAccessRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceAccessRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{17}
+	return file_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *WorkspaceAccessRequest) GetWorkspaceId() string {
@@ -1247,7 +1755,7 @@ type WorkspaceAccessResponse struct {
 
 func (x *WorkspaceAccessResponse) Reset() {
 	*x = WorkspaceAccessResponse{}
-	mi := &file_agent_proto_msgTypes[18]
+	mi := &file_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1259,7 +1767,7 @@ func (x *WorkspaceAccessResponse) String() string {
 func (*WorkspaceAccessResponse) ProtoMessage() {}
 
 func (x *WorkspaceAccessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[18]
+	mi := &file_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1272,7 +1780,7 @@ func (x *WorkspaceAccessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceAccessResponse.ProtoReflect.Descriptor instead.
 func (*WorkspaceAccessResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{18}
+	return file_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *WorkspaceAccessResponse) GetAllowed() bool {
@@ -1305,7 +1813,7 @@ type AuditEvent struct {
 
 func (x *AuditEvent) Reset() {
 	*x = AuditEvent{}
-	mi := &file_agent_proto_msgTypes[19]
+	mi := &file_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1317,7 +1825,7 @@ func (x *AuditEvent) String() string {
 func (*AuditEvent) ProtoMessage() {}
 
 func (x *AuditEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[19]
+	mi := &file_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1330,7 +1838,7 @@ func (x *AuditEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditEvent.ProtoReflect.Descriptor instead.
 func (*AuditEvent) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{19}
+	return file_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *AuditEvent) GetId() string {
@@ -1398,7 +1906,7 @@ type AuditEventList struct {
 
 func (x *AuditEventList) Reset() {
 	*x = AuditEventList{}
-	mi := &file_agent_proto_msgTypes[20]
+	mi := &file_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1410,7 +1918,7 @@ func (x *AuditEventList) String() string {
 func (*AuditEventList) ProtoMessage() {}
 
 func (x *AuditEventList) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[20]
+	mi := &file_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1423,7 +1931,7 @@ func (x *AuditEventList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditEventList.ProtoReflect.Descriptor instead.
 func (*AuditEventList) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{20}
+	return file_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *AuditEventList) GetEvents() []*AuditEvent {
@@ -1446,7 +1954,7 @@ type AuditWriteRequest struct {
 
 func (x *AuditWriteRequest) Reset() {
 	*x = AuditWriteRequest{}
-	mi := &file_agent_proto_msgTypes[21]
+	mi := &file_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1458,7 +1966,7 @@ func (x *AuditWriteRequest) String() string {
 func (*AuditWriteRequest) ProtoMessage() {}
 
 func (x *AuditWriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[21]
+	mi := &file_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1471,7 +1979,7 @@ func (x *AuditWriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditWriteRequest.ProtoReflect.Descriptor instead.
 func (*AuditWriteRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{21}
+	return file_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *AuditWriteRequest) GetWorkspaceId() string {
@@ -1518,7 +2026,7 @@ type WorkspaceRequest struct {
 
 func (x *WorkspaceRequest) Reset() {
 	*x = WorkspaceRequest{}
-	mi := &file_agent_proto_msgTypes[22]
+	mi := &file_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1530,7 +2038,7 @@ func (x *WorkspaceRequest) String() string {
 func (*WorkspaceRequest) ProtoMessage() {}
 
 func (x *WorkspaceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[22]
+	mi := &file_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1543,7 +2051,7 @@ func (x *WorkspaceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{22}
+	return file_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *WorkspaceRequest) GetWorkspaceId() string {
@@ -1570,7 +2078,7 @@ type ChatModelSettings struct {
 
 func (x *ChatModelSettings) Reset() {
 	*x = ChatModelSettings{}
-	mi := &file_agent_proto_msgTypes[23]
+	mi := &file_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1582,7 +2090,7 @@ func (x *ChatModelSettings) String() string {
 func (*ChatModelSettings) ProtoMessage() {}
 
 func (x *ChatModelSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[23]
+	mi := &file_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1595,7 +2103,7 @@ func (x *ChatModelSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChatModelSettings.ProtoReflect.Descriptor instead.
 func (*ChatModelSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{23}
+	return file_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ChatModelSettings) GetProvider() string {
@@ -1671,7 +2179,7 @@ type UpdateChatModelSettingsRequest struct {
 
 func (x *UpdateChatModelSettingsRequest) Reset() {
 	*x = UpdateChatModelSettingsRequest{}
-	mi := &file_agent_proto_msgTypes[24]
+	mi := &file_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1683,7 +2191,7 @@ func (x *UpdateChatModelSettingsRequest) String() string {
 func (*UpdateChatModelSettingsRequest) ProtoMessage() {}
 
 func (x *UpdateChatModelSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[24]
+	mi := &file_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1696,7 +2204,7 @@ func (x *UpdateChatModelSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateChatModelSettingsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateChatModelSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{24}
+	return file_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *UpdateChatModelSettingsRequest) GetWorkspaceId() string {
@@ -1723,7 +2231,7 @@ type ChatModelList struct {
 
 func (x *ChatModelList) Reset() {
 	*x = ChatModelList{}
-	mi := &file_agent_proto_msgTypes[25]
+	mi := &file_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1735,7 +2243,7 @@ func (x *ChatModelList) String() string {
 func (*ChatModelList) ProtoMessage() {}
 
 func (x *ChatModelList) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[25]
+	mi := &file_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1748,7 +2256,7 @@ func (x *ChatModelList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChatModelList.ProtoReflect.Descriptor instead.
 func (*ChatModelList) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{25}
+	return file_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ChatModelList) GetModels() []*ChatModelSettings {
@@ -1775,7 +2283,7 @@ type UpsertChatModelRequest struct {
 
 func (x *UpsertChatModelRequest) Reset() {
 	*x = UpsertChatModelRequest{}
-	mi := &file_agent_proto_msgTypes[26]
+	mi := &file_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1787,7 +2295,7 @@ func (x *UpsertChatModelRequest) String() string {
 func (*UpsertChatModelRequest) ProtoMessage() {}
 
 func (x *UpsertChatModelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[26]
+	mi := &file_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1800,7 +2308,7 @@ func (x *UpsertChatModelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpsertChatModelRequest.ProtoReflect.Descriptor instead.
 func (*UpsertChatModelRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{26}
+	return file_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *UpsertChatModelRequest) GetWorkspaceId() string {
@@ -1827,7 +2335,7 @@ type ChatModelRequest struct {
 
 func (x *ChatModelRequest) Reset() {
 	*x = ChatModelRequest{}
-	mi := &file_agent_proto_msgTypes[27]
+	mi := &file_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1839,7 +2347,7 @@ func (x *ChatModelRequest) String() string {
 func (*ChatModelRequest) ProtoMessage() {}
 
 func (x *ChatModelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[27]
+	mi := &file_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1852,7 +2360,7 @@ func (x *ChatModelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChatModelRequest.ProtoReflect.Descriptor instead.
 func (*ChatModelRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{27}
+	return file_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ChatModelRequest) GetWorkspaceId() string {
@@ -1879,7 +2387,7 @@ type ValidateChatModelRequest struct {
 
 func (x *ValidateChatModelRequest) Reset() {
 	*x = ValidateChatModelRequest{}
-	mi := &file_agent_proto_msgTypes[28]
+	mi := &file_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1891,7 +2399,7 @@ func (x *ValidateChatModelRequest) String() string {
 func (*ValidateChatModelRequest) ProtoMessage() {}
 
 func (x *ValidateChatModelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[28]
+	mi := &file_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1904,7 +2412,7 @@ func (x *ValidateChatModelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateChatModelRequest.ProtoReflect.Descriptor instead.
 func (*ValidateChatModelRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{28}
+	return file_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ValidateChatModelRequest) GetSettings() *ChatModelSettings {
@@ -1932,7 +2440,7 @@ type ModelValidationResponse struct {
 
 func (x *ModelValidationResponse) Reset() {
 	*x = ModelValidationResponse{}
-	mi := &file_agent_proto_msgTypes[29]
+	mi := &file_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1944,7 +2452,7 @@ func (x *ModelValidationResponse) String() string {
 func (*ModelValidationResponse) ProtoMessage() {}
 
 func (x *ModelValidationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[29]
+	mi := &file_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1957,7 +2465,7 @@ func (x *ModelValidationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelValidationResponse.ProtoReflect.Descriptor instead.
 func (*ModelValidationResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{29}
+	return file_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ModelValidationResponse) GetOk() bool {
@@ -1993,7 +2501,7 @@ type SetChatModelCredentialRequest struct {
 
 func (x *SetChatModelCredentialRequest) Reset() {
 	*x = SetChatModelCredentialRequest{}
-	mi := &file_agent_proto_msgTypes[30]
+	mi := &file_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2005,7 +2513,7 @@ func (x *SetChatModelCredentialRequest) String() string {
 func (*SetChatModelCredentialRequest) ProtoMessage() {}
 
 func (x *SetChatModelCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[30]
+	mi := &file_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2018,7 +2526,7 @@ func (x *SetChatModelCredentialRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetChatModelCredentialRequest.ProtoReflect.Descriptor instead.
 func (*SetChatModelCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{30}
+	return file_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SetChatModelCredentialRequest) GetWorkspaceId() string {
@@ -2060,7 +2568,7 @@ type SetToolCredentialRequest struct {
 
 func (x *SetToolCredentialRequest) Reset() {
 	*x = SetToolCredentialRequest{}
-	mi := &file_agent_proto_msgTypes[31]
+	mi := &file_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2072,7 +2580,7 @@ func (x *SetToolCredentialRequest) String() string {
 func (*SetToolCredentialRequest) ProtoMessage() {}
 
 func (x *SetToolCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[31]
+	mi := &file_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2085,7 +2593,7 @@ func (x *SetToolCredentialRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetToolCredentialRequest.ProtoReflect.Descriptor instead.
 func (*SetToolCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{31}
+	return file_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *SetToolCredentialRequest) GetWorkspaceId() string {
@@ -2119,7 +2627,7 @@ type UserPreferencesRequest struct {
 
 func (x *UserPreferencesRequest) Reset() {
 	*x = UserPreferencesRequest{}
-	mi := &file_agent_proto_msgTypes[32]
+	mi := &file_agent_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2131,7 +2639,7 @@ func (x *UserPreferencesRequest) String() string {
 func (*UserPreferencesRequest) ProtoMessage() {}
 
 func (x *UserPreferencesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[32]
+	mi := &file_agent_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2144,7 +2652,7 @@ func (x *UserPreferencesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserPreferencesRequest.ProtoReflect.Descriptor instead.
 func (*UserPreferencesRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{32}
+	return file_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *UserPreferencesRequest) GetWorkspaceId() string {
@@ -2170,7 +2678,7 @@ type UserPreferences struct {
 
 func (x *UserPreferences) Reset() {
 	*x = UserPreferences{}
-	mi := &file_agent_proto_msgTypes[33]
+	mi := &file_agent_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2182,7 +2690,7 @@ func (x *UserPreferences) String() string {
 func (*UserPreferences) ProtoMessage() {}
 
 func (x *UserPreferences) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[33]
+	mi := &file_agent_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2195,7 +2703,7 @@ func (x *UserPreferences) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserPreferences.ProtoReflect.Descriptor instead.
 func (*UserPreferences) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{33}
+	return file_agent_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *UserPreferences) GetAssistantName() string {
@@ -2216,7 +2724,7 @@ type UpdateUserPreferencesRequest struct {
 
 func (x *UpdateUserPreferencesRequest) Reset() {
 	*x = UpdateUserPreferencesRequest{}
-	mi := &file_agent_proto_msgTypes[34]
+	mi := &file_agent_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2228,7 +2736,7 @@ func (x *UpdateUserPreferencesRequest) String() string {
 func (*UpdateUserPreferencesRequest) ProtoMessage() {}
 
 func (x *UpdateUserPreferencesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[34]
+	mi := &file_agent_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2241,7 +2749,7 @@ func (x *UpdateUserPreferencesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateUserPreferencesRequest.ProtoReflect.Descriptor instead.
 func (*UpdateUserPreferencesRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{34}
+	return file_agent_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *UpdateUserPreferencesRequest) GetWorkspaceId() string {
@@ -2275,7 +2783,7 @@ type PermissionSettings struct {
 
 func (x *PermissionSettings) Reset() {
 	*x = PermissionSettings{}
-	mi := &file_agent_proto_msgTypes[35]
+	mi := &file_agent_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2287,7 +2795,7 @@ func (x *PermissionSettings) String() string {
 func (*PermissionSettings) ProtoMessage() {}
 
 func (x *PermissionSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[35]
+	mi := &file_agent_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2300,7 +2808,7 @@ func (x *PermissionSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PermissionSettings.ProtoReflect.Descriptor instead.
 func (*PermissionSettings) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{35}
+	return file_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *PermissionSettings) GetDefaultMode() string {
@@ -2327,7 +2835,7 @@ type UpdatePermissionSettingsRequest struct {
 
 func (x *UpdatePermissionSettingsRequest) Reset() {
 	*x = UpdatePermissionSettingsRequest{}
-	mi := &file_agent_proto_msgTypes[36]
+	mi := &file_agent_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2339,7 +2847,7 @@ func (x *UpdatePermissionSettingsRequest) String() string {
 func (*UpdatePermissionSettingsRequest) ProtoMessage() {}
 
 func (x *UpdatePermissionSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[36]
+	mi := &file_agent_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2352,7 +2860,7 @@ func (x *UpdatePermissionSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePermissionSettingsRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePermissionSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{36}
+	return file_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *UpdatePermissionSettingsRequest) GetWorkspaceId() string {
@@ -2365,6 +2873,678 @@ func (x *UpdatePermissionSettingsRequest) GetWorkspaceId() string {
 func (x *UpdatePermissionSettingsRequest) GetSettings() *PermissionSettings {
 	if x != nil {
 		return x.Settings
+	}
+	return nil
+}
+
+type MemoryListRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId   string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	SubjectUserId string                 `protobuf:"bytes,2,opt,name=subject_user_id,json=subjectUserId,proto3" json:"subject_user_id,omitempty"`
+	Query         string                 `protobuf:"bytes,3,opt,name=query,proto3" json:"query,omitempty"`
+	Limit         int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryListRequest) Reset() {
+	*x = MemoryListRequest{}
+	mi := &file_agent_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryListRequest) ProtoMessage() {}
+
+func (x *MemoryListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryListRequest.ProtoReflect.Descriptor instead.
+func (*MemoryListRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *MemoryListRequest) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *MemoryListRequest) GetSubjectUserId() string {
+	if x != nil {
+		return x.SubjectUserId
+	}
+	return ""
+}
+
+func (x *MemoryListRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *MemoryListRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type Memory struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	WorkspaceId   string                 `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	SubjectUserId string                 `protobuf:"bytes,3,opt,name=subject_user_id,json=subjectUserId,proto3" json:"subject_user_id,omitempty"`
+	Category      string                 `protobuf:"bytes,4,opt,name=category,proto3" json:"category,omitempty"`
+	Content       string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
+	SourceType    string                 `protobuf:"bytes,6,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
+	SourceId      string                 `protobuf:"bytes,7,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
+	Confidence    float64                `protobuf:"fixed64,8,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     string                 `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Memory) Reset() {
+	*x = Memory{}
+	mi := &file_agent_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Memory) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Memory) ProtoMessage() {}
+
+func (x *Memory) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Memory.ProtoReflect.Descriptor instead.
+func (*Memory) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *Memory) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Memory) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *Memory) GetSubjectUserId() string {
+	if x != nil {
+		return x.SubjectUserId
+	}
+	return ""
+}
+
+func (x *Memory) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *Memory) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *Memory) GetSourceType() string {
+	if x != nil {
+		return x.SourceType
+	}
+	return ""
+}
+
+func (x *Memory) GetSourceId() string {
+	if x != nil {
+		return x.SourceId
+	}
+	return ""
+}
+
+func (x *Memory) GetConfidence() float64 {
+	if x != nil {
+		return x.Confidence
+	}
+	return 0
+}
+
+func (x *Memory) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *Memory) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+type MemoryList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Memories      []*Memory              `protobuf:"bytes,1,rep,name=memories,proto3" json:"memories,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryList) Reset() {
+	*x = MemoryList{}
+	mi := &file_agent_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryList) ProtoMessage() {}
+
+func (x *MemoryList) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryList.ProtoReflect.Descriptor instead.
+func (*MemoryList) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *MemoryList) GetMemories() []*Memory {
+	if x != nil {
+		return x.Memories
+	}
+	return nil
+}
+
+type UpsertMemoryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId   string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	SubjectUserId string                 `protobuf:"bytes,2,opt,name=subject_user_id,json=subjectUserId,proto3" json:"subject_user_id,omitempty"`
+	Memory        *Memory                `protobuf:"bytes,3,opt,name=memory,proto3" json:"memory,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpsertMemoryRequest) Reset() {
+	*x = UpsertMemoryRequest{}
+	mi := &file_agent_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpsertMemoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpsertMemoryRequest) ProtoMessage() {}
+
+func (x *UpsertMemoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpsertMemoryRequest.ProtoReflect.Descriptor instead.
+func (*UpsertMemoryRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *UpsertMemoryRequest) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *UpsertMemoryRequest) GetSubjectUserId() string {
+	if x != nil {
+		return x.SubjectUserId
+	}
+	return ""
+}
+
+func (x *UpsertMemoryRequest) GetMemory() *Memory {
+	if x != nil {
+		return x.Memory
+	}
+	return nil
+}
+
+type MemoryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId   string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	SubjectUserId string                 `protobuf:"bytes,2,opt,name=subject_user_id,json=subjectUserId,proto3" json:"subject_user_id,omitempty"`
+	MemoryId      string                 `protobuf:"bytes,3,opt,name=memory_id,json=memoryId,proto3" json:"memory_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryRequest) Reset() {
+	*x = MemoryRequest{}
+	mi := &file_agent_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryRequest) ProtoMessage() {}
+
+func (x *MemoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryRequest.ProtoReflect.Descriptor instead.
+func (*MemoryRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *MemoryRequest) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *MemoryRequest) GetSubjectUserId() string {
+	if x != nil {
+		return x.SubjectUserId
+	}
+	return ""
+}
+
+func (x *MemoryRequest) GetMemoryId() string {
+	if x != nil {
+		return x.MemoryId
+	}
+	return ""
+}
+
+type WorkspaceDataSummary struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	StorageBackend    string                 `protobuf:"bytes,1,opt,name=storage_backend,json=storageBackend,proto3" json:"storage_backend,omitempty"`
+	ConversationCount int64                  `protobuf:"varint,2,opt,name=conversation_count,json=conversationCount,proto3" json:"conversation_count,omitempty"`
+	MessageCount      int64                  `protobuf:"varint,3,opt,name=message_count,json=messageCount,proto3" json:"message_count,omitempty"`
+	MemoryCount       int64                  `protobuf:"varint,4,opt,name=memory_count,json=memoryCount,proto3" json:"memory_count,omitempty"`
+	TaskCount         int64                  `protobuf:"varint,5,opt,name=task_count,json=taskCount,proto3" json:"task_count,omitempty"`
+	AuditEventCount   int64                  `protobuf:"varint,6,opt,name=audit_event_count,json=auditEventCount,proto3" json:"audit_event_count,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *WorkspaceDataSummary) Reset() {
+	*x = WorkspaceDataSummary{}
+	mi := &file_agent_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkspaceDataSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkspaceDataSummary) ProtoMessage() {}
+
+func (x *WorkspaceDataSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkspaceDataSummary.ProtoReflect.Descriptor instead.
+func (*WorkspaceDataSummary) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *WorkspaceDataSummary) GetStorageBackend() string {
+	if x != nil {
+		return x.StorageBackend
+	}
+	return ""
+}
+
+func (x *WorkspaceDataSummary) GetConversationCount() int64 {
+	if x != nil {
+		return x.ConversationCount
+	}
+	return 0
+}
+
+func (x *WorkspaceDataSummary) GetMessageCount() int64 {
+	if x != nil {
+		return x.MessageCount
+	}
+	return 0
+}
+
+func (x *WorkspaceDataSummary) GetMemoryCount() int64 {
+	if x != nil {
+		return x.MemoryCount
+	}
+	return 0
+}
+
+func (x *WorkspaceDataSummary) GetTaskCount() int64 {
+	if x != nil {
+		return x.TaskCount
+	}
+	return 0
+}
+
+func (x *WorkspaceDataSummary) GetAuditEventCount() int64 {
+	if x != nil {
+		return x.AuditEventCount
+	}
+	return 0
+}
+
+type MCPServer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Transport     string                 `protobuf:"bytes,3,opt,name=transport,proto3" json:"transport,omitempty"`
+	ToolNames     []string               `protobuf:"bytes,4,rep,name=tool_names,json=toolNames,proto3" json:"tool_names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MCPServer) Reset() {
+	*x = MCPServer{}
+	mi := &file_agent_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MCPServer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MCPServer) ProtoMessage() {}
+
+func (x *MCPServer) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MCPServer.ProtoReflect.Descriptor instead.
+func (*MCPServer) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *MCPServer) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *MCPServer) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *MCPServer) GetTransport() string {
+	if x != nil {
+		return x.Transport
+	}
+	return ""
+}
+
+func (x *MCPServer) GetToolNames() []string {
+	if x != nil {
+		return x.ToolNames
+	}
+	return nil
+}
+
+type MCPServerList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Servers       []*MCPServer           `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MCPServerList) Reset() {
+	*x = MCPServerList{}
+	mi := &file_agent_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MCPServerList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MCPServerList) ProtoMessage() {}
+
+func (x *MCPServerList) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MCPServerList.ProtoReflect.Descriptor instead.
+func (*MCPServerList) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *MCPServerList) GetServers() []*MCPServer {
+	if x != nil {
+		return x.Servers
+	}
+	return nil
+}
+
+type Skill struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Name                 string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Version              string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	Description          string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Kind                 string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	SourcePath           string                 `protobuf:"bytes,5,opt,name=source_path,json=sourcePath,proto3" json:"source_path,omitempty"`
+	ParametersSchemaJson string                 `protobuf:"bytes,6,opt,name=parameters_schema_json,json=parametersSchemaJson,proto3" json:"parameters_schema_json,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *Skill) Reset() {
+	*x = Skill{}
+	mi := &file_agent_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Skill) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Skill) ProtoMessage() {}
+
+func (x *Skill) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Skill.ProtoReflect.Descriptor instead.
+func (*Skill) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *Skill) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Skill) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *Skill) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *Skill) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *Skill) GetSourcePath() string {
+	if x != nil {
+		return x.SourcePath
+	}
+	return ""
+}
+
+func (x *Skill) GetParametersSchemaJson() string {
+	if x != nil {
+		return x.ParametersSchemaJson
+	}
+	return ""
+}
+
+type SkillList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Skills        []*Skill               `protobuf:"bytes,1,rep,name=skills,proto3" json:"skills,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SkillList) Reset() {
+	*x = SkillList{}
+	mi := &file_agent_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SkillList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SkillList) ProtoMessage() {}
+
+func (x *SkillList) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SkillList.ProtoReflect.Descriptor instead.
+func (*SkillList) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *SkillList) GetSkills() []*Skill {
+	if x != nil {
+		return x.Skills
 	}
 	return nil
 }
@@ -2385,7 +3565,7 @@ const file_agent_proto_rawDesc = "" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x18\n" +
 	"\acontent\x18\x03 \x01(\tR\acontent\x12C\n" +
 	"\vattachments\x18\x04 \x03(\v2!.nanamigopher.agent.v1.AttachmentR\vattachments\x12!\n" +
-	"\fprincipal_id\x18\x05 \x01(\tR\vprincipalIdJ\x04\b\x06\x10\a\"\xeb\x01\n" +
+	"\fprincipal_id\x18\x05 \x01(\tR\vprincipalIdJ\x04\b\x06\x10\a\"\xc3\x02\n" +
 	"\n" +
 	"AgentEvent\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x17\n" +
@@ -2395,7 +3575,12 @@ const file_agent_proto_rawDesc = "" +
 	"\x04code\x18\x05 \x01(\tR\x04code\x12\x18\n" +
 	"\amessage\x18\x06 \x01(\tR\amessage\x12\x1c\n" +
 	"\tretryable\x18\a \x01(\bR\tretryable\x12!\n" +
-	"\fpayload_json\x18\b \x01(\tR\vpayloadJson\"\xe0\x01\n" +
+	"\fpayload_json\x18\b \x01(\tR\vpayloadJson\x12\x19\n" +
+	"\bevent_id\x18\t \x01(\tR\aeventId\x12\x1a\n" +
+	"\bsequence\x18\n" +
+	" \x01(\x03R\bsequence\x12\x1f\n" +
+	"\voccurred_at\x18\v \x01(\tR\n" +
+	"occurredAt\"\xe0\x01\n" +
 	"\x13ConversationRequest\x12!\n" +
 	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x14\n" +
@@ -2440,7 +3625,50 @@ const file_agent_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\tR\tcreatedAt\"I\n" +
 	"\vMessageList\x12:\n" +
-	"\bmessages\x18\x01 \x03(\v2\x1e.nanamigopher.agent.v1.MessageR\bmessages\"a\n" +
+	"\bmessages\x18\x01 \x03(\v2\x1e.nanamigopher.agent.v1.MessageR\bmessages\"I\n" +
+	"\vTaskRequest\x12!\n" +
+	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12\x17\n" +
+	"\atask_id\x18\x02 \x01(\tR\x06taskId\"s\n" +
+	"\x0fTaskListRequest\x12!\n" +
+	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12'\n" +
+	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"\xa6\x02\n" +
+	"\x04Task\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
+	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12'\n" +
+	"\x0fconversation_id\x18\x03 \x01(\tR\x0econversationId\x12\x14\n" +
+	"\x05title\x18\x04 \x01(\tR\x05title\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"input_text\x18\x06 \x01(\tR\tinputText\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\a \x01(\tR\tlastError\x12\x18\n" +
+	"\aversion\x18\b \x01(\x05R\aversion\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\t \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\n" +
+	" \x01(\tR\tupdatedAt\"=\n" +
+	"\bTaskList\x121\n" +
+	"\x05tasks\x18\x01 \x03(\v2\x1b.nanamigopher.agent.v1.TaskR\x05tasks\"\x9f\x01\n" +
+	"\x14TaskEventListRequest\x12!\n" +
+	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12'\n" +
+	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12%\n" +
+	"\x0eafter_sequence\x18\x03 \x01(\x03R\rafterSequence\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\"\xff\x01\n" +
+	"\tTaskEvent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
+	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12'\n" +
+	"\x0fconversation_id\x18\x03 \x01(\tR\x0econversationId\x12\x17\n" +
+	"\atask_id\x18\x04 \x01(\tR\x06taskId\x12\x1a\n" +
+	"\bsequence\x18\x05 \x01(\x03R\bsequence\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x06 \x01(\tR\teventType\x12!\n" +
+	"\fpayload_json\x18\a \x01(\tR\vpayloadJson\x12\x1f\n" +
+	"\voccurred_at\x18\b \x01(\tR\n" +
+	"occurredAt\"I\n" +
+	"\rTaskEventList\x128\n" +
+	"\x06events\x18\x01 \x03(\v2 .nanamigopher.agent.v1.TaskEventR\x06events\"a\n" +
 	"\x13ApprovalListRequest\x12!\n" +
 	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\"\xfc\x02\n" +
@@ -2558,7 +3786,66 @@ const file_agent_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\x8b\x01\n" +
 	"\x1fUpdatePermissionSettingsRequest\x12!\n" +
 	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12E\n" +
-	"\bsettings\x18\x02 \x01(\v2).nanamigopher.agent.v1.PermissionSettingsR\bsettings2\xc0\x16\n" +
+	"\bsettings\x18\x02 \x01(\v2).nanamigopher.agent.v1.PermissionSettingsR\bsettings\"\x8a\x01\n" +
+	"\x11MemoryListRequest\x12!\n" +
+	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12&\n" +
+	"\x0fsubject_user_id\x18\x02 \x01(\tR\rsubjectUserId\x12\x14\n" +
+	"\x05query\x18\x03 \x01(\tR\x05query\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\"\xb5\x02\n" +
+	"\x06Memory\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
+	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12&\n" +
+	"\x0fsubject_user_id\x18\x03 \x01(\tR\rsubjectUserId\x12\x1a\n" +
+	"\bcategory\x18\x04 \x01(\tR\bcategory\x12\x18\n" +
+	"\acontent\x18\x05 \x01(\tR\acontent\x12\x1f\n" +
+	"\vsource_type\x18\x06 \x01(\tR\n" +
+	"sourceType\x12\x1b\n" +
+	"\tsource_id\x18\a \x01(\tR\bsourceId\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\b \x01(\x01R\n" +
+	"confidence\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\t \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\n" +
+	" \x01(\tR\tupdatedAt\"G\n" +
+	"\n" +
+	"MemoryList\x129\n" +
+	"\bmemories\x18\x01 \x03(\v2\x1d.nanamigopher.agent.v1.MemoryR\bmemories\"\x97\x01\n" +
+	"\x13UpsertMemoryRequest\x12!\n" +
+	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12&\n" +
+	"\x0fsubject_user_id\x18\x02 \x01(\tR\rsubjectUserId\x125\n" +
+	"\x06memory\x18\x03 \x01(\v2\x1d.nanamigopher.agent.v1.MemoryR\x06memory\"w\n" +
+	"\rMemoryRequest\x12!\n" +
+	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12&\n" +
+	"\x0fsubject_user_id\x18\x02 \x01(\tR\rsubjectUserId\x12\x1b\n" +
+	"\tmemory_id\x18\x03 \x01(\tR\bmemoryId\"\x81\x02\n" +
+	"\x14WorkspaceDataSummary\x12'\n" +
+	"\x0fstorage_backend\x18\x01 \x01(\tR\x0estorageBackend\x12-\n" +
+	"\x12conversation_count\x18\x02 \x01(\x03R\x11conversationCount\x12#\n" +
+	"\rmessage_count\x18\x03 \x01(\x03R\fmessageCount\x12!\n" +
+	"\fmemory_count\x18\x04 \x01(\x03R\vmemoryCount\x12\x1d\n" +
+	"\n" +
+	"task_count\x18\x05 \x01(\x03R\ttaskCount\x12*\n" +
+	"\x11audit_event_count\x18\x06 \x01(\x03R\x0fauditEventCount\"~\n" +
+	"\tMCPServer\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1c\n" +
+	"\ttransport\x18\x03 \x01(\tR\ttransport\x12\x1d\n" +
+	"\n" +
+	"tool_names\x18\x04 \x03(\tR\ttoolNames\"K\n" +
+	"\rMCPServerList\x12:\n" +
+	"\aservers\x18\x01 \x03(\v2 .nanamigopher.agent.v1.MCPServerR\aservers\"\xc2\x01\n" +
+	"\x05Skill\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x1f\n" +
+	"\vsource_path\x18\x05 \x01(\tR\n" +
+	"sourcePath\x124\n" +
+	"\x16parameters_schema_json\x18\x06 \x01(\tR\x14parametersSchemaJson\"A\n" +
+	"\tSkillList\x124\n" +
+	"\x06skills\x18\x01 \x03(\v2\x1c.nanamigopher.agent.v1.SkillR\x06skills2\xcd\x1d\n" +
 	"\fAgentService\x12c\n" +
 	"\x0eProcessMessage\x12,.nanamigopher.agent.v1.ProcessMessageRequest\x1a!.nanamigopher.agent.v1.AgentEvent0\x01\x12e\n" +
 	"\x12CreateConversation\x12*.nanamigopher.agent.v1.ConversationRequest\x1a#.nanamigopher.agent.v1.Conversation\x12b\n" +
@@ -2567,7 +3854,12 @@ const file_agent_proto_rawDesc = "" +
 	"\x12DeleteConversation\x12*.nanamigopher.agent.v1.ConversationRequest\x1a\x1c.nanamigopher.agent.v1.Empty\x12y\n" +
 	"\x1cUpdateConversationPermission\x124.nanamigopher.agent.v1.ConversationPermissionRequest\x1a#.nanamigopher.agent.v1.Conversation\x12u\n" +
 	"\x1aUpdateConversationSettings\x122.nanamigopher.agent.v1.ConversationSettingsRequest\x1a#.nanamigopher.agent.v1.Conversation\x12^\n" +
-	"\fListMessages\x12*.nanamigopher.agent.v1.ConversationRequest\x1a\".nanamigopher.agent.v1.MessageList\x12`\n" +
+	"\fListMessages\x12*.nanamigopher.agent.v1.ConversationRequest\x1a\".nanamigopher.agent.v1.MessageList\x12J\n" +
+	"\aGetTask\x12\".nanamigopher.agent.v1.TaskRequest\x1a\x1b.nanamigopher.agent.v1.Task\x12T\n" +
+	"\tListTasks\x12&.nanamigopher.agent.v1.TaskListRequest\x1a\x1f.nanamigopher.agent.v1.TaskList\x12M\n" +
+	"\n" +
+	"CancelTask\x12\".nanamigopher.agent.v1.TaskRequest\x1a\x1b.nanamigopher.agent.v1.Task\x12c\n" +
+	"\x0eListTaskEvents\x12+.nanamigopher.agent.v1.TaskEventListRequest\x1a$.nanamigopher.agent.v1.TaskEventList\x12`\n" +
 	"\rListApprovals\x12*.nanamigopher.agent.v1.ApprovalListRequest\x1a#.nanamigopher.agent.v1.ApprovalList\x12e\n" +
 	"\x0eDecideApproval\x12..nanamigopher.agent.v1.ApprovalDecisionRequest\x1a!.nanamigopher.agent.v1.AgentEvent0\x01\x12u\n" +
 	"\x14CheckWorkspaceAccess\x12-.nanamigopher.agent.v1.WorkspaceAccessRequest\x1a..nanamigopher.agent.v1.WorkspaceAccessResponse\x12i\n" +
@@ -2585,7 +3877,14 @@ const file_agent_proto_rawDesc = "" +
 	"\x12GetUserPreferences\x12-.nanamigopher.agent.v1.UserPreferencesRequest\x1a&.nanamigopher.agent.v1.UserPreferences\x12t\n" +
 	"\x15UpdateUserPreferences\x123.nanamigopher.agent.v1.UpdateUserPreferencesRequest\x1a&.nanamigopher.agent.v1.UserPreferences\x12k\n" +
 	"\x15GetPermissionSettings\x12'.nanamigopher.agent.v1.WorkspaceRequest\x1a).nanamigopher.agent.v1.PermissionSettings\x12}\n" +
-	"\x18UpdatePermissionSettings\x126.nanamigopher.agent.v1.UpdatePermissionSettingsRequest\x1a).nanamigopher.agent.v1.PermissionSettings\x12M\n" +
+	"\x18UpdatePermissionSettings\x126.nanamigopher.agent.v1.UpdatePermissionSettingsRequest\x1a).nanamigopher.agent.v1.PermissionSettings\x12[\n" +
+	"\fListMemories\x12(.nanamigopher.agent.v1.MemoryListRequest\x1a!.nanamigopher.agent.v1.MemoryList\x12Y\n" +
+	"\fUpsertMemory\x12*.nanamigopher.agent.v1.UpsertMemoryRequest\x1a\x1d.nanamigopher.agent.v1.Memory\x12R\n" +
+	"\fDeleteMemory\x12$.nanamigopher.agent.v1.MemoryRequest\x1a\x1c.nanamigopher.agent.v1.Empty\x12o\n" +
+	"\x17GetWorkspaceDataSummary\x12'.nanamigopher.agent.v1.WorkspaceRequest\x1a+.nanamigopher.agent.v1.WorkspaceDataSummary\x12_\n" +
+	"\x0eListMCPServers\x12'.nanamigopher.agent.v1.WorkspaceRequest\x1a$.nanamigopher.agent.v1.MCPServerList\x12W\n" +
+	"\n" +
+	"ListSkills\x12'.nanamigopher.agent.v1.WorkspaceRequest\x1a .nanamigopher.agent.v1.SkillList\x12M\n" +
 	"\x06Health\x12\x1c.nanamigopher.agent.v1.Empty\x1a%.nanamigopher.agent.v1.HealthResponseBIZGgithub.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1;agentv1b\x06proto3"
 
 var (
@@ -2600,7 +3899,7 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_agent_proto_goTypes = []any{
 	(*Empty)(nil),                           // 0: nanamigopher.agent.v1.Empty
 	(*Attachment)(nil),                      // 1: nanamigopher.agent.v1.Attachment
@@ -2614,105 +3913,148 @@ var file_agent_proto_goTypes = []any{
 	(*ConversationSettingsRequest)(nil),     // 9: nanamigopher.agent.v1.ConversationSettingsRequest
 	(*Message)(nil),                         // 10: nanamigopher.agent.v1.Message
 	(*MessageList)(nil),                     // 11: nanamigopher.agent.v1.MessageList
-	(*ApprovalListRequest)(nil),             // 12: nanamigopher.agent.v1.ApprovalListRequest
-	(*Approval)(nil),                        // 13: nanamigopher.agent.v1.Approval
-	(*ApprovalList)(nil),                    // 14: nanamigopher.agent.v1.ApprovalList
-	(*ApprovalDecisionRequest)(nil),         // 15: nanamigopher.agent.v1.ApprovalDecisionRequest
-	(*HealthResponse)(nil),                  // 16: nanamigopher.agent.v1.HealthResponse
-	(*WorkspaceAccessRequest)(nil),          // 17: nanamigopher.agent.v1.WorkspaceAccessRequest
-	(*WorkspaceAccessResponse)(nil),         // 18: nanamigopher.agent.v1.WorkspaceAccessResponse
-	(*AuditEvent)(nil),                      // 19: nanamigopher.agent.v1.AuditEvent
-	(*AuditEventList)(nil),                  // 20: nanamigopher.agent.v1.AuditEventList
-	(*AuditWriteRequest)(nil),               // 21: nanamigopher.agent.v1.AuditWriteRequest
-	(*WorkspaceRequest)(nil),                // 22: nanamigopher.agent.v1.WorkspaceRequest
-	(*ChatModelSettings)(nil),               // 23: nanamigopher.agent.v1.ChatModelSettings
-	(*UpdateChatModelSettingsRequest)(nil),  // 24: nanamigopher.agent.v1.UpdateChatModelSettingsRequest
-	(*ChatModelList)(nil),                   // 25: nanamigopher.agent.v1.ChatModelList
-	(*UpsertChatModelRequest)(nil),          // 26: nanamigopher.agent.v1.UpsertChatModelRequest
-	(*ChatModelRequest)(nil),                // 27: nanamigopher.agent.v1.ChatModelRequest
-	(*ValidateChatModelRequest)(nil),        // 28: nanamigopher.agent.v1.ValidateChatModelRequest
-	(*ModelValidationResponse)(nil),         // 29: nanamigopher.agent.v1.ModelValidationResponse
-	(*SetChatModelCredentialRequest)(nil),   // 30: nanamigopher.agent.v1.SetChatModelCredentialRequest
-	(*SetToolCredentialRequest)(nil),        // 31: nanamigopher.agent.v1.SetToolCredentialRequest
-	(*UserPreferencesRequest)(nil),          // 32: nanamigopher.agent.v1.UserPreferencesRequest
-	(*UserPreferences)(nil),                 // 33: nanamigopher.agent.v1.UserPreferences
-	(*UpdateUserPreferencesRequest)(nil),    // 34: nanamigopher.agent.v1.UpdateUserPreferencesRequest
-	(*PermissionSettings)(nil),              // 35: nanamigopher.agent.v1.PermissionSettings
-	(*UpdatePermissionSettingsRequest)(nil), // 36: nanamigopher.agent.v1.UpdatePermissionSettingsRequest
-	nil,                                     // 37: nanamigopher.agent.v1.PermissionSettings.ToolLevelsEntry
+	(*TaskRequest)(nil),                     // 12: nanamigopher.agent.v1.TaskRequest
+	(*TaskListRequest)(nil),                 // 13: nanamigopher.agent.v1.TaskListRequest
+	(*Task)(nil),                            // 14: nanamigopher.agent.v1.Task
+	(*TaskList)(nil),                        // 15: nanamigopher.agent.v1.TaskList
+	(*TaskEventListRequest)(nil),            // 16: nanamigopher.agent.v1.TaskEventListRequest
+	(*TaskEvent)(nil),                       // 17: nanamigopher.agent.v1.TaskEvent
+	(*TaskEventList)(nil),                   // 18: nanamigopher.agent.v1.TaskEventList
+	(*ApprovalListRequest)(nil),             // 19: nanamigopher.agent.v1.ApprovalListRequest
+	(*Approval)(nil),                        // 20: nanamigopher.agent.v1.Approval
+	(*ApprovalList)(nil),                    // 21: nanamigopher.agent.v1.ApprovalList
+	(*ApprovalDecisionRequest)(nil),         // 22: nanamigopher.agent.v1.ApprovalDecisionRequest
+	(*HealthResponse)(nil),                  // 23: nanamigopher.agent.v1.HealthResponse
+	(*WorkspaceAccessRequest)(nil),          // 24: nanamigopher.agent.v1.WorkspaceAccessRequest
+	(*WorkspaceAccessResponse)(nil),         // 25: nanamigopher.agent.v1.WorkspaceAccessResponse
+	(*AuditEvent)(nil),                      // 26: nanamigopher.agent.v1.AuditEvent
+	(*AuditEventList)(nil),                  // 27: nanamigopher.agent.v1.AuditEventList
+	(*AuditWriteRequest)(nil),               // 28: nanamigopher.agent.v1.AuditWriteRequest
+	(*WorkspaceRequest)(nil),                // 29: nanamigopher.agent.v1.WorkspaceRequest
+	(*ChatModelSettings)(nil),               // 30: nanamigopher.agent.v1.ChatModelSettings
+	(*UpdateChatModelSettingsRequest)(nil),  // 31: nanamigopher.agent.v1.UpdateChatModelSettingsRequest
+	(*ChatModelList)(nil),                   // 32: nanamigopher.agent.v1.ChatModelList
+	(*UpsertChatModelRequest)(nil),          // 33: nanamigopher.agent.v1.UpsertChatModelRequest
+	(*ChatModelRequest)(nil),                // 34: nanamigopher.agent.v1.ChatModelRequest
+	(*ValidateChatModelRequest)(nil),        // 35: nanamigopher.agent.v1.ValidateChatModelRequest
+	(*ModelValidationResponse)(nil),         // 36: nanamigopher.agent.v1.ModelValidationResponse
+	(*SetChatModelCredentialRequest)(nil),   // 37: nanamigopher.agent.v1.SetChatModelCredentialRequest
+	(*SetToolCredentialRequest)(nil),        // 38: nanamigopher.agent.v1.SetToolCredentialRequest
+	(*UserPreferencesRequest)(nil),          // 39: nanamigopher.agent.v1.UserPreferencesRequest
+	(*UserPreferences)(nil),                 // 40: nanamigopher.agent.v1.UserPreferences
+	(*UpdateUserPreferencesRequest)(nil),    // 41: nanamigopher.agent.v1.UpdateUserPreferencesRequest
+	(*PermissionSettings)(nil),              // 42: nanamigopher.agent.v1.PermissionSettings
+	(*UpdatePermissionSettingsRequest)(nil), // 43: nanamigopher.agent.v1.UpdatePermissionSettingsRequest
+	(*MemoryListRequest)(nil),               // 44: nanamigopher.agent.v1.MemoryListRequest
+	(*Memory)(nil),                          // 45: nanamigopher.agent.v1.Memory
+	(*MemoryList)(nil),                      // 46: nanamigopher.agent.v1.MemoryList
+	(*UpsertMemoryRequest)(nil),             // 47: nanamigopher.agent.v1.UpsertMemoryRequest
+	(*MemoryRequest)(nil),                   // 48: nanamigopher.agent.v1.MemoryRequest
+	(*WorkspaceDataSummary)(nil),            // 49: nanamigopher.agent.v1.WorkspaceDataSummary
+	(*MCPServer)(nil),                       // 50: nanamigopher.agent.v1.MCPServer
+	(*MCPServerList)(nil),                   // 51: nanamigopher.agent.v1.MCPServerList
+	(*Skill)(nil),                           // 52: nanamigopher.agent.v1.Skill
+	(*SkillList)(nil),                       // 53: nanamigopher.agent.v1.SkillList
+	nil,                                     // 54: nanamigopher.agent.v1.PermissionSettings.ToolLevelsEntry
 }
 var file_agent_proto_depIdxs = []int32{
 	1,  // 0: nanamigopher.agent.v1.ProcessMessageRequest.attachments:type_name -> nanamigopher.agent.v1.Attachment
 	6,  // 1: nanamigopher.agent.v1.ConversationList.conversations:type_name -> nanamigopher.agent.v1.Conversation
 	10, // 2: nanamigopher.agent.v1.MessageList.messages:type_name -> nanamigopher.agent.v1.Message
-	13, // 3: nanamigopher.agent.v1.ApprovalList.approvals:type_name -> nanamigopher.agent.v1.Approval
-	19, // 4: nanamigopher.agent.v1.AuditEventList.events:type_name -> nanamigopher.agent.v1.AuditEvent
-	23, // 5: nanamigopher.agent.v1.UpdateChatModelSettingsRequest.settings:type_name -> nanamigopher.agent.v1.ChatModelSettings
-	23, // 6: nanamigopher.agent.v1.ChatModelList.models:type_name -> nanamigopher.agent.v1.ChatModelSettings
-	23, // 7: nanamigopher.agent.v1.UpsertChatModelRequest.settings:type_name -> nanamigopher.agent.v1.ChatModelSettings
-	23, // 8: nanamigopher.agent.v1.ValidateChatModelRequest.settings:type_name -> nanamigopher.agent.v1.ChatModelSettings
-	33, // 9: nanamigopher.agent.v1.UpdateUserPreferencesRequest.preferences:type_name -> nanamigopher.agent.v1.UserPreferences
-	37, // 10: nanamigopher.agent.v1.PermissionSettings.tool_levels:type_name -> nanamigopher.agent.v1.PermissionSettings.ToolLevelsEntry
-	35, // 11: nanamigopher.agent.v1.UpdatePermissionSettingsRequest.settings:type_name -> nanamigopher.agent.v1.PermissionSettings
-	2,  // 12: nanamigopher.agent.v1.AgentService.ProcessMessage:input_type -> nanamigopher.agent.v1.ProcessMessageRequest
-	4,  // 13: nanamigopher.agent.v1.AgentService.CreateConversation:input_type -> nanamigopher.agent.v1.ConversationRequest
-	4,  // 14: nanamigopher.agent.v1.AgentService.GetConversation:input_type -> nanamigopher.agent.v1.ConversationRequest
-	5,  // 15: nanamigopher.agent.v1.AgentService.ListConversations:input_type -> nanamigopher.agent.v1.ListConversationsRequest
-	4,  // 16: nanamigopher.agent.v1.AgentService.DeleteConversation:input_type -> nanamigopher.agent.v1.ConversationRequest
-	8,  // 17: nanamigopher.agent.v1.AgentService.UpdateConversationPermission:input_type -> nanamigopher.agent.v1.ConversationPermissionRequest
-	9,  // 18: nanamigopher.agent.v1.AgentService.UpdateConversationSettings:input_type -> nanamigopher.agent.v1.ConversationSettingsRequest
-	4,  // 19: nanamigopher.agent.v1.AgentService.ListMessages:input_type -> nanamigopher.agent.v1.ConversationRequest
-	12, // 20: nanamigopher.agent.v1.AgentService.ListApprovals:input_type -> nanamigopher.agent.v1.ApprovalListRequest
-	15, // 21: nanamigopher.agent.v1.AgentService.DecideApproval:input_type -> nanamigopher.agent.v1.ApprovalDecisionRequest
-	17, // 22: nanamigopher.agent.v1.AgentService.CheckWorkspaceAccess:input_type -> nanamigopher.agent.v1.WorkspaceAccessRequest
-	5,  // 23: nanamigopher.agent.v1.AgentService.ListAuditEvents:input_type -> nanamigopher.agent.v1.ListConversationsRequest
-	21, // 24: nanamigopher.agent.v1.AgentService.RecordAuditEvent:input_type -> nanamigopher.agent.v1.AuditWriteRequest
-	22, // 25: nanamigopher.agent.v1.AgentService.GetChatModelSettings:input_type -> nanamigopher.agent.v1.WorkspaceRequest
-	24, // 26: nanamigopher.agent.v1.AgentService.UpdateChatModelSettings:input_type -> nanamigopher.agent.v1.UpdateChatModelSettingsRequest
-	22, // 27: nanamigopher.agent.v1.AgentService.ListChatModels:input_type -> nanamigopher.agent.v1.WorkspaceRequest
-	26, // 28: nanamigopher.agent.v1.AgentService.UpsertChatModel:input_type -> nanamigopher.agent.v1.UpsertChatModelRequest
-	27, // 29: nanamigopher.agent.v1.AgentService.DeleteChatModel:input_type -> nanamigopher.agent.v1.ChatModelRequest
-	27, // 30: nanamigopher.agent.v1.AgentService.SetDefaultChatModel:input_type -> nanamigopher.agent.v1.ChatModelRequest
-	28, // 31: nanamigopher.agent.v1.AgentService.ValidateChatModel:input_type -> nanamigopher.agent.v1.ValidateChatModelRequest
-	30, // 32: nanamigopher.agent.v1.AgentService.SetChatModelCredential:input_type -> nanamigopher.agent.v1.SetChatModelCredentialRequest
-	31, // 33: nanamigopher.agent.v1.AgentService.SetToolCredential:input_type -> nanamigopher.agent.v1.SetToolCredentialRequest
-	32, // 34: nanamigopher.agent.v1.AgentService.GetUserPreferences:input_type -> nanamigopher.agent.v1.UserPreferencesRequest
-	34, // 35: nanamigopher.agent.v1.AgentService.UpdateUserPreferences:input_type -> nanamigopher.agent.v1.UpdateUserPreferencesRequest
-	22, // 36: nanamigopher.agent.v1.AgentService.GetPermissionSettings:input_type -> nanamigopher.agent.v1.WorkspaceRequest
-	36, // 37: nanamigopher.agent.v1.AgentService.UpdatePermissionSettings:input_type -> nanamigopher.agent.v1.UpdatePermissionSettingsRequest
-	0,  // 38: nanamigopher.agent.v1.AgentService.Health:input_type -> nanamigopher.agent.v1.Empty
-	3,  // 39: nanamigopher.agent.v1.AgentService.ProcessMessage:output_type -> nanamigopher.agent.v1.AgentEvent
-	6,  // 40: nanamigopher.agent.v1.AgentService.CreateConversation:output_type -> nanamigopher.agent.v1.Conversation
-	6,  // 41: nanamigopher.agent.v1.AgentService.GetConversation:output_type -> nanamigopher.agent.v1.Conversation
-	7,  // 42: nanamigopher.agent.v1.AgentService.ListConversations:output_type -> nanamigopher.agent.v1.ConversationList
-	0,  // 43: nanamigopher.agent.v1.AgentService.DeleteConversation:output_type -> nanamigopher.agent.v1.Empty
-	6,  // 44: nanamigopher.agent.v1.AgentService.UpdateConversationPermission:output_type -> nanamigopher.agent.v1.Conversation
-	6,  // 45: nanamigopher.agent.v1.AgentService.UpdateConversationSettings:output_type -> nanamigopher.agent.v1.Conversation
-	11, // 46: nanamigopher.agent.v1.AgentService.ListMessages:output_type -> nanamigopher.agent.v1.MessageList
-	14, // 47: nanamigopher.agent.v1.AgentService.ListApprovals:output_type -> nanamigopher.agent.v1.ApprovalList
-	3,  // 48: nanamigopher.agent.v1.AgentService.DecideApproval:output_type -> nanamigopher.agent.v1.AgentEvent
-	18, // 49: nanamigopher.agent.v1.AgentService.CheckWorkspaceAccess:output_type -> nanamigopher.agent.v1.WorkspaceAccessResponse
-	20, // 50: nanamigopher.agent.v1.AgentService.ListAuditEvents:output_type -> nanamigopher.agent.v1.AuditEventList
-	0,  // 51: nanamigopher.agent.v1.AgentService.RecordAuditEvent:output_type -> nanamigopher.agent.v1.Empty
-	23, // 52: nanamigopher.agent.v1.AgentService.GetChatModelSettings:output_type -> nanamigopher.agent.v1.ChatModelSettings
-	23, // 53: nanamigopher.agent.v1.AgentService.UpdateChatModelSettings:output_type -> nanamigopher.agent.v1.ChatModelSettings
-	25, // 54: nanamigopher.agent.v1.AgentService.ListChatModels:output_type -> nanamigopher.agent.v1.ChatModelList
-	23, // 55: nanamigopher.agent.v1.AgentService.UpsertChatModel:output_type -> nanamigopher.agent.v1.ChatModelSettings
-	0,  // 56: nanamigopher.agent.v1.AgentService.DeleteChatModel:output_type -> nanamigopher.agent.v1.Empty
-	25, // 57: nanamigopher.agent.v1.AgentService.SetDefaultChatModel:output_type -> nanamigopher.agent.v1.ChatModelList
-	29, // 58: nanamigopher.agent.v1.AgentService.ValidateChatModel:output_type -> nanamigopher.agent.v1.ModelValidationResponse
-	0,  // 59: nanamigopher.agent.v1.AgentService.SetChatModelCredential:output_type -> nanamigopher.agent.v1.Empty
-	0,  // 60: nanamigopher.agent.v1.AgentService.SetToolCredential:output_type -> nanamigopher.agent.v1.Empty
-	33, // 61: nanamigopher.agent.v1.AgentService.GetUserPreferences:output_type -> nanamigopher.agent.v1.UserPreferences
-	33, // 62: nanamigopher.agent.v1.AgentService.UpdateUserPreferences:output_type -> nanamigopher.agent.v1.UserPreferences
-	35, // 63: nanamigopher.agent.v1.AgentService.GetPermissionSettings:output_type -> nanamigopher.agent.v1.PermissionSettings
-	35, // 64: nanamigopher.agent.v1.AgentService.UpdatePermissionSettings:output_type -> nanamigopher.agent.v1.PermissionSettings
-	16, // 65: nanamigopher.agent.v1.AgentService.Health:output_type -> nanamigopher.agent.v1.HealthResponse
-	39, // [39:66] is the sub-list for method output_type
-	12, // [12:39] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	14, // 3: nanamigopher.agent.v1.TaskList.tasks:type_name -> nanamigopher.agent.v1.Task
+	17, // 4: nanamigopher.agent.v1.TaskEventList.events:type_name -> nanamigopher.agent.v1.TaskEvent
+	20, // 5: nanamigopher.agent.v1.ApprovalList.approvals:type_name -> nanamigopher.agent.v1.Approval
+	26, // 6: nanamigopher.agent.v1.AuditEventList.events:type_name -> nanamigopher.agent.v1.AuditEvent
+	30, // 7: nanamigopher.agent.v1.UpdateChatModelSettingsRequest.settings:type_name -> nanamigopher.agent.v1.ChatModelSettings
+	30, // 8: nanamigopher.agent.v1.ChatModelList.models:type_name -> nanamigopher.agent.v1.ChatModelSettings
+	30, // 9: nanamigopher.agent.v1.UpsertChatModelRequest.settings:type_name -> nanamigopher.agent.v1.ChatModelSettings
+	30, // 10: nanamigopher.agent.v1.ValidateChatModelRequest.settings:type_name -> nanamigopher.agent.v1.ChatModelSettings
+	40, // 11: nanamigopher.agent.v1.UpdateUserPreferencesRequest.preferences:type_name -> nanamigopher.agent.v1.UserPreferences
+	54, // 12: nanamigopher.agent.v1.PermissionSettings.tool_levels:type_name -> nanamigopher.agent.v1.PermissionSettings.ToolLevelsEntry
+	42, // 13: nanamigopher.agent.v1.UpdatePermissionSettingsRequest.settings:type_name -> nanamigopher.agent.v1.PermissionSettings
+	45, // 14: nanamigopher.agent.v1.MemoryList.memories:type_name -> nanamigopher.agent.v1.Memory
+	45, // 15: nanamigopher.agent.v1.UpsertMemoryRequest.memory:type_name -> nanamigopher.agent.v1.Memory
+	50, // 16: nanamigopher.agent.v1.MCPServerList.servers:type_name -> nanamigopher.agent.v1.MCPServer
+	52, // 17: nanamigopher.agent.v1.SkillList.skills:type_name -> nanamigopher.agent.v1.Skill
+	2,  // 18: nanamigopher.agent.v1.AgentService.ProcessMessage:input_type -> nanamigopher.agent.v1.ProcessMessageRequest
+	4,  // 19: nanamigopher.agent.v1.AgentService.CreateConversation:input_type -> nanamigopher.agent.v1.ConversationRequest
+	4,  // 20: nanamigopher.agent.v1.AgentService.GetConversation:input_type -> nanamigopher.agent.v1.ConversationRequest
+	5,  // 21: nanamigopher.agent.v1.AgentService.ListConversations:input_type -> nanamigopher.agent.v1.ListConversationsRequest
+	4,  // 22: nanamigopher.agent.v1.AgentService.DeleteConversation:input_type -> nanamigopher.agent.v1.ConversationRequest
+	8,  // 23: nanamigopher.agent.v1.AgentService.UpdateConversationPermission:input_type -> nanamigopher.agent.v1.ConversationPermissionRequest
+	9,  // 24: nanamigopher.agent.v1.AgentService.UpdateConversationSettings:input_type -> nanamigopher.agent.v1.ConversationSettingsRequest
+	4,  // 25: nanamigopher.agent.v1.AgentService.ListMessages:input_type -> nanamigopher.agent.v1.ConversationRequest
+	12, // 26: nanamigopher.agent.v1.AgentService.GetTask:input_type -> nanamigopher.agent.v1.TaskRequest
+	13, // 27: nanamigopher.agent.v1.AgentService.ListTasks:input_type -> nanamigopher.agent.v1.TaskListRequest
+	12, // 28: nanamigopher.agent.v1.AgentService.CancelTask:input_type -> nanamigopher.agent.v1.TaskRequest
+	16, // 29: nanamigopher.agent.v1.AgentService.ListTaskEvents:input_type -> nanamigopher.agent.v1.TaskEventListRequest
+	19, // 30: nanamigopher.agent.v1.AgentService.ListApprovals:input_type -> nanamigopher.agent.v1.ApprovalListRequest
+	22, // 31: nanamigopher.agent.v1.AgentService.DecideApproval:input_type -> nanamigopher.agent.v1.ApprovalDecisionRequest
+	24, // 32: nanamigopher.agent.v1.AgentService.CheckWorkspaceAccess:input_type -> nanamigopher.agent.v1.WorkspaceAccessRequest
+	5,  // 33: nanamigopher.agent.v1.AgentService.ListAuditEvents:input_type -> nanamigopher.agent.v1.ListConversationsRequest
+	28, // 34: nanamigopher.agent.v1.AgentService.RecordAuditEvent:input_type -> nanamigopher.agent.v1.AuditWriteRequest
+	29, // 35: nanamigopher.agent.v1.AgentService.GetChatModelSettings:input_type -> nanamigopher.agent.v1.WorkspaceRequest
+	31, // 36: nanamigopher.agent.v1.AgentService.UpdateChatModelSettings:input_type -> nanamigopher.agent.v1.UpdateChatModelSettingsRequest
+	29, // 37: nanamigopher.agent.v1.AgentService.ListChatModels:input_type -> nanamigopher.agent.v1.WorkspaceRequest
+	33, // 38: nanamigopher.agent.v1.AgentService.UpsertChatModel:input_type -> nanamigopher.agent.v1.UpsertChatModelRequest
+	34, // 39: nanamigopher.agent.v1.AgentService.DeleteChatModel:input_type -> nanamigopher.agent.v1.ChatModelRequest
+	34, // 40: nanamigopher.agent.v1.AgentService.SetDefaultChatModel:input_type -> nanamigopher.agent.v1.ChatModelRequest
+	35, // 41: nanamigopher.agent.v1.AgentService.ValidateChatModel:input_type -> nanamigopher.agent.v1.ValidateChatModelRequest
+	37, // 42: nanamigopher.agent.v1.AgentService.SetChatModelCredential:input_type -> nanamigopher.agent.v1.SetChatModelCredentialRequest
+	38, // 43: nanamigopher.agent.v1.AgentService.SetToolCredential:input_type -> nanamigopher.agent.v1.SetToolCredentialRequest
+	39, // 44: nanamigopher.agent.v1.AgentService.GetUserPreferences:input_type -> nanamigopher.agent.v1.UserPreferencesRequest
+	41, // 45: nanamigopher.agent.v1.AgentService.UpdateUserPreferences:input_type -> nanamigopher.agent.v1.UpdateUserPreferencesRequest
+	29, // 46: nanamigopher.agent.v1.AgentService.GetPermissionSettings:input_type -> nanamigopher.agent.v1.WorkspaceRequest
+	43, // 47: nanamigopher.agent.v1.AgentService.UpdatePermissionSettings:input_type -> nanamigopher.agent.v1.UpdatePermissionSettingsRequest
+	44, // 48: nanamigopher.agent.v1.AgentService.ListMemories:input_type -> nanamigopher.agent.v1.MemoryListRequest
+	47, // 49: nanamigopher.agent.v1.AgentService.UpsertMemory:input_type -> nanamigopher.agent.v1.UpsertMemoryRequest
+	48, // 50: nanamigopher.agent.v1.AgentService.DeleteMemory:input_type -> nanamigopher.agent.v1.MemoryRequest
+	29, // 51: nanamigopher.agent.v1.AgentService.GetWorkspaceDataSummary:input_type -> nanamigopher.agent.v1.WorkspaceRequest
+	29, // 52: nanamigopher.agent.v1.AgentService.ListMCPServers:input_type -> nanamigopher.agent.v1.WorkspaceRequest
+	29, // 53: nanamigopher.agent.v1.AgentService.ListSkills:input_type -> nanamigopher.agent.v1.WorkspaceRequest
+	0,  // 54: nanamigopher.agent.v1.AgentService.Health:input_type -> nanamigopher.agent.v1.Empty
+	3,  // 55: nanamigopher.agent.v1.AgentService.ProcessMessage:output_type -> nanamigopher.agent.v1.AgentEvent
+	6,  // 56: nanamigopher.agent.v1.AgentService.CreateConversation:output_type -> nanamigopher.agent.v1.Conversation
+	6,  // 57: nanamigopher.agent.v1.AgentService.GetConversation:output_type -> nanamigopher.agent.v1.Conversation
+	7,  // 58: nanamigopher.agent.v1.AgentService.ListConversations:output_type -> nanamigopher.agent.v1.ConversationList
+	0,  // 59: nanamigopher.agent.v1.AgentService.DeleteConversation:output_type -> nanamigopher.agent.v1.Empty
+	6,  // 60: nanamigopher.agent.v1.AgentService.UpdateConversationPermission:output_type -> nanamigopher.agent.v1.Conversation
+	6,  // 61: nanamigopher.agent.v1.AgentService.UpdateConversationSettings:output_type -> nanamigopher.agent.v1.Conversation
+	11, // 62: nanamigopher.agent.v1.AgentService.ListMessages:output_type -> nanamigopher.agent.v1.MessageList
+	14, // 63: nanamigopher.agent.v1.AgentService.GetTask:output_type -> nanamigopher.agent.v1.Task
+	15, // 64: nanamigopher.agent.v1.AgentService.ListTasks:output_type -> nanamigopher.agent.v1.TaskList
+	14, // 65: nanamigopher.agent.v1.AgentService.CancelTask:output_type -> nanamigopher.agent.v1.Task
+	18, // 66: nanamigopher.agent.v1.AgentService.ListTaskEvents:output_type -> nanamigopher.agent.v1.TaskEventList
+	21, // 67: nanamigopher.agent.v1.AgentService.ListApprovals:output_type -> nanamigopher.agent.v1.ApprovalList
+	3,  // 68: nanamigopher.agent.v1.AgentService.DecideApproval:output_type -> nanamigopher.agent.v1.AgentEvent
+	25, // 69: nanamigopher.agent.v1.AgentService.CheckWorkspaceAccess:output_type -> nanamigopher.agent.v1.WorkspaceAccessResponse
+	27, // 70: nanamigopher.agent.v1.AgentService.ListAuditEvents:output_type -> nanamigopher.agent.v1.AuditEventList
+	0,  // 71: nanamigopher.agent.v1.AgentService.RecordAuditEvent:output_type -> nanamigopher.agent.v1.Empty
+	30, // 72: nanamigopher.agent.v1.AgentService.GetChatModelSettings:output_type -> nanamigopher.agent.v1.ChatModelSettings
+	30, // 73: nanamigopher.agent.v1.AgentService.UpdateChatModelSettings:output_type -> nanamigopher.agent.v1.ChatModelSettings
+	32, // 74: nanamigopher.agent.v1.AgentService.ListChatModels:output_type -> nanamigopher.agent.v1.ChatModelList
+	30, // 75: nanamigopher.agent.v1.AgentService.UpsertChatModel:output_type -> nanamigopher.agent.v1.ChatModelSettings
+	0,  // 76: nanamigopher.agent.v1.AgentService.DeleteChatModel:output_type -> nanamigopher.agent.v1.Empty
+	32, // 77: nanamigopher.agent.v1.AgentService.SetDefaultChatModel:output_type -> nanamigopher.agent.v1.ChatModelList
+	36, // 78: nanamigopher.agent.v1.AgentService.ValidateChatModel:output_type -> nanamigopher.agent.v1.ModelValidationResponse
+	0,  // 79: nanamigopher.agent.v1.AgentService.SetChatModelCredential:output_type -> nanamigopher.agent.v1.Empty
+	0,  // 80: nanamigopher.agent.v1.AgentService.SetToolCredential:output_type -> nanamigopher.agent.v1.Empty
+	40, // 81: nanamigopher.agent.v1.AgentService.GetUserPreferences:output_type -> nanamigopher.agent.v1.UserPreferences
+	40, // 82: nanamigopher.agent.v1.AgentService.UpdateUserPreferences:output_type -> nanamigopher.agent.v1.UserPreferences
+	42, // 83: nanamigopher.agent.v1.AgentService.GetPermissionSettings:output_type -> nanamigopher.agent.v1.PermissionSettings
+	42, // 84: nanamigopher.agent.v1.AgentService.UpdatePermissionSettings:output_type -> nanamigopher.agent.v1.PermissionSettings
+	46, // 85: nanamigopher.agent.v1.AgentService.ListMemories:output_type -> nanamigopher.agent.v1.MemoryList
+	45, // 86: nanamigopher.agent.v1.AgentService.UpsertMemory:output_type -> nanamigopher.agent.v1.Memory
+	0,  // 87: nanamigopher.agent.v1.AgentService.DeleteMemory:output_type -> nanamigopher.agent.v1.Empty
+	49, // 88: nanamigopher.agent.v1.AgentService.GetWorkspaceDataSummary:output_type -> nanamigopher.agent.v1.WorkspaceDataSummary
+	51, // 89: nanamigopher.agent.v1.AgentService.ListMCPServers:output_type -> nanamigopher.agent.v1.MCPServerList
+	53, // 90: nanamigopher.agent.v1.AgentService.ListSkills:output_type -> nanamigopher.agent.v1.SkillList
+	23, // 91: nanamigopher.agent.v1.AgentService.Health:output_type -> nanamigopher.agent.v1.HealthResponse
+	55, // [55:92] is the sub-list for method output_type
+	18, // [18:55] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -2727,7 +4069,7 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   38,
+			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

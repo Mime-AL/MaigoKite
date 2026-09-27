@@ -7,7 +7,7 @@ describe('API client errors', () => {
     vi.unstubAllGlobals()
   })
 
-  it('explains an unstructured 404 from an outdated or missing Gateway route', async () => {
+  it('explains an unstructured 404 from an outdated or missing application route', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('404 page not found', { status: 404 })))
 
     await expect(api.updateUserPreferences({ assistantName: '小七' })).rejects.toThrow('请重启应用')
@@ -72,5 +72,27 @@ describe('API client errors', () => {
       expect.stringContaining('/workspaces/personal/runtime-status'),
       expect.any(Object),
     )
+  })
+
+  it('uses the memory and extension inventory contracts', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ memories: [{
+        id: 'memory_1', workspace_id: 'personal', subject_user_id: 'local-user',
+        category: 'preference', content: '使用中文', source_type: 'user', source_id: 'local-user',
+        confidence: 1, created_at: 'now', updated_at: 'now',
+      }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        storage_backend: 'sqlite', conversation_count: 2, message_count: 4,
+        memory_count: 1, task_count: 3, audit_event_count: 5,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ servers: [{
+        namespace: 'fixture', status: 'running', transport: 'stdio', tool_names: ['fixture__echo'],
+      }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(api.listMemories('中文')).resolves.toHaveLength(1)
+    await expect(api.getWorkspaceDataSummary()).resolves.toMatchObject({ memory_count: 1 })
+    await expect(api.listMCPServers()).resolves.toEqual([expect.objectContaining({ namespace: 'fixture' })])
+    expect(fetchMock.mock.calls[0][0]).toContain('/memories?q=%E4%B8%AD%E6%96%87')
   })
 })

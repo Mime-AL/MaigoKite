@@ -5,7 +5,12 @@ import NavItem from './NavItem.vue'
 const layoutStore = useLayoutStore()
 const workspaceItems = [
   { icon: 'home', to: '/', label: '总览' },
+  { icon: 'cube', to: '/integrations', label: '扩展' },
   { icon: 'shield', to: '/audit', label: '审计日志' },
+]
+const dataItems = [
+  { icon: 'brain', to: '/memory', label: '记忆' },
+  { icon: 'archive', to: '/data', label: '数据概览' },
 ]
 </script>
 
@@ -14,6 +19,10 @@ const workspaceItems = [
     <div class="nav-group">
       <p v-show="!layoutStore.sidebarCollapsed" class="group-label">工作区</p>
       <NavItem v-for="item in workspaceItems" :key="item.to" v-bind="item" />
+    </div>
+    <div class="nav-group">
+      <p v-show="!layoutStore.sidebarCollapsed" class="group-label">数据</p>
+      <NavItem v-for="item in dataItems" :key="item.to" v-bind="item" />
     </div>
   </nav>
 </template>

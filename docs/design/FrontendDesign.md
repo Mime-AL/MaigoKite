@@ -2,7 +2,7 @@
 
 > **状态**：Current
 > **架构版本**：v1
-> **最后核验**：2026-09-16
+> **最后核验**：2026-09-18
 > **权威范围**：Vue UI、Electron Host、前端状态与交互边界
 
 API 字段以 [API](API.md) 为准，权限行为以 [Tool Permission](../agent-capabilities/security/tool-permission.md) 为准。
@@ -49,15 +49,18 @@ web/
 
 ## 3. 页面结构与阶段边界
 
-Phase 1 当前采用可折叠三栏布局：左栏是会话与导航，中栏是对话或设置工作区，右栏是当前 Workspace 的文件与 Git 变更。只在主导航暴露已连通服务端契约的能力：
+当前采用可折叠三栏布局：左栏是会话与导航，中栏是对话或设置工作区，右栏是当前 Workspace 的文件与 Git 变更。Phase 2 允许提前注册边界清晰的状态页，但可变更控件必须已有服务端闭环：
 
-| 界面 | Phase 1 状态 |
+| 界面 | 状态 |
 |---|---|
-| 总览、会话、审计日志 | 可用 |
-| 用户称呼、多模型配置、默认模型、联网工具凭证、权限及工作区运行状态 | 可用 |
-| 会话模型/速度/权限切换、Tool 状态与审批卡片 | 可用 |
-| Workspace 文件树、只读预览、Git Diff | 可用 |
-| Inspector、搜索、定时任务、浏览器、Skill/包管理、回顾/归档 | Planned；后端契约完成前不注册路由 |
+| 总览、会话、审计日志及 Phase 1 设置 | Current |
+| Workspace 文件树、只读预览、Git Diff | Current |
+| 用户记忆管理 | Phase 2 Current：持久化 CRUD 与关键词检索 |
+| MCP 与 Skill | Core Current：MCP 运行清单 + 本地声明式 Skill 清单；安装生命周期 Planned |
+| Embedding 与索引 | Phase 2 Registered：只显示未配置状态和交付门槛 |
+| 数据管理 | Phase 2 Current：权威数据计数；导出/清理 Planned |
+| 浏览器 | Core Current：作为聊天中的受控 Tool；独立浏览器工作台 Planned |
+| Inspector、定时任务、包管理、回顾/归档 | Planned |
 
 文件栏只消费 Gateway 提供的受限只读契约，不从渲染进程直接访问 Node 文件系统。路由按 feature 划分，真正的访问授权和路径边界仍由 Gateway 执行。
 
@@ -105,14 +108,20 @@ Phase 1 的模型设置采用渐进式的“配置行 → 单一编辑器 → �
 - 活动流只展示模型主动输出的简短过程说明、工具状态和子 Agent 生命周期，不请求、存储或展示模型隐藏思维链。
 - 运行中默认展开，完成后允许折叠；参数与结果放在二级详情中，避免挤占对话主阅读路径。
 - 输入组件只负责编辑和提交用户消息。运行状态通过活动流和 `aria-busy` 表达，不修改输入框内容或占位文本。
+- 运行时发送按钮切换为明确的停止按钮，调用持久 Task 的取消 API；运行状态按 conversation 隔离，切换会话不共享全局发送锁。
 - `message.delta` 只承载面向用户的最终回答增量；过程信息必须使用独立事件类型。前端不得再根据文字内容猜测它属于回答还是执行过程。
 - 可恢复的 Tool 失败通过事件携带稳定错误码、简短 `user_hint` 和受限的内部设置路由；活动流自动展开该提示，原始 JSON 继续收在二级详情中。
 - 助手最终回复按 GitHub Flavored Markdown 渲染。完整的重复 JSON 字符串编码和代码块外的 Markdown 结构转义可在展示层规范化；代码、正则与公式中的反斜杠必须保留。
 - Markdown 生成的 HTML 必须经过 allowlist 清洗后才能进入 DOM；脚本、事件属性、表单和主动加载的媒体资源不得渲染。
 
-### 3.6 Phase 2 设置页面准入
+### 3.6 Phase 2 页面准入
 
-Memory、MCP/Skill、Embedding/索引和数据管理页面只有在对应 Gateway API、Agent Core 领域能力、持久化与自动化测试全部存在后才能进入路由和导航。不得用只能修改前端内存的控件或静态假数据代替功能闭环。
+Phase 2 页面允许先进入路由和导航，但必须区分两种状态：
+
+- 只读状态页可以提前注册，必须明确标注尚未启用的能力，且不得包含可保存的假控件。
+- 创建、修改、删除等控件只有在 Gateway API、Agent Core 领域能力、持久化、审计和自动化测试形成闭环后才能启用。
+
+当前 Memory 已满足可变更闭环；MCP 只提供真实运行清单；Embedding/索引只提供状态页；数据管理只开放只读计数。不得用只能修改前端内存的控件或静态假数据代替功能闭环。
 
 ## 4. 状态管理
 
@@ -125,9 +134,11 @@ Memory、MCP/Skill、Embedding/索引和数据管理页面只有在对应 Gatewa
 | layout | 三栏布局与纯界面状态 | Phase 1 Current |
 | identity / workspace | 多主体认证、Workspace 列表和 Membership 管理 | Planned |
 | inspector | 可恢复事件窗口、筛选和独立快照 | Planned |
-| memory / skill | 对应领域 API 的客户端投影 | Phase 2 Planned |
+| memory | User Memory CRUD 与查询投影 | Phase 2 Current |
+| phase2 | MCP、本地 Skill 运行清单与 Workspace 数据摘要 | Current / Phase 2 混合只读投影 |
+| skill | SkillVersion 与 Grant 管理投影 | Phase 3 Planned |
 
-服务端状态以快照为准；WebSocket事件用于增量更新。重连后先恢复快照，再消费新事件。
+服务端状态以任务、审批和 TaskEvent Journal 为准；WebSocket 事件用于增量更新。重进对话时先读取消息、任务、审批和事件历史，WebSocket 建立后再按最后 sequence 补拉一次，并按 event ID 去重，从而覆盖普通的“先读历史、后订阅”窗口。`message.completed` 携带持久消息 ID，用于把流式占位替换为真实消息。服务端原子游标握手和超过单页事件的连续分页仍待实现。
 
 ## 5. API 与事件
 

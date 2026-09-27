@@ -16,6 +16,10 @@
 - 增加模型服务预设和基于 Base URL 的模型目录发现，支持 OpenAI/Anthropic/兼容 `/models` 与 Ollama `/api/tags`。
 - 接通配置式 MCP stdio Server 的 Agent Core 启停、工具发现、统一审批与审计链路。
 - 增加 Bash 工作区进程沙箱和 Gateway 完整路由构造回归测试。
+- 增加受 ToolPolicy 管理的 Playwright Browser Tool，并限制公网目标和 Workspace 内截图。
+- 增加持久 TaskEvent Journal、任务查询/取消、断线补拉、重启 interrupted 协调和等待审批 continuation。
+- 增加本地声明式 `SKILL.md` 发现、校验、list/read Tool 与真实 Skill/MCP 运行清单。
+- 增加任务、事件历史和 Skill 清单的 Proto、REST、前端恢复与回归测试。
 
 ### Changed
 
@@ -26,6 +30,8 @@
 - 将原生 Tool 与 MCP 的运行时所有权统一到 Python，Gateway 仅保留协议边界和系统密钥环适配。
 - 模型设置页移除普通用户不需要的生成参数，权限设置收敛为只读、工作区和完全访问三档。
 - 将模型连接验证和目录发现改为无歧义的 `/models/actions/*` 路由，修复 Gateway 启动冲突。
+- 将产品定位收敛为通用 Agent 执行内核；领域示例改为 Skill/MCP/Workflow 扩展，不再进入核心路线图。
+- 清理未接线的 Embedding、fallback、Langfuse 和 Inspector YAML 开关，并把目标架构与当前实现分节标注。
 
 ### Removed
 

@@ -1,8 +1,8 @@
 # 记忆系统设计
 
-> **状态**：Phase 1 Current + Phase 2 Planned
+> **状态**：Phase 2 In Progress
 > **架构版本**：v1
-> **最后核验**：2026-09-14
+> **最后核验**：2026-09-18
 > **权威范围**：记忆分类、职责、生命周期与检索规则
 
 数据实体见 [Database](../../design/Database.md)，模型选择见 [Model Routing](../models/model-routing.md)。
@@ -26,9 +26,12 @@ Memory 不保存凭证；Knowledge Base 不替代对话消息或用户记忆。
 |---|---|
 | 会话消息持久化与按 token 裁剪的上下文 | Phase 1 Current |
 | 显式用户偏好（当前仅界面称呼） | Phase 1 Current |
-| 通用 User Memory 的提取、确认、检索和遗忘 | Phase 2 Planned |
+| 用户直接维护的 User Memory 持久化、关键词检索和遗忘 | Phase 2 Current |
+| User Memory 自动提取、确认、语义检索与上下文注入 | Phase 2 Planned |
 | Conversation Summary、文档库、Embedding 与向量索引 | Phase 2 Planned |
-| Memory 管理与索引设置页面/API | Phase 2 Planned |
+| Memory 管理页面/API | Phase 2 Current |
+| Embedding/索引状态页 | Phase 2 Current（只读，未配置） |
+| Embedding/索引配置与重建 API | Phase 2 Planned |
 
 后续章节同时描述当前不变量和 Phase 2 目标模型；不能据此推断完整 Memory API、向量索引或管理页面已经交付。
 
@@ -99,7 +102,7 @@ invalidate_summary(conversation_id)
 - Summary 不能覆盖未包含在其 source range 中的新消息。
 - 删除或编辑源消息后，相关 Summary 必须失效并重建。
 
-## 5. User Memory（Phase 2 目标）
+## 5. User Memory（Phase 2 In Progress）
 
 User Memory 保存对后续任务有用的偏好、事实或长期约束。
 
@@ -118,7 +121,9 @@ created_at / updated_at / expires_at
 status
 ```
 
-接口能力：
+当前切片已经提供当前用户范围内的 `list/create/update/forget` 和关键词查询；写入、修改、删除均由 Agent Core 持久化，写操作产生审计事件。自动抽取尚未接入对话执行链。
+
+目标接口能力：
 
 ```text
 propose(memory, source)

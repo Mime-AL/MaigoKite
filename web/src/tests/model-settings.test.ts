@@ -59,6 +59,19 @@ describe('model settings', () => {
     expect(store.validation).toBeNull()
   })
 
+  it('shows credential state without exposing storage implementation details', async () => {
+    const store = useSettingsStore()
+    store.modelProfiles = [cloudProfile]
+    store.defaultModelId = cloudProfile.id
+    const wrapper = mount(ModelSettingsPanel)
+
+    await wrapper.get('.profile-main').trigger('click')
+
+    expect(wrapper.text()).toContain('密钥已配置')
+    expect(wrapper.text()).not.toContain('系统凭证库')
+    expect(wrapper.text()).not.toContain('操作系统密钥链')
+  })
+
   it('requires a new key before moving a credentialed profile to another endpoint', async () => {
     const store = useSettingsStore()
     store.modelProfiles = [

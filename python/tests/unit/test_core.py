@@ -595,3 +595,58 @@ async def test_assistant_name_validation(core):
         await core.update_user_preferences("personal", "local-user", "   ")
     with pytest.raises(ValueError, match="32"):
         await core.update_user_preferences("personal", "local-user", "x"*33)
+
+
+@pytest.mark.asyncio
+async def test_user_memories_are_persistent_searchable_and_user_scoped(core):
+    created = await core.upsert_memory(
+        "personal", "local-user", category="preference",
+        content="  用户偏好使用中文回答  ", confidence=0.9,
+    )
+    assert created["content"] == "用户偏好使用中文回答"
+    assert created["source_type"] == "user"
+    assert [item["id"] for item in await core.list_memories(
+        "personal", "local-user", "中文",
+    )] == [created["id"]]
+    assert await core.list_memories("personal", "another-user") == []
+
+    updated = await core.upsert_memory(
+        "personal", "local-user", memory_id=created["id"], category="constraint",
+        content="只使用中文回答", confidence=1.0,
+    )
+    assert updated["category"] == "constraint"
+    await core.delete_memory("personal", "local-user", created["id"])
+    assert await core.list_memories("personal", "local-user") == []
+    assert [event["action"] for event in await core.repository.list_audit_events("personal")] == [
+        "memory.deleted", "memory.updated", "memory.created",
+    ]
+    with pytest.raises(KeyError):
+        await core.delete_memory("personal", "another-user", created["id"])
+
+
+@pytest.mark.asyncio
+async def test_memory_validation_and_workspace_data_summary(core):
+    with pytest.raises(ValueError, match="category"):
+        await core.upsert_memory(
+            "personal", "local-user", category="secret", content="not allowed",
+        )
+    with pytest.raises(ValueError, match="required"):
+        await core.upsert_memory(
+            "personal", "local-user", category="fact", content="  ",
+        )
+    with pytest.raises(ValueError, match="credentials"):
+        await core.upsert_memory(
+            "personal", "local-user", category="fact", content="api_key=sk-test-0123456789abcdef",
+        )
+
+    conversation = await core.create_conversation(title="summary")
+    await core.repository.append_message(conversation["id"], "user", "hello")
+    await core.upsert_memory(
+        "personal", "local-user", category="fact", content="summary fact",
+    )
+    summary = await core.get_workspace_data_summary("personal")
+    assert summary["storage_backend"] == "sqlite"
+    assert summary["conversation_count"] == 1
+    assert summary["message_count"] == 1
+    assert summary["memory_count"] == 1
+    assert summary["audit_event_count"] == 1

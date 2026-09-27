@@ -1,260 +1,137 @@
-# NanamiGopher 开发任务拆解
+# NanamiGopher 需求清单
 
-> 状态：Planned
-> 本文负责需求拆解与排期，不定义接口、数据库或权限策略。
+> 状态：Current。本文定义优先级和验收，不替代 API、数据库或权限设计。
 
-> **版本**: v1.1
-> **日期**: 2026-07-15
-> **周期**: 16 周（4 个月）
-> **团队**: 1 人全栈
+## 1. 优先级
 
----
+- P0：通用 Agent 核心闭环，Phase 1 发布阻塞；
+- P1：核心闭环稳定后的日常可用性；
+- P2：经需求验证的扩展和领域工作流；
+- P3：生态与规模化能力。
 
-## 1. 任务管理工具
+## 2. Phase 1 P0 需求
 
-使用项目任务管理工具创建定时任务，每个任务设置 `scheduled_date` + `scheduled_time` + `execution_type=auto`。
+### R-CORE-01 模型与对话
 
----
+- Workspace 可保存多个 Chat 模型连接，并指定默认模型；
+- 会话可选择模型、响应档位和权限模式；
+- Base URL 规范化不得重复追加 `/v1`，OpenAI-compatible 调用必须命中正确 endpoint；
+- 模型返回的 reasoning、ToolCall 和最终回答使用不同事件/展示对象；
+- Secret 只进入 CredentialStore 和 Core 进程内存。
 
-## 2. Phase 1: Agent Framework MVP (Week 1-2)
+验收：至少一个云端或本地兼容端点完成模型发现、验证和真实对话。
 
-### 2.1 Week 1: 基础框架搭建
+### R-CORE-02 工具编排
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 1.1.1 | 初始化 Go 项目 | 创建 Go module，初始化 Gin 项目结构 | 2h | P0 |
-| 1.1.2 | 初始化 Python 项目 | 创建 Python package，初始化 LangChain 项目结构 | 2h | P0 |
-| 1.1.3 | 初始化 Vue 3 + Vite | 创建前端项目，配置 TypeScript | 2h | P0 |
-| 1.1.4 | 配置 Electron | 集成 Electron，配置 main.ts 和 preload.ts | 2h | P0 |
-| 1.1.5 | 数据库初始化 | 创建 SQLite 数据库，初始化表结构 | 2h | P0 |
-| 1.1.6 | 配置管理模块 | 实现 IConfigManager（YAML 加载/保存） | 3h | P0 |
-| 1.1.7 | 基础 HTTP 路由 | 配置 Go API Gateway 路由结构 | 2h | P0 |
-| 1.1.8 | WebSocket 基础 | 实现 WebSocket 连接和消息转发 | 3h | P0 |
+- 模型可以在一轮任务中提出一个或多个 ToolCall；
+- 所有 Tool 经过统一 Schema 校验、ToolPolicy、执行、结果回注和审计；
+- Tool 失败返回稳定错误码、用户提示和可选设置入口；
+- 工具参数/结果 JSON 不得拼入最终回答气泡。
 
-### 2.2 Week 2: 核心功能实现
+验收：多 ToolCall、失败后继续推理、审批后从批次游标继续均有测试。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 1.2.1 | 会话管理 API | 实现 CRUD 接口（POST/GET/DELETE） | 4h | P0 |
-| 1.2.2 | 消息发送接口 | 实现消息发送和流式响应 | 4h | P0 |
-| 1.2.3 | 前端对话界面 | 实现 Sidebar + ChatArea + InputBox | 6h | P0 |
-| 1.2.4 | MCP 通信基础 | 在 Python Agent Core 实现统一 MCP stdio 客户端，并将发现结果注册为 Tool | 2h | P0 |
-| 1.2.5 | 原生 Tool: file_read/write/edit | 实现 BaseTool 接口 + 三个文件操作工具 | 4h | P0 |
-| 1.2.6 | 原生 Tool: bash + web_search + web_fetch | 实现限时、无 shell 展开的 bash 输出捕获 + DuckDuckGo 搜索 + 安全 URL 抓取；实时输出并入 Phase 2 统一事件流 | 4h | P0 |
-| 1.2.7 | 原生 Tool: glob + grep | 实现文件通配搜索和文本搜索 | 2h | P0 |
-| 1.2.8 | Tool 基础设施 | BaseTool 接口 + ToolResult 结构 + ExecutionContext + ToolRegistry + PermissionManager + ToolValidator | 4h | P0 |
-| 1.2.9 | 模型接入与凭证管理 | 设置页管理多个模型配置和默认模型；会话可选模型/速度，凭证按配置 ID 进入跨平台密钥链 | 4h | P0 |
-| 1.2.10 | 安全过滤管道 | 实现输入校验、风险检测与超限拒绝；可执行输入不得静默截断 | 3h | P0 |
-| 1.2.11 | 白名单机制 | 实现白名单配置和检查 | 2h | P0 |
-| 1.2.12 | 权限分级 | 内部 L1-L5 风险判定 + 只读/工作区/完全访问三档模式 | 3h | P0 |
-| 1.2.13 | 审计日志 | 实现 JSON 日志存储 + GUI 查看 | 2h | P0 |
-| 1.2.14 | Example: 代码分析工作流 | 实现纯 Python 代码分析 Example | 3h | P1 |
-| 1.2.15 | Example: 搜索 + 总结工作流 | 实现搜索 + LLM 总结 Example | 3h | P1 |
-| 1.2.16 | Phase 1 集成测试 | 端到端测试 + 修复 Bug | 4h | P0 |
-| 1.2.17 | Workspace 文件与 Diff | 受限文件树、文本预览、Git staged/unstaged/untracked Diff | 4h | P0 |
+### R-CORE-03 浏览器操作
 
-**Phase 1 里程碑**: Week 2 结束可演示 Framework + 2 个 Example
+- 支持 open、snapshot、fill、click、press、screenshot 和 close；
+- 只允许公开 HTTP(S) 目标，不允许嵌入凭证或访问 loopback/private/link-local/reserved 地址；
+- screenshot 只能写入 Workspace；
+- 读操作与副作用操作按动作动态分级，点击/提交类操作需要明确批准。
 
----
+验收：Playwright 使用隔离页面会话，操作经过统一活动、批准和审计链路。
 
-## 3. Phase 2: 核心体验完善 (Week 3-6)
+### R-CORE-04 持续任务与取消
 
-### 3.1 Week 3: 记忆系统与模型路由
+- 发送消息返回 task ID，任务不依赖原始 HTTP 请求存活；
+- 同一用户的不同会话可以独立运行；
+- 任务至少具有 running、waiting_approval、succeeded、failed、cancelled、interrupted；
+- 用户可从输入区域停止当前运行任务；取消同时关闭 pending Approval 与活动 ToolCall。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 2.3.1 | 完整模型路由 | 在 Phase 1 显式模型切换之上实现自动路由、能力匹配与 fallback | 3h | P0 |
-| 2.3.2 | RAG++ 记忆系统 | 实现向量检索 + Agentic Search | 5h | P0 |
-| 2.3.3 | 记忆自动清理 | 实现双重条件触发 + 混合粒度清理 | 2h | P0 |
-| 2.3.4 | 多对话并行 | 实现 Tab 管理、独立上下文 | 3h | P0 |
-| 2.3.5 | Embedding Provider 抽象 | 实现 BGE/OpenAI 工厂模式 | 3h | P0 |
-| 2.3.6 | 向量数据库集成 | 集成 ChromaDB（本地） | 2h | P0 |
+验收：切换对话不会错误共享发送锁；取消 API、持久状态和 UI 投影一致。
 
-### 3.2 Week 4: 用户体验完善
+### R-CORE-05 权限批准
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 2.4.1 | 步骤面板 | 实现流式状态更新、可折叠 | 4h | P0 |
-| 2.4.2 | 流式输出 | 实现 WebSocket 推送、打字机效果 | 3h | P0 |
-| 2.4.3 | 错误处理和重试 | 实现渐进式报告 + 分级呈现 | 4h | P0 |
-| 2.4.4 | SKILL.md 双模式导入 | 实现自包含 + 目录模式 | 4h | P0 |
-| 2.4.5 | 前端 UI 完善 | 主题、布局、交互优化 | 5h | P1 |
+- 用户只需理解 read_only、workspace、full_access 三种模式；
+- ToolPolicy 内部维护 L1-L5、路径范围、allowlist 和 hard-deny；
+- 审批绑定主体、任务、ToolCall、参数 hash、版本和过期时间；
+- Gateway 或前端不能绕过 Core 的最终授权。
 
-### 3.3 Week 5: 扩展功能
+验收：拒绝、过期、版本冲突、参数变化和 Core 重启后决定均可验证。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 2.5.1 | 本地模型高级支持 | 自动发现 Ollama/LM Studio 模型，支持会话级选择与 fallback | 3h | P0 |
-| 2.5.2 | Tavily/Google 搜索 | 实现需 API Key 的搜索引擎 | 3h | P0 |
-| 2.5.3 | MCP Server 生命周期 | 实现常驻 + 空闲超时关闭 | 4h | P0 |
-| 2.5.4 | 基础 Telemetry | 实现 Token/Latency/Cost/Retry 追踪 | 4h | P0 |
-| 2.5.5 | Playwright 基础 | 实现浏览器自动化 MCP Server | 4h | P0 |
-| 2.5.6 | MCP Tool 自动发现 | 实现 MCPToolDiscovery + MCPToolWrapper | 3h | P0 |
+### R-CORE-06 状态恢复
 
-### 3.4 Week 6: 收尾与优化
+- 会话、消息、任务、ToolCall、Approval 和运行事件持久化；
+- 每个会话事件具有稳定 ID 和递增 sequence；
+- 客户端可按 sequence 获取历史、按 ID 去重并恢复活动投影；
+- Core 重启后 waiting_approval 仍可继续；无安全检查点的运行任务标记 interrupted；
+- 系统不能把“标记中断”描述成“自动续跑”。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 2.6.1 | 向量语义拦截 | 实现可选增强安全 | 2h | P1 |
-| 2.6.2 | 审计日志导出 | 实现 CSV 格式导出 | 1h | P1 |
-| 2.6.3 | OCR 识别 | 实现 PaddleOCR MCP Server | 3h | P0 |
-| 2.6.4 | 前端完善 | 设置页、记忆管理页、Skill 管理页 | 6h | P1 |
-| 2.6.5 | Phase 2 集成测试 | 端到端测试 + 性能优化 | 4h | P0 |
+验收：数据库关闭/重开后状态和事件可读取；重启协调测试覆盖非终态转换。
 
-**Phase 2 里程碑**: Week 6 结束可演示"可用的日常助手"
+### R-CORE-07 Skill 与 MCP 扩展
 
----
+- 从配置目录发现 `SKILL.md`，校验名称、描述、版本、大小和目录边界；
+- Phase 1 Skill 仅提供可审阅的 instruction/workflow 内容，通过 list/read Tool 使用；
+- 从配置启动 stdio MCP Server、发现 Tool，并接入统一 ToolPolicy/审计；
+- UI 只展示实际加载的 Skill/MCP，不提供无后端语义的安装按钮。
 
-## 4. Phase 3: 高级编排能力 (Week 7-12)
+验收：新增本地 Skill 和测试 MCP Server 后能被模型调用；非法/重复 Skill 不使 Core 崩溃。
 
-### 4.1 Week 7-8: 工作流引擎
+### R-CORE-08 客户端与工作区
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 3.7.1 | LangGraph 工作流引擎 | 实现 JSON Schema 定义、DAG 调度 | 8h | P0 |
-| 3.7.2 | HITL 人机协同 | 实现挂起/恢复、事件驱动 | 8h | P0 |
-| 3.7.3 | Checkpoint 机制 | 实现浏览器 Session 持久化 | 6h | P0 |
-| 3.7.4 | 合规浏览器运行时 | 实现授权校验、限流、遇验证码停止与人工接管 | 8h | P0 |
-| 3.7.5 | Go/Python 解耦 | 实现控制流与数据流分离 | 6h | P0 |
+- Web/Electron 提供对话、活动时间线、审批、停止、模型/权限选择；
+- 工作区文件树、文本预览和 Git Diff 只读且限制路径/大小；
+- 重进对话读取服务端任务与事件，不以 WebSocket 内存作为事实来源；
+- 用户可设置助手显示称呼，不把项目名强制显示为称呼。
 
-### 4.2 Week 9-10: 规划反思与可观测性
+验收：Vue 类型检查、组件/Store 测试、Web 和 Electron 构建通过。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 3.9.1 | 规划与反思 | 实现 ReAct + Plan-and-Solve | 8h | P0 |
-| 3.9.2 | 自我反思机制 | 实现错误根因分析 + 替代策略 | 6h | P0 |
-| 3.9.3 | 反思知识库 | 实现失败模式积累 | 4h | P0 |
-| 3.9.4 | 完整 Telemetry | 集成 OpenTelemetry + Langfuse | 8h | P0 |
+## 3. Phase 2 P1 需求
 
-### 4.3 Week 11-12: 多 Agent、SubAgent 与 Skill 生命周期
+- 原子 `after_sequence` 重连，消除历史读取与实时订阅之间的窗口；
+- 幂等步骤、安全检查点与可控自动重试；
+- 浏览器资源隔离、下载上传、登录态托管和人工接管；
+- 任务队列、并发/预算/超时/配额；
+- 模型能力目录、路由和显式 fallback；
+- Skill 热重载与启停、MCP 健康检查和有限重启；
+- 用户可控 Memory v1；Embedding 仅在检索评测证明必要后加入；
+- 生图/OCR 作为工具 Provider 接入。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 3.11.1 | 多 Agent 框架 | 实现角色定义、通信机制 | 10h | P0 |
-| 3.11.2 | 状态强管控 | 实现 LangGraph 强制约束 | 4h | P0 |
-| 3.11.3 | 基准测试 | 实现 Golden Dataset + 自动化回归 | 6h | P0 |
-| 3.11.4 | 审批拦截 | 实现敏感操作挂起 + 前端审批 | 6h | P0 |
-| 3.11.5 | 接管机制 | 实现 Agent 举手 + 无缝移交 | 6h | P0 |
-| 3.11.6 | Skill 生命周期 | 实现 SkillVersion、SkillGrant 与 MCP Server 激活/停止 | 8h | P0 |
-| 3.11.7 | Boss 直聘工作流 | 实现首个完整浏览器工作流 | 10h | P1 |
-| 3.11.8 | Phase 3 集成测试 | 端到端测试 + 性能优化 | 6h | P0 |
+## 4. Phase 3 P2 需求
 
-### 4.4 Week 12: SubAgent 与 Inspector
+- 可版本化 Workflow、人工节点、条件、重试和 checkpoint；
+- Skill 包签名、内容 hash、安装、回滚与 Workspace Grant；
+- 只有在单 Agent 基线证明收益后才引入子 Agent；
+- 领域工作流必须先有用户访谈/任务频率/失败成本证据，不因示例直接进入核心。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 3.17.1 | SubAgent 管理器 | 实现创建/结果提交/状态查询/销毁 | 8h | P0 |
-| 3.17.2 | SubAgent 共享上下文 | 实现只读上下文 + 单写锁 + 50KB 限制 | 6h | P0 |
-| 3.17.3 | SubAgent 超时降级 | 实现 Retry + Degrade 策略 | 4h | P1 |
-| 3.17.4 | Inspector 事件模型 | 实现 InspectorEvent + TimelineBuilder | 6h | P0 |
-| 3.17.5 | Inspector WebSocket | 实现实时事件推送 + 断线重连 | 6h | P0 |
-| 3.17.6 | Inspector 前端组件 | 实现 InspectorView + InspectorCard + TimelineNode | 10h | P0 |
-| 3.17.7 | Inspector API | 实现卡片列表 + 时间线 + 历史回放 | 6h | P0 |
-| 3.17.8 | Inspector 自定义维度 | 实现维度选择器 + 前端配置保存 | 4h | P1 |
+## 5. Phase 4 P3 需求
 
-**Phase 3 里程碑**: Week 12 结束可演示"工业级工作流引擎 + Inspector 实时监控"
+- 身份认证、团队 Workspace、角色和共享资源；
+- PostgreSQL Repository、迁移工具、多实例任务租约与事件分发；
+- Skill/MCP 供应链治理和市场；
+- 备份恢复、安全与性能发布门禁。
 
----
+## 6. 非功能需求
 
-## 5. Phase 4: 生产就绪 (Week 13-16)
+### 安全
 
-### 5.1 Week 13-14: 安全与性能
+- 本地服务默认只监听 loopback；服务端部署必须认证；
+- URL、文件路径、命令和 MCP 环境都使用 allowlist/边界校验；
+- 日志、事件和数据库不记录 Secret；
+- 外部内容视为不可信数据，不能提升权限或覆盖系统策略。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 4.13.1 | 安全加固 | 渗透测试 + 漏洞修复 | 8h | P0 |
-| 4.13.2 | 性能优化 | 实现并发控制、缓存策略 | 8h | P0 |
-| 4.13.3 | Skill Market 雏形 | 实现搜索、安装、评价 | 10h | P1 |
+### 可靠性
 
-### 5.2 Week 15-16: 部署与文档
+- 状态更新与对应任务事件应原子提交；当前实现未完全达到时必须记录为架构债务；
+- 取消、批准和 Tool 执行在重复请求下保持可预测；
+- 所有依赖故障向用户提供明确状态，不静默降级到其他付费/远程服务。
 
-| 序号 | 任务 | 描述 | 预计工时 | 优先级 |
-|------|------|------|---------|--------|
-| 4.15.1 | 加密云同步 | 实现 AES-256 + 端到端加密 | 6h | P1 |
-| 4.15.2 | 离线能力完善 | 核心功能离线可用 | 4h | P1 |
-| 4.15.3 | 文档体系 | 编写用户手册 + 开发者文档 | 6h | P0 |
-| 4.15.4 | 自动化部署 | 实现 Docker + CI/CD | 6h | P0 |
-| 4.15.5 | 监控告警 | 实现健康检查 + 异常通知 | 4h | P1 |
-| 4.15.6 | 国际化 | 实现中英文切换 | 4h | P2 |
-| 4.15.7 | 移动端适配 | 实现响应式设计 | 6h | P2 |
-| 4.15.8 | 基础 Team | 实现共享知识库、权限管理 | 6h | P2 |
-| 4.15.9 | Phase 4 集成测试 | 端到端测试 + 发布准备 | 8h | P0 |
+### 性能
 
-**Phase 4 里程碑**: Week 16 结束达到生产就绪标准
+- 前端按对话隔离活动更新，长列表避免全量重绘；
+- 浏览器按需启动并回收页面；
+- 事件历史分页，单次响应有上限；
+- 发布前建立延迟、内存和并行任务基线，禁止无测量的性能承诺。
 
----
+## 7. 需求变更门禁
 
-## 6. 任务依赖关系
-
-```
-Phase 1
-  ├── 1.1.x (Week 1) 无依赖
-  └── 1.2.x (Week 2) 依赖 1.1.x 完成
-
-Phase 2
-  ├── 2.3.x (Week 3) 依赖 Phase 1 完成
-  ├── 2.4.x (Week 4) 依赖 2.3.x 完成
-  ├── 2.5.x (Week 5) 依赖 2.4.x 完成
-  └── 2.6.x (Week 6) 依赖 2.5.x 完成
-
-Phase 3
-  ├── 3.7.x (Week 7-8) 依赖 Phase 2 完成
-  ├── 3.9.x (Week 9-10) 依赖 3.7.x 完成
-  ├── 3.11.x (Week 11-12) 依赖 3.9.x 完成
-  └── 3.17.x (Week 12) 依赖 3.11.x 完成
-
-Phase 4
-  ├── 4.13.x (Week 13-14) 依赖 Phase 3 完成
-  └── 4.15.x (Week 15-16) 依赖 4.13.x 完成
-```
-
----
-
-## 7. 风险管理
-
-| 风险 | 影响 | 概率 | 缓解措施 |
-|------|------|------|---------|
-| Phase 1 时间紧张 | 高 | 高 | 砍掉非核心功能，前端只做最简版 |
-| 本地模型集成复杂 | 中 | 中 | 先支持 Ollama，vLLM/LM Studio 延后 |
-| 第三方平台限制自动化 | 中 | 高 | 遵守平台条款；遇验证码或拒绝访问立即停止并转人工流程 |
-| 单人开发进度慢 | 高 | 高 | 严格遵循 MVP 原则，Feature Freeze |
-
----
-
-## 8. 每周演示计划
-
-| 周次 | 演示内容 |
-|------|---------|
-| Week 2 | 可对话的 Agent + 文件读写/代码执行/搜索 |
-| Week 6 | 多对话 + 流式输出 + 记忆系统 + 本地模型 |
-| Week 12 | DSL 工作流 + HITL + 多 Agent + SubAgent + Inspector 实时监控 |
-| Week 16 | 完整产品 + Skill Market + 文档体系 |
-
----
-
-## 9. 创建任务命令
-
-使用 MCP 工具批量创建任务：
-
-```json
-{
-  "tasks": [
-    {
-      "title": "1.1.1 初始化 Go 项目",
-      "description": "创建 Go module，初始化 Gin 项目结构",
-      "scheduled_date": "2026-07-20",
-      "scheduled_time": "09:00",
-      "execution_type": "auto",
-      "priority": 0
-    },
-    {
-      "title": "1.1.2 初始化 Python 项目",
-      "description": "创建 Python package，初始化 LangChain 项目结构",
-      "scheduled_date": "2026-07-20",
-      "scheduled_time": "09:00",
-      "execution_type": "auto",
-      "priority": 0
-    }
-  ]
-}
-```
+新增领域功能前回答四个问题：谁高频使用、现有替代成本是什么、失败会造成什么副作用、是否能作为 Skill/MCP/Workflow 实现。能由扩展实现的能力默认不进入内核；只有跨领域共享且影响权限、恢复或执行一致性的能力才进入核心。

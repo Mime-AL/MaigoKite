@@ -39,4 +39,11 @@ describe('search tool settings', () => {
 
     expect(save).toHaveBeenCalledWith('google', 'google-secret-key:custom-search-id')
   })
+
+  it('does not expose credential-storage implementation details', () => {
+    const wrapper = mount(SearchToolSettingsPanel)
+
+    expect(wrapper.text()).not.toContain('操作系统密钥链')
+    expect(wrapper.text()).not.toContain('Secret')
+  })
 })

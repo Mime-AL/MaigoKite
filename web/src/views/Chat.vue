@@ -66,6 +66,7 @@ onUnmounted(() => sessionStore.disconnect())
       @response-mode-change="updateResponseMode"
       @permission-mode-change="updatePermissionMode"
       @send="sessionStore.sendMessage"
+      @cancel="sessionStore.cancelActiveTask"
     />
   </div>
 </template>

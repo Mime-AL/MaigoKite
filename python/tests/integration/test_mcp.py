@@ -44,6 +44,10 @@ async def test_agent_core_loads_configured_mcp_tools_through_policy(tmp_path):
     await core.initialize()
     try:
         assert core.tool_registry.get("fixture__echo") is not None
+        assert await core.list_mcp_servers() == [{
+            "namespace": "fixture", "status": "running", "transport": "stdio",
+            "tool_names": ["fixture__echo"],
+        }]
         conversation=await core.create_conversation(title="mcp",permission_mode="read_only")
         blocked=await core.run(
             '/tool fixture__echo {"text":"through-core"}',

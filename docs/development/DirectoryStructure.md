@@ -23,9 +23,13 @@ NanamiGopher/
 ```text
 gateway/
 ├── cmd/gateway/        # 可执行入口
-├── api/                # DTO、Handler、Router
-├── internal/           # 配置、凭证、gRPC、MCP 接入、观测与安全
-└── pkg/                # Proto 与通用中间件
+├── internal/api/       # DTO、Handler、Router 与 WebSocket 接入
+├── internal/config/    # Gateway 配置
+├── internal/credentialstore/ # OS 凭证存储边界
+├── internal/grpc/      # Python Agent Core Client
+├── internal/observability/
+├── internal/websocket/
+└── pkg/                # 生成的 Proto 与通用中间件
 ```
 
 Go 只承担外部接入、身份与访问策略、流式转发和 Agent Core 客户端职责，不实现 Agent 领域写入。
@@ -38,9 +42,11 @@ python/
 │   ├── tools/          # Native Tool 与统一注册表
 │   ├── memory/         # 记忆生命周期
 │   ├── knowledge_base/ # 文档与检索
-│   ├── workflow/       # 编排与任务运行
+│   ├── workflow/       # 规划中的版本化工作流骨架
+│   ├── browser_runtime.py
+│   ├── repository.py   # 当前 SQLite Repository
+│   ├── skill_registry.py
 │   └── grpc_generated/ # 由根目录 Proto 生成，不手工编辑
-├── examples/           # 第一阶段可运行示例
 └── tests/              # 单元、集成、安全与性能测试
 ```
 

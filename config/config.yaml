@@ -10,28 +10,24 @@ app:
 # NOTE: Actual model names and API Keys are configured by the user in the Settings page.
 # Leave these blank/null — they serve as structural templates only.
 models:
-  prefer_local: true
-  local_fallback_order:
-    - ollama
-    - lm_studio
-    - vllm
   chat:
     provider: ""
     default: ""
-    fallback: ""
     base_url: ""
     temperature: 0.7
     max_tokens: 4096
     timeout_seconds: 60
-  embedding:
-    provider: ""
-    bge:
-      model: ""
-      device: "cpu"
 
 # Files shown in the Workspace sidebar. Override with NANAMI_WORKSPACE_ROOT.
 workspace:
   root: "."
+
+# Browser automation is started lazily. Set executable_path when using an
+# existing system Chrome/Chromium instead of Playwright's managed browser.
+browser:
+  enabled: true
+  headless: true
+  executable_path: ""
 
 # Permission settings
 permissions:
@@ -48,11 +44,8 @@ permissions:
       - "rm -rf /"
       - "dd if="
 
-# Memory configuration
-memory:
-  storage:
-    sqlite_path: "~/.nanamigopher/data/memories.db"
-    vector_db: "chromadb"
+storage:
+  sqlite_path: "~/.nanamigopher/data/agent.db"
 
 # Credential management
 credentials:
@@ -61,8 +54,8 @@ credentials:
 # Skill scanning
 skills:
   scan_directories:
-    - "~/.nanamigopher/skills/"
     - "./skills/"
+    - "~/.nanamigopher/skills/"
 
 # Explicitly configured Phase 1 stdio MCP servers. Secret values stay outside
 # YAML; env_allowlist only passes named variables from the parent environment.
@@ -71,13 +64,4 @@ mcp:
 
 # Observability
 observability:
-  enabled: true
   console_output: true
-  langfuse:
-    enabled: false
-    endpoint: "http://localhost:3000"
-
-# Inspector
-inspector:
-  save_history: false
-  polling_interval_ms: 3000

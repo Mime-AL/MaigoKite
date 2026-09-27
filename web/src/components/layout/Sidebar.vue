@@ -46,7 +46,7 @@ async function createConversation() {
       <div class="brand-mark">{{ assistantInitial }}</div>
       <div v-show="!layoutStore.sidebarCollapsed" class="brand-copy">
         <strong>{{ assistantName }}</strong>
-        <span>Personal Workspace</span>
+        <span>个人空间</span>
       </div>
     </div>
 

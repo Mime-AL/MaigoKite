@@ -43,7 +43,7 @@ npm install
 make dev
 ```
 
-该命令启动 Python gRPC Agent Core、Go Gateway 和 Vue。也可在 `web/` 执行 `npm run electron:dev`，由 Electron Supervisor 启动本地运行时。云模型名称在 `models.chat.default` 配置；对应 API Key 从环境或系统密钥环提供，不写入 YAML。
+该命令启动 Python gRPC Agent Core、Go Gateway 和 Vue。也可在 `web/` 执行 `npm run electron:dev`，由 Electron Supervisor 启动本地运行时。首次启动后优先在设置页添加模型并选择默认项；YAML 的 `models.chat` 只作为无数据库配置时的启动 fallback。API Key 从环境或系统密钥环提供，不写入 YAML。
 
 ## 4. 首次启动目标流程
 

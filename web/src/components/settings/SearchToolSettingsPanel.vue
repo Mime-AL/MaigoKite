@@ -85,10 +85,6 @@ async function remove(service: 'tavily' | 'google') {
       </div>
     </article>
 
-    <footer>
-      <IconSymbol name="shield" :size="14" />
-      凭证保存在操作系统密钥链中，界面和普通配置不会回显 Secret。
-    </footer>
   </section>
 </template>
 
@@ -117,7 +113,6 @@ async function remove(service: 'tavily' | 'google') {
 .credential-form button { min-height: 36px; padding: 0 13px; border-radius: 10px; font-size: 10.5px; }
 .plain-button { border: 1px solid var(--border-color); background: transparent; cursor: pointer; }
 .plain-button.danger { color: var(--danger); }
-.tool-settings footer { display: flex; align-items: center; gap: 7px; padding: 13px 22px; color: var(--text-tertiary); background: var(--surface-muted); font-size: 9.5px; }
 @media (max-width: 700px) {
   .credential-form, .google-form { margin-left: 0; flex-wrap: wrap; }
   .credential-form input { flex-basis: 100%; }

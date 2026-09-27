@@ -190,6 +190,75 @@ export interface WorkspaceRuntimeStatus {
   }
 }
 
+export type MemoryCategory = 'preference' | 'fact' | 'constraint' | 'project' | 'other'
+
+export interface UserMemory {
+  id: string
+  workspace_id: string
+  subject_user_id: string
+  category: MemoryCategory
+  content: string
+  source_type: string
+  source_id: string
+  confidence: number
+  created_at: string
+  updated_at: string
+}
+
+export interface MemoryInput {
+  category: MemoryCategory
+  content: string
+  confidence: number
+}
+
+export interface WorkspaceDataSummary {
+  storage_backend: string
+  conversation_count: number
+  message_count: number
+  memory_count: number
+  task_count: number
+  audit_event_count: number
+}
+
+export interface MCPServerStatus {
+  namespace: string
+  status: 'running' | 'disabled' | string
+  transport: string
+  tool_names: string[]
+}
+
+export interface AgentTask {
+  id: string
+  workspace_id: string
+  conversation_id: string
+  title: string
+  status:
+    | 'created'
+    | 'queued'
+    | 'running'
+    | 'waiting_approval'
+    | 'retry_wait'
+    | 'succeeded'
+    | 'failed'
+    | 'cancelled'
+    | 'timed_out'
+    | 'interrupted'
+  input_text: string
+  last_error: string
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface InstalledSkill {
+  name: string
+  version: string
+  description: string
+  kind: 'instruction' | 'workflow'
+  source_path: string
+  parameters_schema: Record<string, unknown>
+}
+
 function chatModelFromWire(value: ChatModelWire): ChatModelSettings {
   return {
     provider: value.provider,
@@ -247,7 +316,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     } | null
     const message = typeof body?.error === 'string' ? body.error : body?.error?.message
     if (response.status === 404 && !message) {
-      throw new Error('Gateway 未提供该接口，请重启应用或重新运行 make dev 以加载最新运行时。')
+      throw new Error('当前应用版本缺少所需功能，请重启应用；若问题仍然存在，请更新或重新安装。')
     }
     throw new Error(message || `Request failed (${response.status})`)
   }
@@ -397,6 +466,52 @@ export const api = {
     return request(`${path}/credential-references/${encodeURIComponent(service)}`, {
       method: 'DELETE',
     })
+  },
+  async listMemories(query = ''): Promise<UserMemory[]> {
+    const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''
+    const body = await request<{ memories: UserMemory[] }>(`${path}/memories${suffix}`)
+    return body.memories || []
+  },
+  saveMemory(memory: MemoryInput & { id?: string }): Promise<UserMemory> {
+    const url = memory.id
+      ? `${path}/memories/${encodeURIComponent(memory.id)}`
+      : `${path}/memories`
+    return request(url, {
+      method: memory.id ? 'PATCH' : 'POST',
+      body: JSON.stringify({
+        category: memory.category,
+        content: memory.content,
+        confidence: memory.confidence,
+      }),
+    })
+  },
+  deleteMemory(id: string): Promise<void> {
+    return request(`${path}/memories/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  getWorkspaceDataSummary(): Promise<WorkspaceDataSummary> {
+    return request(`${path}/data-summary`)
+  },
+  async listMCPServers(): Promise<MCPServerStatus[]> {
+    const body = await request<{ servers: MCPServerStatus[] }>(`${path}/mcp-servers`)
+    return body.servers || []
+  },
+  async listSkills(): Promise<InstalledSkill[]> {
+    const body = await request<{ skills: InstalledSkill[] }>(`${path}/skills`)
+    return body.skills || []
+  },
+  async listTasks(conversationId?: string): Promise<AgentTask[]> {
+    const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ''
+    const body = await request<{ tasks: AgentTask[] }>(`${path}/tasks${query}`)
+    return body.tasks || []
+  },
+  cancelTask(taskId: string): Promise<AgentTask> {
+    return request(`${path}/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
+  },
+  async listTaskEvents(conversationId: string, after = 0): Promise<AgentEvent[]> {
+    const body = await request<{ events: AgentEvent[] }>(
+      `${path}/conversations/${encodeURIComponent(conversationId)}/events/history?after=${after}`,
+    )
+    return body.events || []
   },
   async listConversations(): Promise<Conversation[]> {
     const body = await request<{ conversations: Conversation[] }>(`${path}/conversations`)

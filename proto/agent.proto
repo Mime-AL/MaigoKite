@@ -11,6 +11,10 @@ service AgentService {
   rpc UpdateConversationPermission(ConversationPermissionRequest) returns (Conversation);
   rpc UpdateConversationSettings(ConversationSettingsRequest) returns (Conversation);
   rpc ListMessages(ConversationRequest) returns (MessageList);
+  rpc GetTask(TaskRequest) returns (Task);
+  rpc ListTasks(TaskListRequest) returns (TaskList);
+  rpc CancelTask(TaskRequest) returns (Task);
+  rpc ListTaskEvents(TaskEventListRequest) returns (TaskEventList);
   rpc ListApprovals(ApprovalListRequest) returns (ApprovalList);
   rpc DecideApproval(ApprovalDecisionRequest) returns (stream AgentEvent);
   rpc CheckWorkspaceAccess(WorkspaceAccessRequest) returns (WorkspaceAccessResponse);
@@ -29,6 +33,12 @@ service AgentService {
   rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (UserPreferences);
   rpc GetPermissionSettings(WorkspaceRequest) returns (PermissionSettings);
   rpc UpdatePermissionSettings(UpdatePermissionSettingsRequest) returns (PermissionSettings);
+  rpc ListMemories(MemoryListRequest) returns (MemoryList);
+  rpc UpsertMemory(UpsertMemoryRequest) returns (Memory);
+  rpc DeleteMemory(MemoryRequest) returns (Empty);
+  rpc GetWorkspaceDataSummary(WorkspaceRequest) returns (WorkspaceDataSummary);
+  rpc ListMCPServers(WorkspaceRequest) returns (MCPServerList);
+  rpc ListSkills(WorkspaceRequest) returns (SkillList);
   rpc Health(Empty) returns (HealthResponse);
 }
 
@@ -51,6 +61,9 @@ message AgentEvent {
   string message = 6;
   bool retryable = 7;
   string payload_json = 8;
+  string event_id = 9;
+  int64 sequence = 10;
+  string occurred_at = 11;
 }
 message ConversationRequest {
   string workspace_id = 1;
@@ -87,6 +100,27 @@ message ConversationSettingsRequest {
 }
 message Message { string id = 1; string conversation_id = 2; string role = 3; string content = 4; string created_at = 5; }
 message MessageList { repeated Message messages = 1; }
+message TaskRequest { string workspace_id = 1; string task_id = 2; }
+message TaskListRequest {
+  string workspace_id = 1; string conversation_id = 2; int32 limit = 3;
+}
+message Task {
+  string id = 1; string workspace_id = 2; string conversation_id = 3;
+  string title = 4; string status = 5; string input_text = 6;
+  string last_error = 7; int32 version = 8;
+  string created_at = 9; string updated_at = 10;
+}
+message TaskList { repeated Task tasks = 1; }
+message TaskEventListRequest {
+  string workspace_id = 1; string conversation_id = 2;
+  int64 after_sequence = 3; int32 limit = 4;
+}
+message TaskEvent {
+  string id = 1; string workspace_id = 2; string conversation_id = 3;
+  string task_id = 4; int64 sequence = 5; string event_type = 6;
+  string payload_json = 7; string occurred_at = 8;
+}
+message TaskEventList { repeated TaskEvent events = 1; }
 message ApprovalListRequest { string workspace_id = 1; string conversation_id = 2; }
 message Approval {
   string id = 1; string workspace_id = 2; string conversation_id = 3;
@@ -177,3 +211,52 @@ message UpdatePermissionSettingsRequest {
   string workspace_id = 1;
   PermissionSettings settings = 2;
 }
+message MemoryListRequest {
+  string workspace_id = 1;
+  string subject_user_id = 2;
+  string query = 3;
+  int32 limit = 4;
+}
+message Memory {
+  string id = 1;
+  string workspace_id = 2;
+  string subject_user_id = 3;
+  string category = 4;
+  string content = 5;
+  string source_type = 6;
+  string source_id = 7;
+  double confidence = 8;
+  string created_at = 9;
+  string updated_at = 10;
+}
+message MemoryList { repeated Memory memories = 1; }
+message UpsertMemoryRequest {
+  string workspace_id = 1;
+  string subject_user_id = 2;
+  Memory memory = 3;
+}
+message MemoryRequest {
+  string workspace_id = 1;
+  string subject_user_id = 2;
+  string memory_id = 3;
+}
+message WorkspaceDataSummary {
+  string storage_backend = 1;
+  int64 conversation_count = 2;
+  int64 message_count = 3;
+  int64 memory_count = 4;
+  int64 task_count = 5;
+  int64 audit_event_count = 6;
+}
+message MCPServer {
+  string namespace = 1;
+  string status = 2;
+  string transport = 3;
+  repeated string tool_names = 4;
+}
+message MCPServerList { repeated MCPServer servers = 1; }
+message Skill {
+  string name = 1; string version = 2; string description = 3;
+  string kind = 4; string source_path = 5; string parameters_schema_json = 6;
+}
+message SkillList { repeated Skill skills = 1; }

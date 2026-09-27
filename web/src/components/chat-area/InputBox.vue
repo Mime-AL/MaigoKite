@@ -24,6 +24,7 @@ withDefaults(
 )
 const emit = defineEmits<{
   (event: 'send', content: string): void
+  (event: 'cancel'): void
   (event: 'model-change', modelId: string): void
   (event: 'response-mode-change', mode: ResponseMode): void
   (event: 'permission-mode-change', mode: PermissionMode): void
@@ -120,11 +121,11 @@ watch(inputValue, async () => {
         <button
           class="send-button"
           type="button"
-          :disabled="!inputValue.trim() || isSending || !modelOptions.length"
-          aria-label="发送消息"
-          @click="handleSend"
+          :disabled="!isSending && (!inputValue.trim() || !modelOptions.length)"
+          :aria-label="isSending ? '停止任务' : '发送消息'"
+          @click="isSending ? emit('cancel') : handleSend()"
         >
-          <span v-if="isSending" class="sending-dot" />
+          <IconSymbol v-if="isSending" name="stop" :size="17" :stroke-width="2" />
           <IconSymbol v-else name="send" :size="17" :stroke-width="2" />
         </button>
       </div>
@@ -242,23 +243,10 @@ textarea::placeholder {
   background: var(--surface-strong);
   box-shadow: none;
 }
-.sending-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: breathe 1s ease-in-out infinite;
-}
 .composer-wrap > p {
   margin: 7px auto 0;
   color: var(--text-tertiary);
   font-size: 9px;
   text-align: center;
-}
-@keyframes breathe {
-  50% {
-    opacity: 0.3;
-    transform: scale(0.75);
-  }
 }
 </style>

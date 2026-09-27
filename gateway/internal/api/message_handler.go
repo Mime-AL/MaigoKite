@@ -9,7 +9,6 @@ import (
 	ws "github.com/nanamigopher/nanamigopher/gateway/internal/websocket"
 	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
 	"net/http"
-	"time"
 )
 
 type MessageHandler struct {
@@ -77,7 +76,9 @@ func (h *MessageHandler) Send(c *gin.Context) {
 			return
 		}
 	}
-	streamContext, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	// The HTTP request only starts the durable task. Its gRPC stream deliberately
+	// outlives the request and ends on completion, explicit cancellation, or process shutdown.
+	streamContext, cancel := context.WithCancel(context.Background())
 	events, errs := h.client.ProcessMessage(streamContext, &agentv1.ProcessMessageRequest{WorkspaceId: c.Param("workspaceID"), ConversationId: conversationID, Content: req.Content, Attachments: attachments, PrincipalId: "local-user"})
 	first, ok := <-events
 	if !ok {
@@ -94,7 +95,10 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		if len(payload) == 0 || !json.Valid(payload) {
 			payload, _ = json.Marshal(gin.H{"content": event.Content, "message": event.Message, "code": event.Code, "retryable": event.Retryable})
 		}
-		h.hub.BroadcastEvent(conversationID, event.TaskId, event.Type, payload)
+		h.hub.BroadcastPersistedEvent(
+			conversationID, event.TaskId, event.Type, payload,
+			event.EventId, uint64(event.Sequence), event.OccurredAt,
+		)
 	}
 	broadcast(first)
 	go func() {

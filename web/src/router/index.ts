@@ -35,6 +35,30 @@ const routes: RouteRecordRaw[] = [
         name: 'AuditLog',
         component: () => import('@/views/AuditLog.vue'),
         meta: { title: '审计日志' }
+      },
+      {
+        path: 'memory',
+        name: 'Memory',
+        component: () => import('@/views/Memory.vue'),
+        meta: { title: '用户记忆' }
+      },
+      {
+        path: 'integrations',
+        name: 'Integrations',
+        component: () => import('@/views/Integrations.vue'),
+        meta: { title: '扩展' }
+      },
+      {
+        path: 'embedding-indexes',
+        name: 'EmbeddingIndexes',
+        component: () => import('@/views/EmbeddingIndexes.vue'),
+        meta: { title: '知识库' }
+      },
+      {
+        path: 'data',
+        name: 'DataManagement',
+        component: () => import('@/views/DataManagement.vue'),
+        meta: { title: '数据概览' }
       }
     ]
   }

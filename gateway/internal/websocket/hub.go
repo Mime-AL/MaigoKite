@@ -104,6 +104,9 @@ func (h *Hub) Broadcast(conversationID, eventType string, data json.RawMessage) 
 	h.BroadcastEvent(conversationID, "", eventType, data)
 }
 func (h *Hub) BroadcastEvent(conversationID, taskID, eventType string, data json.RawMessage) {
+	h.BroadcastPersistedEvent(conversationID, taskID, eventType, data, "", 0, "")
+}
+func (h *Hub) BroadcastPersistedEvent(conversationID, taskID, eventType string, data json.RawMessage, eventID string, sequence uint64, occurredAt string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	counter := h.sequences[conversationID]
@@ -111,8 +114,19 @@ func (h *Hub) BroadcastEvent(conversationID, taskID, eventType string, data json
 		counter = &atomic.Uint64{}
 		h.sequences[conversationID] = counter
 	}
-	seq := counter.Add(1)
-	event := StreamEvent{SchemaVersion: 1, EventID: conversationID + "-" + time.Now().UTC().Format("20060102150405.000000000"), Sequence: seq, Type: eventType, OccurredAt: time.Now().UTC().Format(time.RFC3339Nano), ConversationID: conversationID, TaskID: taskID, Payload: data}
+	seq := sequence
+	if seq == 0 {
+		seq = counter.Add(1)
+	} else if seq > counter.Load() {
+		counter.Store(seq)
+	}
+	if eventID == "" {
+		eventID = conversationID + "-" + time.Now().UTC().Format("20060102150405.000000000")
+	}
+	if occurredAt == "" {
+		occurredAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	event := StreamEvent{SchemaVersion: 1, EventID: eventID, Sequence: seq, Type: eventType, OccurredAt: occurredAt, ConversationID: conversationID, TaskID: taskID, Payload: data}
 	encoded, _ := json.Marshal(event)
 	for client := range h.clients[conversationID] {
 		select {

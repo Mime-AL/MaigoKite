@@ -409,7 +409,7 @@ async function remove() {
       <div>
         <p>Model providers</p>
         <h2>模型</h2>
-        <span>管理服务凭证、模型目录和 Workspace 默认模型。</span>
+        <span>添加模型服务，并选择聊天时默认使用的模型。</span>
       </div>
       <button
         v-if="mode === 'list'"
@@ -465,7 +465,7 @@ async function remove() {
       <div v-if="!settings.modelProfiles.length" class="empty-profile">
         <span class="empty-icon"><IconSymbol name="brain" :size="25" /></span>
         <h3>连接你的第一个模型</h3>
-        <p>选择云端服务或本地运行时。凭证只会写入系统凭证库。</p>
+        <p>选择云端服务或当前设备上的模型服务。</p>
         <button type="button" class="primary-button" @click="showProviderPicker">
           选择模型服务
         </button>
@@ -551,9 +551,9 @@ async function remove() {
             >端点或接口类型已变化，请输入对应的新 Key；旧 Key 不会发送到新端点。</small
           >
           <small v-else-if="draft.credentialConfigured" class="credential-confirmed"
-            ><i />密钥已保存在系统凭证库中；页面不会回显真实值。</small
+            ><i />密钥已配置；留空表示继续使用。</small
           >
-          <small v-else>密钥按模型配置隔离，并保存在系统凭证库中。</small>
+          <small v-else>填写此模型服务使用的密钥。</small>
         </label>
 
         <div class="form-field model-field">

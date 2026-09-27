@@ -1,10 +1,12 @@
 # CI/CD 设计
 
-> **状态**：Current
-> **最后核验**：2026-09-14
+> **状态**：Planned（当前仓库没有已核验的远程 CI workflow）
+> **最后核验**：2026-09-18
 > **权威范围**：流水线阶段、质量门与发布自动化
 
 测试场景由 [TestPlan](../testing/TestPlan.md) 定义；本文只描述如何执行。
+
+当前可重复入口是 `scripts/run_tests.sh` 与 `scripts/build.sh all`；它们覆盖 Go、Python、Vue 测试及 Go/Python/Vue/Electron 编译，但不等于下述完整发布流水线。
 
 ## 1. 流水线
 
@@ -56,7 +58,7 @@ PR 必须执行单元、契约和关键集成测试。性能、恢复、完整 E
 
 ## 5. 数据库
 
-- CI 在空 SQLite/PostgreSQL 上执行全量迁移。
+- 当前阶段在空 SQLite 和兼容旧 SQLite 文件上执行验证；PostgreSQL 接入后加入全量迁移。
 - 从最低受支持版本执行升级测试。
 - 检查 ER/数据字典派生内容是否需要更新。
 - 发布前在预发布副本完成迁移和恢复验证。

@@ -2,7 +2,7 @@
 
 > **状态**：Derived
 > **来源**：[SystemDesign](SystemDesign.md)、[BackendDesign](BackendDesign.md)、[API](API.md)
-> **最后核验**：2026-09-14
+> **最后核验**：2026-09-18
 
 时序图不单独定义 endpoint、字段或权限矩阵。
 
@@ -17,15 +17,14 @@ sequenceDiagram
     participant DB as Repository
 
     U->>UI: 发送消息
-    UI->>G: POST conversation/messages + Idempotency-Key
+    UI->>G: POST conversation/messages
     G->>G: Authenticate + AccessPolicy
-    G->>P: gRPC SendMessage(CallContext, request)
-    P->>DB: 创建 Message、Task、OutboxEvent
-    DB-->>P: commit
-    P-->>G: task_id
-    G-->>UI: 202 Accepted
+    G->>P: gRPC ProcessMessage(request)
+    P->>DB: 创建 Message 与 Task
+    P->>DB: append task.started，分配 event_id/sequence
     P-->>G: gRPC event stream
-    G-->>UI: WebSocket task.started
+    G-->>UI: 202 Accepted(task_id)
+    G-->>UI: WebSocket task.started（沿用持久 ID/sequence）
     opt 模型需要工具或子 Agent
         G-->>UI: reasoning/tool/subagent 活动事件
         UI->>UI: 更新任务活动流，不写入消息气泡
@@ -76,6 +75,28 @@ sequenceDiagram
     C-->>E: ToolResult
 ```
 
+## 3.1 Browser Tool 调用
+
+```mermaid
+sequenceDiagram
+    participant E as ExecutionEngine
+    participant P as ToolPolicy
+    participant B as BrowserRuntime
+    participant C as Chromium
+
+    E->>P: evaluate browser action + target/path
+    alt open/snapshot 可自动执行
+        P-->>E: allow
+    else fill/click/press 需要批准
+        P-->>E: approval_required
+    end
+    E->>B: action(session_id, arguments)
+    B->>B: 校验公开 HTTP(S) / Workspace 截图路径
+    B->>C: Playwright command
+    C-->>B: 页面状态
+    B-->>E: 结构化快照/结果
+```
+
 ## 4. 审批
 
 ```mermaid
@@ -123,29 +144,26 @@ sequenceDiagram
 
 文件树、内容预览和 Git Diff 均为 Gateway 只读查询。变更列表只读取一次 Git 状态，用户选中文件后再按需生成该文件 Diff。Gateway 在访问文件系统或执行只读 Git 命令前，先完成 Workspace AccessPolicy 和根目录路径解析；渲染进程不获得 Node 文件系统或 Shell 能力。
 
-## 5. Skill 导入与安装
+## 5. Skill 发现（Current）
 
 ```mermaid
 sequenceDiagram
+    participant C as Agent Core
+    participant F as Skill Directories
+    participant R as SkillRegistry
     participant UI as Client
-    participant G as Gateway
-    participant P as SkillService
-    participant M as MCPManager
-    participant S as MCP Server
 
-    UI->>G: skills:import 或 skills:install
-    G->>P: gRPC command
-    P->>P: 验证来源、hash、manifest、依赖和能力请求
-    P-->>UI: 权限预览/确认
-    P->>P: 创建 SkillVersion 与 SkillGrant
-    P->>M: start(grant)
-    M->>S: 启动最小环境进程
-    M->>S: initialize + tools/list
-    S-->>M: capabilities + tools
-    M->>P: 注册 MCPTool
+    C->>F: 扫描 */SKILL.md
+    C->>C: 校验路径、大小和 YAML metadata
+    C->>R: 注册 instruction/workflow Skill
+    C->>R: 注册 skill list/read Tool
+    UI->>C: GET skills（经 Gateway）
+    C-->>UI: 实际加载清单
 ```
 
-## 6. Memory 检索
+安装、签名、版本回滚和 Workspace Grant 属于 Planned，不得从此 Current 流程推断已经实现。
+
+## 6. Memory 检索（Planned）
 
 ```mermaid
 sequenceDiagram
@@ -175,13 +193,17 @@ sequenceDiagram
 
     G--xUI: WebSocket 断开
     Note over P: Task 继续运行
-    UI->>G: GET task snapshot
-    G->>P: GetTask
-    P-->>G: authoritative state
-    G-->>UI: snapshot
-    UI->>G: WebSocket connect after=last_sequence
-    G-->>UI: replay missing events
+    UI->>G: GET conversation events/history?after=sequence
+    G->>P: ListTaskEvents
+    P-->>G: persisted events
+    G-->>UI: replay and rebuild activity
+    UI->>G: WebSocket connect
+    G-->>UI: live events with the same durable IDs
 ```
+
+当前客户端在 WebSocket 建立后按最后 sequence 再补拉一次，并按 event ID 去重，因此普通连接窗口可恢复。历史读取与订阅仍不是服务端原子操作，且单页上限为 1000；目标协议是连接携带 `after_sequence`，由 Gateway 分页补发后注册实时订阅。
+
+Core 重启时：具备持久 continuation 且不依赖易失资源的 `waiting_approval` 保持等待；Browser session 相关审批会被拒绝并转为 `interrupted`。其他非终态任务若没有安全 continuation，也转为 `interrupted` 并产生事件。
 
 ## 8. 取消
 
@@ -196,8 +218,10 @@ sequenceDiagram
     UI->>G: task:cancel
     G->>P: CancelTask
     P->>E: cancellation signal
-    E->>M: cancel/terminate active MCP call
-    P->>P: Task → cancelled
+    E->>E: 标记 cancellation token
+    P->>P: Task / pending Approval / ToolCall → cancelled
     P-->>G: task.cancelled
     G-->>UI: event
 ```
+
+模型流和原生 Tool 在边界检查取消。第三方 MCP 是否能立即中止取决于其 transport/实现；完整取消与超时契约仍是 Phase 1 发布阻塞项。

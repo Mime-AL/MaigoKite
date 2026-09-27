@@ -1,184 +1,127 @@
 # NanamiGopher 数据库设计
 
-> **状态**：Current
+> **状态**：Current + Planned（逐节标注）
 > **架构版本**：v1
-> **最后核验**：2026-09-14
-> **权威范围**：逻辑数据模型、归属、约束、事务和迁移原则
+> **最后核验**：2026-09-18
+> **权威范围**：当前持久化事实、归属、事务债务和目标演进
 
-具体字段和 SQL 以数据库迁移为实现事实；[ERDiagram](ERDiagram.md) 是本文档的派生视图。
+具体字段和 SQL 以 `python/agent/repository.py` 为当前实现事实；本文不把目标表写成已经存在的迁移。
 
-## 1. 存储边界
+## 1. 当前存储边界
 
-| 数据 | 权威存储 | 说明 |
-|---|---|---|
-| Workspace、会话、任务、审批、记忆元数据 | 关系数据库 | 事务事实来源 |
-| 原始消息 | 关系数据库 | 不可由摘要替代 |
-| 原始文档 | 关系数据库元数据 + 内容存储 | 内容寻址或受控文件路径 |
-| FTS、Embedding、向量 | 派生索引 | 可重建，不是唯一事实来源 |
-| Secret 值 | CredentialProvider | 不进入业务数据库 |
-| 日志与指标 | 可观测性存储 | 不作为业务状态来源 |
+- 当前业务数据库只有 SQLite，启用 foreign keys 与 WAL。
+- SQLite 保存 Workspace、Membership、会话、消息、任务、事件、ToolCall、审批、设置、审计、Todo 和显式 User Memory。
+- 模型与其他非敏感 Workspace 配置保存在 `workspace_settings` JSON 中。
+- Secret 值由 Gateway CredentialStore 保存，不进入 SQLite。
+- 原始文档、FTS、Embedding、向量索引、PostgreSQL 和对象存储尚未接入。
 
-本地模式默认 SQLite；服务器模式可使用 PostgreSQL。业务层通过 Repository 与 Unit of Work 访问，不依赖具体方言。
+当前 Repository 是单进程写入模型；多实例并发与 PostgreSQL 不能从接口抽象推断为已支持。
 
-## 2. 归属模型
+## 2. 当前归属模型
 
-- 每个 User 自动拥有一个 Personal Workspace。
-- Team Workspace 通过 Membership 关联多个 User。
-- 所有用户产生的业务资源必须直接或间接关联 `workspace_id`。
-- `created_by` 记录创建者，不替代 Workspace 归属。
-- 查询必须在 Workspace 作用域内执行。
+- `workspaces.kind` 支持 `personal / team`，个人与团队使用同一资源表和业务代码。
+- 启动时创建 `personal` Workspace 和 `local-user` Owner Membership。
+- 会话、偏好、设置、审计、Todo 和 User Memory 都显式带 Workspace 归属。
+- Task、ToolCall、Approval 与 TaskEvent 同时保存 Workspace、Conversation 和 Task 关联，用于 API 作用域检查与恢复。
+- 当前没有独立 `users` 表、Team 管理 API、邀请或完整身份生命周期；这些属于服务器团队能力。
 
-## 3. 核心实体
+## 3. 当前表
 
-### 3.1 身份与空间
-
-| 实体 | 关键约束 |
+| 表 | 当前语义与关键字段 |
 |---|---|
-| users | 稳定 ID；认证标识唯一；状态可禁用 |
-| workspaces | type 为 personal/team；名称和生命周期状态 |
-| memberships | workspace_id + user_id 唯一；角色和状态受约束 |
-| user_preferences | workspace_id + subject_user_id + key 唯一；保存用户级非敏感偏好 |
-| workspace_settings | workspace_id + key 唯一；只保存非敏感配置 JSON 与更新时间；Phase 1 的模型配置集合使用 `models.chat.catalog` |
+| `workspaces` | `id / name / kind / created_at / updated_at` |
+| `workspace_memberships` | `(workspace_id, user_id)` 主键与 `role`；当前主要用于访问检查 |
+| `conversations` | Workspace、标题、`model_id`、权限模式、响应档位和时间 |
+| `messages` | Conversation、`role / content / created_at`；没有显式 sequence/token 列 |
+| `user_preferences` | `(workspace_id, subject_user_id, key)` 唯一，保存非敏感 JSON |
+| `workspace_settings` | `(workspace_id, key)` 唯一，保存非敏感 JSON |
+| `tasks` | Workspace/Conversation、输入、状态、最后错误、版本和时间 |
+| `task_events` | Task/Conversation、会话内 sequence、类型、payload 和发生时间 |
+| `tool_calls` | Task、工具名、参数、结果、摘要、风险、状态和审批 continuation |
+| `approvals` | Task/ToolCall、principal、参数 hash、风险、版本、过期和决定时间 |
+| `audit_events` | Workspace、actor、action、resource、result、脱敏详情和时间 |
+| `todos` | Workspace 内的文本、完成状态和时间 |
+| `user_memories` | Workspace + subject user、类别、内容、来源、置信度和时间 |
 
-### 3.2 会话与执行
+User Preference 与 User Memory 不合并：前者是显式产品设置，后者是用户可管理的长期信息。当前 User Memory 只有手动 CRUD 和关键词查询，不会自动抽取、Embedding 检索或注入模型上下文。
 
-| 实体 | 关键约束 |
-|---|---|
-| conversations | 属于 Workspace；记录创建者、模型配置 ID、响应速度档、权限模式和归档状态 |
-| messages | 属于 Conversation；保存 role、内容、token 和顺序 |
-| tasks | 属于 Workspace/Conversation；保存权威状态和版本 |
-| task_runs | 记录每次尝试、lease、开始/结束和错误 |
-| tool_calls | 关联 TaskRun；保存能力、参数摘要、结果和幂等键 |
-| approvals | 关联 ToolCall；绑定参数 hash、范围、过期和决定 |
-
-消息与 Working Memory 不共用一张表。Working Memory 是运行时派生状态，持久化消息是事实来源。
-
-### 3.3 Memory 与知识
-
-| 实体 | 关键约束 |
-|---|---|
-| memories | Workspace、可选 subject_user、类型、来源、置信度、过期时间 |
-| documents | Workspace、内容引用、hash、MIME、版本和状态 |
-| document_chunks | 关联文档版本；保存稳定 chunk ID 和文本 |
-| index_records | 关联 source/chunk、Provider、模型版本和索引状态 |
-
-用户偏好配置与 User Memory 分离：前者是显式设置，后者是带来源的 Agent 记忆。
-
-### 3.4 Skill、凭证和工作流
-
-| 实体 | 关键约束 |
-|---|---|
-| skills | 全局不可变标识和发布者 |
-| skill_versions | 内容 hash、manifest、版本和信任状态唯一 |
-| skill_grants | Workspace 安装状态、能力授权和配置 |
-| credential_references | Secret 外部引用、归属、范围和过期信息 |
-| workflows | Workspace 中的逻辑工作流 |
-| workflow_versions | 不可变定义与版本 |
-| workflow_runs | 关联 Task，保存 checkpoint 和终态 |
-| workflow_node_runs | 节点级尝试和输出引用 |
-| schedules | Workspace 调度规则、时区、状态和继承策略 |
-| schedule_runs | 触发时间、关联任务、结果和重试次数 |
-
-### 3.5 审计与事件
-
-| 实体 | 关键约束 |
-|---|---|
-| audit_events | actor、action、resource、outcome、trace 和不可变时间 |
-| outbox_events | 与业务事务同时写入；发布后记录状态和尝试次数 |
-
-审计日志不保存原始 Secret、完整认证头或未经脱敏的工具参数。
-
-## 4. 状态约束
+## 4. 当前状态值
 
 ### Task
 
 ```text
 created, queued, running, waiting_approval, retry_wait,
-succeeded, failed, rejected, expired, cancelled, timed_out
+succeeded, failed, rejected, expired, cancelled, timed_out, interrupted
 ```
+
+当前运行路径主要使用 `running / waiting_approval / succeeded / failed / cancelled / timed_out / interrupted`；其余值为调度与重试预留。
 
 ### ToolCall
 
 ```text
-created, waiting_approval, running, succeeded, failed,
-denied, cancelled, timed_out
+proposed, waiting_approval, running, succeeded, failed,
+denied, cancelled, timed_out, expired
 ```
 
 ### Approval
 
 ```text
-pending, approved, rejected, expired, consumed
+pending, consumed, rejected, expired
 ```
 
-状态转换通过领域服务执行并使用乐观锁版本，禁止任意字符串更新。
+应用层校验状态字符串；当前 Schema 尚无数据库 `CHECK` 约束。Task 与 Approval 具有递增版本，Approval 决定会校验 principal、版本、过期时间和当前参数 hash。
 
-## 5. 关键约束与索引
+## 5. 当前约束与索引
 
-- `memberships(workspace_id, user_id)` 唯一。
-- `messages(conversation_id, sequence)` 唯一。
-- `tool_calls(task_run_id, idempotency_key)` 在非空时唯一。
-- 同一 ToolCall 同时最多有一个 pending Approval。
-- `skill_versions(skill_id, version)` 与内容 hash 受唯一约束。
-- 资源列表索引以 `workspace_id` 为首列。
-- 任务索引覆盖 Workspace、状态和调度/创建时间。
-- 过期清理索引覆盖 `expires_at`。
+- `workspace_memberships(workspace_id, user_id)` 主键。
+- `task_events(conversation_id, sequence)` 唯一，并按 sequence 查询。
+- 一个 ToolCall 通过 `approvals.tool_call_id UNIQUE` 最多关联一个 Approval。
+- Workspace 会话、任务、审计、Todo 和 User Memory 有面向当前查询的索引。
+- Messages 当前按 `created_at` 查询；同一时间戳的严格稳定排序仍需显式 sequence。
+- Tasks 当前没有到 Workspace/Conversation 的数据库外键，归属完整性依赖应用层；这是迁移债务。
+- `task_events` sequence 通过当前单进程 SQLite 锁内的 `MAX + 1` 生成；多实例前必须改为数据库安全分配。
 
-JSON 字段只保存结构不稳定的扩展数据；需要过滤、关联或约束的字段必须显式建模。
+## 6. 当前事务边界与架构债务
 
-## 6. 事务边界
+当前在单个 SQLite 事务中完成：
 
-必须原子提交的操作：
+- 创建 Approval，并把 ToolCall/Task 切换为等待；
+- 决定、过期或取消 Approval，并同步更新关联 ToolCall/Task；
+- 单次 Repository 方法内部的数据修改。
 
-- 创建消息、Task 和首个 OutboxEvent。
-- Task 状态转换与对应事件。
-- 创建 Approval 并将 ToolCall/Task 设为等待。
-- 消费 Approval 并恢复或终止 Task。
-- 保存 ToolCall 结果并推进任务。
-- 删除原始实体并登记派生索引清理任务。
+尚未原子完成：
 
-向量索引更新不参与主事务，通过 Outbox/Job 异步处理。
+- 创建用户消息、Task 与首个 TaskEvent；
+- Task 状态转换与对应 TaskEvent；
+- ToolCall 结果、Task 推进与事件发布。
 
-## 7. SQLite 与 PostgreSQL
+`EventBus` 当前先写 `task_events` 再实时投递，因此断线可回放，但领域状态和事件不是同一事务。正式 Unit of Work 与 Outbox 是目标方案，不得在当前文档中宣称已经交付。
 
-共同约束：
+## 7. 当前迁移方式
 
-- 应用生成 UUID/ULID，不依赖自增语义。
-- 时间统一存 UTC。
-- 布尔值、JSON、大小写比较和 NULL 排序通过适配层规范化。
-- 迁移在两种数据库上分别测试。
+- Repository 启动时执行 `CREATE TABLE IF NOT EXISTS`，并用受限 `ALTER TABLE ADD COLUMN` 兼容旧库。
+- 当前没有独立、有版本号的迁移工具，也没有自动 rollback。
+- 修改表结构必须至少验证空库启动和现存 SQLite 文件升级。
+- 活动数据库备份应使用 SQLite backup API 或一致性快照，不能直接复制正在写入的文件。
 
-SQLite：
+## 8. Planned 数据模型
 
-- 适用于本地单实例。
-- 启用 foreign keys、WAL 和 busy timeout。
-- 备份使用 SQLite backup API 或一致性快照，不直接复制活动文件。
+以下能力只有在对应迁移、API 和测试同时交付后才能转为 Current：
 
-PostgreSQL：
+- `users` 与完整 Team Membership/邀请/角色生命周期；
+- `task_runs`、lease、调度队列、retry 与通用 idempotency key；
+- Unit of Work、`outbox_events` 与原子领域事件；
+- `documents / document_chunks / index_records` 和可重建 FTS/向量索引；
+- `skills / skill_versions / skill_grants` 与签名、版本、授权和回滚；
+- `workflows / workflow_versions / workflow_runs / workflow_node_runs`；
+- `schedules / schedule_runs`；
+- Credential Reference 元数据表（Secret 值仍只在 CredentialProvider）；
+- PostgreSQL、多实例锁与正式迁移系统。
 
-- 适用于服务器和多实例。
-- 使用连接池、事务隔离和必要的行锁/skip locked。
-- 可额外启用数据库级租户保护，但应用层 Workspace 检查仍保留。
+## 9. Planned 演进不变量
 
-## 8. 全文与向量索引
-
-- FTS 索引来源是 messages 或 document_chunks 等已存在的权威表。
-- 每条向量记录包含 workspace、source ID、chunk ID、Provider、模型和版本。
-- 更换切分或 Embedding 版本时创建新索引版本，再原子切换读流量。
-- 删除源数据后必须清理 FTS、向量和缓存。
-- 支持从原始数据执行全量重建。
-
-## 9. 迁移
-
-- 所有 Schema 变更使用有序迁移，不在应用启动代码中散落建表 SQL。
-- 迁移必须支持空库安装和受支持版本升级。
-- 破坏性迁移采用 expand → migrate → contract。
-- 发布前在 SQLite 与 PostgreSQL 执行迁移、回滚或恢复演练。
-- ER 图和数据字典从迁移/模型生成，禁止独立维护字段副本。
-
-## 10. 保留、删除和备份
-
-- Workspace 删除采用可恢复标记、保留期和最终清理流程。
-- 用户可分别删除 Conversation、Memory 和 Document。
-- 删除权威数据会调度派生索引清理。
-- 审计数据按合规周期保留，并与普通业务删除策略区分。
-- 备份与恢复流程见 [Backup](../ops-security/Backup.md)。
+- 所有用户业务数据直接或间接绑定 Workspace。
+- 消息和原始文档是事实来源；摘要与索引可删除重建。
+- Secret 不进入业务数据库、Memory、TaskEvent 或普通日志。
+- 删除权威数据时必须清理或登记清理派生数据。
+- PostgreSQL 适配不能改变 Workspace 隔离、UTC 时间、ID 和状态语义。

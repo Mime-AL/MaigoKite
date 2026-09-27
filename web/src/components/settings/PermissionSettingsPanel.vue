@@ -20,7 +20,7 @@ const modes: Array<{
   },
   {
     id: 'workspace', label: '工作区', badge: '推荐',
-    description: '适合日常编码，在当前工作区自主完成任务。',
+    description: '适合日常任务，在当前工作区内自主执行。',
     behavior: '读取、编辑和安全命令自动执行；联网与高风险命令会请求批准。',
   },
   {

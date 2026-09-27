@@ -72,7 +72,7 @@ function formatUpdatedAt(value: string) {
       <article class="metric-card glass-card">
         <span class="metric-icon green"><IconSymbol name="shield" :size="20" /></span>
         <div><strong>本地</strong><span>工作区</span></div>
-        <small>SQLite · 当前工作区</small>
+        <small>当前工作区</small>
       </article>
     </section>
 

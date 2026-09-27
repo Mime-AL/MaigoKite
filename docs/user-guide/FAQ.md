@@ -1,7 +1,7 @@
 # NanamiGopher 常见问题
 
 > **状态**：Current
-> **最后核验**：2026-09-16
+> **最后核验**：2026-09-18
 
 ## 如何理解个人和团队空间？
 
@@ -13,23 +13,25 @@
 
 ## Native Tool 和 MCP Tool 有什么区别？
 
-Native Tool 在 Python Agent Core 进程内执行；MCP Tool 由 Python MCPClient 调用独立 Server。二者都经过同一个 ToolRegistry、ToolPolicy、取消、超时和审计流程。
+Native Tool 在 Python Agent Core 进程内执行；MCP Tool 由 Python MCPClient 调用独立 Server。二者都经过同一个 ToolRegistry、ToolPolicy 和审计入口。MCP 请求已有超时，但任务取消目前只能在调用边界阻止后续步骤，不能保证立即中断正在执行的第三方 MCP 调用。
 
 ## 如何安装 Skill？
 
-Phase 1 没有 Skill 安装或管理页面/API；部署者只能通过服务端配置声明受信的 stdio MCP Server。Skill 的本地 import、注册源 install、版本与 Workspace 授权是 Phase 2 目标，格式见 [Skill Lifecycle](../agent-capabilities/skills/skill-lifecycle.md)。
+Phase 1 没有远程“安装”流程，但可以在配置的目录中添加声明式 `SKILL.md`，重启 Core 后由 `skill list/read` 使用；它不会执行 Skill 目录中的代码。可执行扩展由部署者配置受信 stdio MCP Server。远程 install、签名版本、Grant 与回滚是后续目标，格式见 [Skill Lifecycle](../agent-capabilities/skills/skill-lifecycle.md)。
 
 ## 数据存在哪里？
 
-本地模式默认使用 SQLite 和本地内容存储；服务器模式可使用 PostgreSQL 和对象存储。Secret 使用 Keychain/Vault，不进入普通数据库。详见 [Database](../design/Database.md)。
+当前实现使用 SQLite 和本地内容存储；PostgreSQL/对象存储是团队部署阶段目标。Secret 使用 Keychain/Vault，不进入普通数据库。详见 [Database](../design/Database.md)。
 
 ## Memory 和知识库有什么区别？
 
-Phase 1 只持久化会话消息，并保存少量显式用户偏好（当前为界面称呼）。完整 User Memory、知识库、摘要、Embedding 与向量索引属于 Phase 2；其中消息和原始文档是事实来源，摘要与索引均可重建。详见 [Memory](../agent-capabilities/memory/memory-system.md)。
+Phase 2 已开始提供用户直接维护的 User Memory，可以在“用户记忆”页面查询、修改和遗忘。自动抽取、语义检索、知识库、摘要、Embedding 与向量索引仍在后续切片；其中消息和原始文档是事实来源，摘要与索引均可重建。详见 [Memory](../agent-capabilities/memory/memory-system.md)。
 
 ## WebSocket 断开会取消任务吗？
 
-不会。任务状态由 Agent Core 持久化管理。客户端重连后先获取状态快照，再从最后事件序号恢复。
+不会。任务状态由 Agent Core 持久化管理。客户端重进对话时读取任务和事件历史，连接实时流后再按最新 sequence 补拉一次并按 event ID 去重。当前限制是单次最多补拉 1000 条事件，服务端原子续传与分页仍在发布门禁中跟踪。
+
+Core 进程重启与普通断线不同：没有安全检查点的运行任务会显示 `interrupted`，不会自动重复副作用；等待审批的文件等持久操作可续接，但依赖已丢失 Browser session 的审批会被关闭并标记 interrupted。
 
 ## 如何取消任务？
 

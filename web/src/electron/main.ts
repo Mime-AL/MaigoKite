@@ -53,7 +53,7 @@ export function createWindow() {
   if (!app.isPackaged) void window.loadURL('http://localhost:5173'); else void window.loadFile(path.join(__dirname, '../dist/index.html'))
   window.on('closed', () => { mainWindow = null }); mainWindow = window; return window
 }
-function createTray() { tray = new Tray(path.join(app.getAppPath(), 'public', 'favicon.ico')); tray.setToolTip('NanamiGopher'); tray.setContextMenu(Menu.buildFromTemplate([{ label: '显示窗口', click: () => mainWindow?.show() }, { label: '退出', click: () => app.quit() }])) }
+function createTray() { tray = new Tray(path.join(app.getAppPath(), 'public', 'favicon.ico')); tray.setToolTip('助手'); tray.setContextMenu(Menu.buildFromTemplate([{ label: '显示窗口', click: () => mainWindow?.show() }, { label: '退出', click: () => app.quit() }])) }
 function registerIPC() { ipcMain.handle('runtime:status', event => ({ platform: process.platform, packaged: app.isPackaged, sender: event.sender.id })) }
 
 app.whenReady().then(() => { startRuntime(); createWindow(); createTray(); registerIPC(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() }) })

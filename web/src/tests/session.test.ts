@@ -12,6 +12,8 @@ describe('session store', () => {
     setActivePinia(createPinia())
     vi.spyOn(api, 'listMessages').mockResolvedValue([])
     vi.spyOn(api, 'listApprovals').mockResolvedValue([])
+    vi.spyOn(api, 'listTasks').mockResolvedValue([])
+    vi.spyOn(api, 'listTaskEvents').mockResolvedValue([])
     vi.spyOn(api, 'connectEvents').mockImplementation((_id, callback) => {
       onEvent = callback
       return { close: vi.fn() } as unknown as WebSocket
@@ -145,6 +147,57 @@ describe('session store', () => {
       streaming: false,
     })
     expect(store.isSending).toBe(false)
+  })
+
+  it('restores activity from durable events and cancels the active task', async () => {
+    vi.mocked(api.listTasks).mockResolvedValueOnce([
+      {
+        id: 'task-running', workspace_id: 'personal', conversation_id: 'conv-1',
+        title: 'task', status: 'running', input_text: 'work', last_error: '', version: 1,
+        created_at: '', updated_at: '',
+      },
+    ])
+    vi.mocked(api.listTaskEvents).mockResolvedValueOnce([
+      {
+        schema_version: 1, event_id: 'persisted-1', sequence: 1,
+        type: 'tool.started', conversation_id: 'conv-1', task_id: 'task-running',
+        payload: { tool_call_id: 'call-1', tool_name: 'browser' },
+      },
+    ])
+    vi.spyOn(api, 'cancelTask').mockResolvedValue({
+      id: 'task-running', workspace_id: 'personal', conversation_id: 'conv-1',
+      title: 'task', status: 'cancelled', input_text: 'work', last_error: 'Cancelled by user',
+      version: 2, created_at: '', updated_at: '',
+    })
+    const store = useSessionStore()
+    await store.switchSession('conv-1')
+    expect(store.isSending).toBe(true)
+    expect(store.activeActivityGroups[0].items[0].title).toBe('browser')
+
+    await store.cancelActiveTask()
+    expect(api.cancelTask).toHaveBeenCalledWith('task-running')
+    expect(store.isSending).toBe(false)
+  })
+
+  it('restores a completed message by its durable message id without duplication', async () => {
+    vi.mocked(api.listMessages).mockResolvedValueOnce([
+      {
+        id: 'message-1', conversation_id: 'conv-1', role: 'assistant',
+        content: '已完成', created_at: '2026-09-18T00:00:00Z',
+      },
+    ])
+    vi.mocked(api.listTaskEvents).mockResolvedValueOnce([
+      {
+        schema_version: 1, event_id: 'completed-1', sequence: 3,
+        type: 'message.completed', conversation_id: 'conv-1', task_id: 'task-1',
+        occurred_at: '2026-09-18T00:00:00Z',
+        payload: { message_id: 'message-1', content: '已完成' },
+      },
+    ])
+    const store = useSessionStore()
+    await store.switchSession('conv-1')
+    expect(store.activeMessages).toHaveLength(1)
+    expect(store.activeMessages[0]).toMatchObject({ id: 'message-1', content: '已完成' })
   })
 
   it('keeps reasoning, tools and subagents out of the assistant reply', async () => {

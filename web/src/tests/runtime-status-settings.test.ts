@@ -31,15 +31,16 @@ describe('workspace runtime settings', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('/workspaces/current-project')
-    expect(wrapper.text()).toContain('环境变量')
-    expect(wrapper.text()).toContain('Gateway')
-    expect(wrapper.text()).toContain('Agent Core')
-    expect(wrapper.text()).toContain('Workspace 根目录')
-    expect(wrapper.text()).toContain('Chat 模型与默认模型')
+    expect(wrapper.text()).toContain('应用服务')
+    expect(wrapper.text()).toContain('智能服务')
+    expect(wrapper.text()).not.toContain('环境变量')
+    expect(wrapper.text()).not.toContain('Gateway')
+    expect(wrapper.text()).not.toContain('Agent Core')
+    expect(wrapper.text()).not.toContain('待重启')
     expect(wrapper.find('input').exists()).toBe(false)
   })
 
-  it('shows an unavailable Agent Core without hiding Gateway state', async () => {
+  it('shows an unavailable intelligent service without exposing internal component names', async () => {
     vi.spyOn(api, 'getWorkspaceRuntimeStatus').mockResolvedValue({
       workspaceId: 'personal',
       workspaceRoot: '/workspaces/current-project',
@@ -53,8 +54,34 @@ describe('workspace runtime settings', () => {
     const wrapper = mount(RuntimeStatusPanel)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Agent Core')
+    expect(wrapper.text()).toContain('智能服务')
     expect(wrapper.text()).toContain('不可用')
-    expect(wrapper.text()).toContain('Gateway')
+    expect(wrapper.text()).toContain('应用服务')
+    expect(wrapper.text()).not.toContain('Gateway')
+    expect(wrapper.text()).not.toContain('Agent Core')
+  })
+
+  it('only shows a restart hint when a restart is actually pending', async () => {
+    vi.spyOn(api, 'getWorkspaceRuntimeStatus').mockResolvedValue({
+      workspaceId: 'personal',
+      workspaceRoot: '/workspaces/current-project',
+      workspaceSource: 'configuration',
+      environment: 'production',
+      gateway: { status: 'serving', version: '0.1.0' },
+      agentCore: { status: 'serving', version: '0.1.0' },
+      restart: {
+        pending: true,
+        requiredFor: ['internal.setting'],
+        hotApplied: [],
+        note: 'internal implementation detail',
+      },
+    })
+
+    const wrapper = mount(RuntimeStatusPanel)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('部分更改将在重新启动应用后生效')
+    expect(wrapper.text()).not.toContain('internal.setting')
+    expect(wrapper.text()).not.toContain('implementation detail')
   })
 })

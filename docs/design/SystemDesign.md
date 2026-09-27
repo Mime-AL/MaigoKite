@@ -2,7 +2,7 @@
 
 > **状态**：Current
 > **架构版本**：v1
-> **最后核验**：2026-09-14
+> **最后核验**：2026-09-18
 > **权威范围**：系统边界、组件职责、依赖方向、运行形态
 
 ## 1. 系统目标
@@ -28,9 +28,10 @@ flowchart LR
     Gateway --> Core[Python Agent Core]
     Core --> Model[本地或云模型]
     Core --> Native[Native Tools]
+    Core --> Browser[Playwright Browser]
     Core --> MCP[MCP Servers]
     Core --> Data[(关系数据与文件)]
-    Core --> Index[(FTS / Vector Index)]
+    Core -. Phase 2 .-> Index[(FTS / Vector Index)]
 ```
 
 ## 3. 组件职责
@@ -56,8 +57,8 @@ flowchart LR
 
 ### 3.4 Python Agent Core
 
-- 会话执行、任务状态机、模型路由和上下文组装。
-- Memory、Knowledge Base、Workflow 与 Inspector 事件生产。
+- 会话执行、任务状态机、模型配置选择和上下文组装。
+- 任务、审批、持久事件和 Tool 活动事件生产。
 - 执行 `ToolPolicy`，管理 ToolRegistry、Native Tool 和 MCPClient。
 - 是会话、消息、任务、审批、工具调用、记忆和运行记录的领域写入者。
 
@@ -66,21 +67,22 @@ flowchart LR
 ```text
 ExecutionEngine
     └── ToolRegistry
-        ├── NativeTool  → Python 进程内执行
+        ├── NativeTool  → Python 进程内执行（含 BrowserTool / SkillTool）
         └── MCPTool     → MCPClient → 独立 MCP Server
 ```
 
-Runtime 内核不是 Tool。Native 与 MCP Tool 共享参数校验、权限判断、取消、超时、结果和审计接口。完整规范见 [MCP](../agent-capabilities/mcp/mcp-integration.md) 和 [Tool Permission](../agent-capabilities/security/tool-permission.md)。
+Runtime 内核不是 Tool。Native、Browser、Skill 与 MCP Tool 共享参数校验、权限判断、结果和审计入口；取消在任务与 Tool 边界生效，第三方 MCP 调用的强制抢占仍有限制。BrowserRuntime 由 Core 持有，页面会话只通过不透明 `session_id` 暴露；本地 Skill 当前只提供声明式指令，不执行包内任意代码。完整规范见 [MCP](../agent-capabilities/mcp/mcp-integration.md) 和 [Tool Permission](../agent-capabilities/security/tool-permission.md)。
 
 ### 3.6 数据与索引
 
-- 关系数据保存 Workspace、会话、消息、任务、审批、记忆元数据和运行记录。
-- 本地模式默认 SQLite；服务器模式可使用 PostgreSQL，共用 Repository 契约。
-- 原始文档保存在关系数据或内容存储中。
-- FTS、Embedding 和向量库是派生索引，必须支持重建。
+- 当前 SQLite 保存 Workspace、Membership、会话、消息、任务、TaskEvent、ToolCall、审批、偏好、设置、审计、Todo 和显式 User Memory。
+- 当前实现只支持 SQLite；Repository 保留替换边界，PostgreSQL 属于团队部署阶段的 Planned 能力。
+- 原始文档、FTS、Embedding 和向量库属于 Phase 2；接入后必须将索引视为可重建派生数据。
 - Secret 值不存入业务数据库，见 [Security](../ops-security/Security.md)。
 
 ## 4. Workspace 模型
+
+以下是个人/团队共用领域模型的目标形态；当前只实现 Workspace、`workspace_memberships` 和 Workspace 作用域资源，没有独立 User/Team 管理 API：
 
 ```mermaid
 erDiagram
@@ -124,7 +126,7 @@ Electron Supervisor
 - Go 和 Python 只监听 loopback；端口来自运行配置，不作为架构常量。
 - 关闭顺序为 MCP → Python → Go → Electron。
 
-### 6.2 服务器模式
+### 6.2 服务器模式（Planned）
 
 ```text
 Browser → Ingress → Go Gateway → Python Agent Core
@@ -160,15 +162,18 @@ Browser → Ingress → Go Gateway → Python Agent Core
 任务的权威状态保存在 Python Agent Core 管理的数据层中：
 
 ```text
-CREATED → QUEUED → RUNNING → SUCCEEDED
-                     ├── WAITING_APPROVAL → RUNNING / REJECTED / EXPIRED
-                     ├── RETRY_WAIT → QUEUED
-                     ├── FAILED
-                     ├── CANCELLED
-                     └── TIMED_OUT
+    CREATED → RUNNING → SUCCEEDED
+                  ├── WAITING_APPROVAL → RUNNING / CANCELLED / TIMED_OUT
+                  ├── FAILED
+                  ├── CANCELLED
+                  └── INTERRUPTED（重启时没有安全检查点）
 ```
 
-副作用 ToolCall 使用幂等键。WebSocket 是事件传输通道，不是状态事实来源；重连后通过事件序号或状态快照恢复。
+`queued / retry_wait / rejected / expired` 是为调度器预留的合法值，当前没有运行路径驱动它们。
+
+每个带 `task_id` 和 `conversation_id` 的运行事件先写入 `task_events`，获得稳定 `event_id` 和会话内递增 `sequence`，再投递实时订阅者。WebSocket 是事件传输通道，不是状态事实来源；客户端重进对话时读取事件历史并按 ID 去重。
+
+当前只对“等待审批”保存了可继续执行的 continuation。Core 重启时，`created / queued / running / retry_wait` 任务统一转为 `interrupted`，不会冒险重复副作用。依赖进程内 Browser session 的 pending Approval 也会被拒绝并将任务标为 `interrupted`；文件等不依赖易失会话的审批可继续。步骤级自动恢复依赖后续的幂等 Tool 和安全检查点。
 
 ## 9. Current 与 Planned
 
@@ -176,6 +181,8 @@ CREATED → QUEUED → RUNNING → SUCCEEDED
 
 - Vue + Electron、Go Gateway、Python Agent Core。
 - Native Tool 与 MCP stdio Tool。
+- Playwright BrowserTool 和本地声明式 Skill。
+- SQLite 任务、审批、ToolCall 与任务事件日志。
 - Workspace 统一资源边界。
 - SQLite 本地存储和可替换 Repository。
 - REST、gRPC、WebSocket。

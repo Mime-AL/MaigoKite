@@ -31,6 +31,7 @@ const paths: Record<string, string> = {
   refresh: 'M20 7v5h-5M4 17v-5h5M18.4 9A7 7 0 0 0 6.2 6.4L4 9m16 6-2.2 2.6A7 7 0 0 1 5.6 15',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   send: 'm21 3-7.2 18-3.1-7.7L3 10.2 21 3Zm-10.3 10.3L21 3',
+  stop: 'M7 7h10v10H7z',
   plus: 'M12 5v14M5 12h14',
   chevron: 'm9 18 6-6-6-6',
   terminal: 'm5 7 4 4-4 4m6 0h8',

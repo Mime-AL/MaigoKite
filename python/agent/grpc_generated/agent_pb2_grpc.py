@@ -74,6 +74,26 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.ConversationRequest.SerializeToString,
                 response_deserializer=agent__pb2.MessageList.FromString,
                 _registered_method=True)
+        self.GetTask = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/GetTask',
+                request_serializer=agent__pb2.TaskRequest.SerializeToString,
+                response_deserializer=agent__pb2.Task.FromString,
+                _registered_method=True)
+        self.ListTasks = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/ListTasks',
+                request_serializer=agent__pb2.TaskListRequest.SerializeToString,
+                response_deserializer=agent__pb2.TaskList.FromString,
+                _registered_method=True)
+        self.CancelTask = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/CancelTask',
+                request_serializer=agent__pb2.TaskRequest.SerializeToString,
+                response_deserializer=agent__pb2.Task.FromString,
+                _registered_method=True)
+        self.ListTaskEvents = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/ListTaskEvents',
+                request_serializer=agent__pb2.TaskEventListRequest.SerializeToString,
+                response_deserializer=agent__pb2.TaskEventList.FromString,
+                _registered_method=True)
         self.ListApprovals = channel.unary_unary(
                 '/nanamigopher.agent.v1.AgentService/ListApprovals',
                 request_serializer=agent__pb2.ApprovalListRequest.SerializeToString,
@@ -164,6 +184,36 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.UpdatePermissionSettingsRequest.SerializeToString,
                 response_deserializer=agent__pb2.PermissionSettings.FromString,
                 _registered_method=True)
+        self.ListMemories = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/ListMemories',
+                request_serializer=agent__pb2.MemoryListRequest.SerializeToString,
+                response_deserializer=agent__pb2.MemoryList.FromString,
+                _registered_method=True)
+        self.UpsertMemory = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/UpsertMemory',
+                request_serializer=agent__pb2.UpsertMemoryRequest.SerializeToString,
+                response_deserializer=agent__pb2.Memory.FromString,
+                _registered_method=True)
+        self.DeleteMemory = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/DeleteMemory',
+                request_serializer=agent__pb2.MemoryRequest.SerializeToString,
+                response_deserializer=agent__pb2.Empty.FromString,
+                _registered_method=True)
+        self.GetWorkspaceDataSummary = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/GetWorkspaceDataSummary',
+                request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
+                response_deserializer=agent__pb2.WorkspaceDataSummary.FromString,
+                _registered_method=True)
+        self.ListMCPServers = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/ListMCPServers',
+                request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
+                response_deserializer=agent__pb2.MCPServerList.FromString,
+                _registered_method=True)
+        self.ListSkills = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/ListSkills',
+                request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
+                response_deserializer=agent__pb2.SkillList.FromString,
+                _registered_method=True)
         self.Health = channel.unary_unary(
                 '/nanamigopher.agent.v1.AgentService/Health',
                 request_serializer=agent__pb2.Empty.SerializeToString,
@@ -217,6 +267,30 @@ class AgentServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def ListMessages(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetTask(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListTasks(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CancelTask(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListTaskEvents(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -330,6 +404,42 @@ class AgentServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListMemories(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpsertMemory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteMemory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetWorkspaceDataSummary(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListMCPServers(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListSkills(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Health(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -378,6 +488,26 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.ListMessages,
                     request_deserializer=agent__pb2.ConversationRequest.FromString,
                     response_serializer=agent__pb2.MessageList.SerializeToString,
+            ),
+            'GetTask': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTask,
+                    request_deserializer=agent__pb2.TaskRequest.FromString,
+                    response_serializer=agent__pb2.Task.SerializeToString,
+            ),
+            'ListTasks': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListTasks,
+                    request_deserializer=agent__pb2.TaskListRequest.FromString,
+                    response_serializer=agent__pb2.TaskList.SerializeToString,
+            ),
+            'CancelTask': grpc.unary_unary_rpc_method_handler(
+                    servicer.CancelTask,
+                    request_deserializer=agent__pb2.TaskRequest.FromString,
+                    response_serializer=agent__pb2.Task.SerializeToString,
+            ),
+            'ListTaskEvents': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListTaskEvents,
+                    request_deserializer=agent__pb2.TaskEventListRequest.FromString,
+                    response_serializer=agent__pb2.TaskEventList.SerializeToString,
             ),
             'ListApprovals': grpc.unary_unary_rpc_method_handler(
                     servicer.ListApprovals,
@@ -468,6 +598,36 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.UpdatePermissionSettings,
                     request_deserializer=agent__pb2.UpdatePermissionSettingsRequest.FromString,
                     response_serializer=agent__pb2.PermissionSettings.SerializeToString,
+            ),
+            'ListMemories': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListMemories,
+                    request_deserializer=agent__pb2.MemoryListRequest.FromString,
+                    response_serializer=agent__pb2.MemoryList.SerializeToString,
+            ),
+            'UpsertMemory': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpsertMemory,
+                    request_deserializer=agent__pb2.UpsertMemoryRequest.FromString,
+                    response_serializer=agent__pb2.Memory.SerializeToString,
+            ),
+            'DeleteMemory': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteMemory,
+                    request_deserializer=agent__pb2.MemoryRequest.FromString,
+                    response_serializer=agent__pb2.Empty.SerializeToString,
+            ),
+            'GetWorkspaceDataSummary': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetWorkspaceDataSummary,
+                    request_deserializer=agent__pb2.WorkspaceRequest.FromString,
+                    response_serializer=agent__pb2.WorkspaceDataSummary.SerializeToString,
+            ),
+            'ListMCPServers': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListMCPServers,
+                    request_deserializer=agent__pb2.WorkspaceRequest.FromString,
+                    response_serializer=agent__pb2.MCPServerList.SerializeToString,
+            ),
+            'ListSkills': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListSkills,
+                    request_deserializer=agent__pb2.WorkspaceRequest.FromString,
+                    response_serializer=agent__pb2.SkillList.SerializeToString,
             ),
             'Health': grpc.unary_unary_rpc_method_handler(
                     servicer.Health,
@@ -691,6 +851,114 @@ class AgentService:
             '/nanamigopher.agent.v1.AgentService/ListMessages',
             agent__pb2.ConversationRequest.SerializeToString,
             agent__pb2.MessageList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetTask(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/GetTask',
+            agent__pb2.TaskRequest.SerializeToString,
+            agent__pb2.Task.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListTasks(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/ListTasks',
+            agent__pb2.TaskListRequest.SerializeToString,
+            agent__pb2.TaskList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CancelTask(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/CancelTask',
+            agent__pb2.TaskRequest.SerializeToString,
+            agent__pb2.Task.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListTaskEvents(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/ListTaskEvents',
+            agent__pb2.TaskEventListRequest.SerializeToString,
+            agent__pb2.TaskEventList.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1177,6 +1445,168 @@ class AgentService:
             '/nanamigopher.agent.v1.AgentService/UpdatePermissionSettings',
             agent__pb2.UpdatePermissionSettingsRequest.SerializeToString,
             agent__pb2.PermissionSettings.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListMemories(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/ListMemories',
+            agent__pb2.MemoryListRequest.SerializeToString,
+            agent__pb2.MemoryList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpsertMemory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/UpsertMemory',
+            agent__pb2.UpsertMemoryRequest.SerializeToString,
+            agent__pb2.Memory.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteMemory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/DeleteMemory',
+            agent__pb2.MemoryRequest.SerializeToString,
+            agent__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetWorkspaceDataSummary(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/GetWorkspaceDataSummary',
+            agent__pb2.WorkspaceRequest.SerializeToString,
+            agent__pb2.WorkspaceDataSummary.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListMCPServers(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/ListMCPServers',
+            agent__pb2.WorkspaceRequest.SerializeToString,
+            agent__pb2.MCPServerList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListSkills(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/ListSkills',
+            agent__pb2.WorkspaceRequest.SerializeToString,
+            agent__pb2.SkillList.FromString,
             options,
             channel_credentials,
             insecure,

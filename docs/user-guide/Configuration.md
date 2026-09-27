@@ -1,7 +1,7 @@
 # NanamiGopher 配置指南
 
 > **状态**：Current
-> **最后核验**：2026-09-14
+> **最后核验**：2026-09-18
 
 配置字段最终以仓库配置 Schema 和默认配置为准。本文解释用户可见的配置，不复制内部结构体。
 
@@ -64,7 +64,7 @@ Phase 1 的自动发现仅查询模型目录。多模型自动路由、能力/�
 
 - Personal 与 Team Workspace 使用同一配置模型。
 - 本地部署默认使用 SQLite 和本地内容存储。
-- 服务器部署可使用 PostgreSQL、对象存储和独立向量服务。
+- 当前服务器部署仍使用 SQLite；PostgreSQL、对象存储和独立向量服务属于 Planned。
 - 向量索引可重建；修改 Embedding 或 chunk 版本后需触发索引重建。
 
 存储语义见 [Database](../design/Database.md)。
@@ -95,7 +95,34 @@ permissions:
 
 右侧栏的“文件”页按需读取当前 Workspace，可选择文本文件进行只读预览；“变更”页展示 Git staged、unstaged 与 untracked 文件，并在选中文件后加载逐文件 Diff。配置 `NANAMI_WORKSPACE_ROOT` 可显式指定本地运行时根目录。服务端拒绝绝对路径、目录穿越与逃逸根目录的符号链接。
 
-## 8. Skill（Phase 2 管理界面）
+### 7.1 浏览器运行时
+
+Browser Tool 默认按需启动，不需要为每次任务预先打开窗口。部署配置示例：
+
+```yaml
+browser:
+  enabled: true
+  headless: true
+  executable_path: "/usr/bin/google-chrome"  # 留空时使用 Playwright 管理的 Chromium
+```
+
+Browser Tool 在应用层只接受公开 HTTP(S) 地址，并解析主机以拒绝私网、本机、链路本地和保留地址；截图路径必须位于 Workspace，`fill/click/press` 等页面副作用仍受当前会话权限与审批控制。该检查不是生产网络边界的替代品：部署时还应通过容器或主机出口策略阻止 Chromium 访问内网，以覆盖 DNS 重绑定等应用层无法彻底消除的风险。
+
+## 8. Skill 与 MCP
+
+Phase 1 会从 `skills.scan_directories` 扫描本地 `SKILL.md`。最小文件示例：
+
+```markdown
+---
+name: research-brief
+version: 1.0.0
+kind: instruction
+description: 生成带来源的研究简报。
+---
+优先读取一手来源，区分事实与推断，并记录引用。
+```
+
+本地 Skill 只提供可审阅指令，通过 `skill list/read` Tool 使用，不执行目录中的代码。应用内“MCP 与 Skill”页会只读展示实际加载结果；新增文件后需要重启 Agent Core。
 
 目标 SkillGrant 配置包含：
 
@@ -122,6 +149,8 @@ mcp:
 
 `command` 以 argv 方式直接执行，不经过 shell；`cwd` 必须位于 Workspace。`env_allowlist` 只声明可从启动环境传入的变量名，Secret 值不得写入 YAML。工具会命名为 `<server>__<tool>`，并与 Native Tool 经过同一 ToolPolicy、审批和审计入口。SkillGrant、健康重启、空闲回收和非 stdio transport 属于后续阶段。
 
+“MCP 与 Skill”页面当前只读展示实际加载的 Local Skill、Server、transport、状态和工具名称。它不会修改 YAML，也不代表 Skill import/install 已经实现。
+
 ## 9. 凭证
 
 - 桌面模式使用操作系统密钥存储。
@@ -131,7 +160,9 @@ mcp:
 
 ## 10. Memory（Phase 2）
 
-Phase 1 只提供会话消息上下文和显式界面偏好，没有 Memory 管理或索引设置页面。保留期、上下文预算、通用 User Memory、Embedding 和索引 Provider 需要等 Phase 2 的 API、持久化、删除和重建闭环完成后再开放。
+“用户记忆”页面已经支持当前用户在 Workspace 内手动添加、查询、修改和遗忘长期信息，数据由 Agent Core 持久化，写操作进入审计日志。自动从对话提取记忆、语义检索和注入模型上下文尚未启用。
+
+“Embedding 与索引”入口已提前注册，但目前是只读状态页，没有可保存的 Provider 控件。保留期、自动抽取、Embedding Provider 和索引重建需要等对应 API、版本化索引、删除闭环和测试完成后再开放。
 
 Phase 2 配置不得改变以下不变量：
 

@@ -27,6 +27,10 @@ const (
 	AgentService_UpdateConversationPermission_FullMethodName = "/nanamigopher.agent.v1.AgentService/UpdateConversationPermission"
 	AgentService_UpdateConversationSettings_FullMethodName   = "/nanamigopher.agent.v1.AgentService/UpdateConversationSettings"
 	AgentService_ListMessages_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/ListMessages"
+	AgentService_GetTask_FullMethodName                      = "/nanamigopher.agent.v1.AgentService/GetTask"
+	AgentService_ListTasks_FullMethodName                    = "/nanamigopher.agent.v1.AgentService/ListTasks"
+	AgentService_CancelTask_FullMethodName                   = "/nanamigopher.agent.v1.AgentService/CancelTask"
+	AgentService_ListTaskEvents_FullMethodName               = "/nanamigopher.agent.v1.AgentService/ListTaskEvents"
 	AgentService_ListApprovals_FullMethodName                = "/nanamigopher.agent.v1.AgentService/ListApprovals"
 	AgentService_DecideApproval_FullMethodName               = "/nanamigopher.agent.v1.AgentService/DecideApproval"
 	AgentService_CheckWorkspaceAccess_FullMethodName         = "/nanamigopher.agent.v1.AgentService/CheckWorkspaceAccess"
@@ -45,6 +49,12 @@ const (
 	AgentService_UpdateUserPreferences_FullMethodName        = "/nanamigopher.agent.v1.AgentService/UpdateUserPreferences"
 	AgentService_GetPermissionSettings_FullMethodName        = "/nanamigopher.agent.v1.AgentService/GetPermissionSettings"
 	AgentService_UpdatePermissionSettings_FullMethodName     = "/nanamigopher.agent.v1.AgentService/UpdatePermissionSettings"
+	AgentService_ListMemories_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/ListMemories"
+	AgentService_UpsertMemory_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/UpsertMemory"
+	AgentService_DeleteMemory_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/DeleteMemory"
+	AgentService_GetWorkspaceDataSummary_FullMethodName      = "/nanamigopher.agent.v1.AgentService/GetWorkspaceDataSummary"
+	AgentService_ListMCPServers_FullMethodName               = "/nanamigopher.agent.v1.AgentService/ListMCPServers"
+	AgentService_ListSkills_FullMethodName                   = "/nanamigopher.agent.v1.AgentService/ListSkills"
 	AgentService_Health_FullMethodName                       = "/nanamigopher.agent.v1.AgentService/Health"
 )
 
@@ -60,6 +70,10 @@ type AgentServiceClient interface {
 	UpdateConversationPermission(ctx context.Context, in *ConversationPermissionRequest, opts ...grpc.CallOption) (*Conversation, error)
 	UpdateConversationSettings(ctx context.Context, in *ConversationSettingsRequest, opts ...grpc.CallOption) (*Conversation, error)
 	ListMessages(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*MessageList, error)
+	GetTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*Task, error)
+	ListTasks(ctx context.Context, in *TaskListRequest, opts ...grpc.CallOption) (*TaskList, error)
+	CancelTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*Task, error)
+	ListTaskEvents(ctx context.Context, in *TaskEventListRequest, opts ...grpc.CallOption) (*TaskEventList, error)
 	ListApprovals(ctx context.Context, in *ApprovalListRequest, opts ...grpc.CallOption) (*ApprovalList, error)
 	DecideApproval(ctx context.Context, in *ApprovalDecisionRequest, opts ...grpc.CallOption) (AgentService_DecideApprovalClient, error)
 	CheckWorkspaceAccess(ctx context.Context, in *WorkspaceAccessRequest, opts ...grpc.CallOption) (*WorkspaceAccessResponse, error)
@@ -78,6 +92,12 @@ type AgentServiceClient interface {
 	UpdateUserPreferences(ctx context.Context, in *UpdateUserPreferencesRequest, opts ...grpc.CallOption) (*UserPreferences, error)
 	GetPermissionSettings(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*PermissionSettings, error)
 	UpdatePermissionSettings(ctx context.Context, in *UpdatePermissionSettingsRequest, opts ...grpc.CallOption) (*PermissionSettings, error)
+	ListMemories(ctx context.Context, in *MemoryListRequest, opts ...grpc.CallOption) (*MemoryList, error)
+	UpsertMemory(ctx context.Context, in *UpsertMemoryRequest, opts ...grpc.CallOption) (*Memory, error)
+	DeleteMemory(ctx context.Context, in *MemoryRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetWorkspaceDataSummary(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*WorkspaceDataSummary, error)
+	ListMCPServers(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*MCPServerList, error)
+	ListSkills(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*SkillList, error)
 	Health(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*HealthResponse, error)
 }
 
@@ -186,6 +206,46 @@ func (c *agentServiceClient) ListMessages(ctx context.Context, in *ConversationR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MessageList)
 	err := c.cc.Invoke(ctx, AgentService_ListMessages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) GetTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*Task, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Task)
+	err := c.cc.Invoke(ctx, AgentService_GetTask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ListTasks(ctx context.Context, in *TaskListRequest, opts ...grpc.CallOption) (*TaskList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TaskList)
+	err := c.cc.Invoke(ctx, AgentService_ListTasks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) CancelTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*Task, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Task)
+	err := c.cc.Invoke(ctx, AgentService_CancelTask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ListTaskEvents(ctx context.Context, in *TaskEventListRequest, opts ...grpc.CallOption) (*TaskEventList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TaskEventList)
+	err := c.cc.Invoke(ctx, AgentService_ListTaskEvents_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -395,6 +455,66 @@ func (c *agentServiceClient) UpdatePermissionSettings(ctx context.Context, in *U
 	return out, nil
 }
 
+func (c *agentServiceClient) ListMemories(ctx context.Context, in *MemoryListRequest, opts ...grpc.CallOption) (*MemoryList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MemoryList)
+	err := c.cc.Invoke(ctx, AgentService_ListMemories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) UpsertMemory(ctx context.Context, in *UpsertMemoryRequest, opts ...grpc.CallOption) (*Memory, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Memory)
+	err := c.cc.Invoke(ctx, AgentService_UpsertMemory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) DeleteMemory(ctx context.Context, in *MemoryRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, AgentService_DeleteMemory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) GetWorkspaceDataSummary(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*WorkspaceDataSummary, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WorkspaceDataSummary)
+	err := c.cc.Invoke(ctx, AgentService_GetWorkspaceDataSummary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ListMCPServers(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*MCPServerList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MCPServerList)
+	err := c.cc.Invoke(ctx, AgentService_ListMCPServers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ListSkills(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*SkillList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SkillList)
+	err := c.cc.Invoke(ctx, AgentService_ListSkills_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) Health(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*HealthResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthResponse)
@@ -417,6 +537,10 @@ type AgentServiceServer interface {
 	UpdateConversationPermission(context.Context, *ConversationPermissionRequest) (*Conversation, error)
 	UpdateConversationSettings(context.Context, *ConversationSettingsRequest) (*Conversation, error)
 	ListMessages(context.Context, *ConversationRequest) (*MessageList, error)
+	GetTask(context.Context, *TaskRequest) (*Task, error)
+	ListTasks(context.Context, *TaskListRequest) (*TaskList, error)
+	CancelTask(context.Context, *TaskRequest) (*Task, error)
+	ListTaskEvents(context.Context, *TaskEventListRequest) (*TaskEventList, error)
 	ListApprovals(context.Context, *ApprovalListRequest) (*ApprovalList, error)
 	DecideApproval(*ApprovalDecisionRequest, AgentService_DecideApprovalServer) error
 	CheckWorkspaceAccess(context.Context, *WorkspaceAccessRequest) (*WorkspaceAccessResponse, error)
@@ -435,6 +559,12 @@ type AgentServiceServer interface {
 	UpdateUserPreferences(context.Context, *UpdateUserPreferencesRequest) (*UserPreferences, error)
 	GetPermissionSettings(context.Context, *WorkspaceRequest) (*PermissionSettings, error)
 	UpdatePermissionSettings(context.Context, *UpdatePermissionSettingsRequest) (*PermissionSettings, error)
+	ListMemories(context.Context, *MemoryListRequest) (*MemoryList, error)
+	UpsertMemory(context.Context, *UpsertMemoryRequest) (*Memory, error)
+	DeleteMemory(context.Context, *MemoryRequest) (*Empty, error)
+	GetWorkspaceDataSummary(context.Context, *WorkspaceRequest) (*WorkspaceDataSummary, error)
+	ListMCPServers(context.Context, *WorkspaceRequest) (*MCPServerList, error)
+	ListSkills(context.Context, *WorkspaceRequest) (*SkillList, error)
 	Health(context.Context, *Empty) (*HealthResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
@@ -466,6 +596,18 @@ func (UnimplementedAgentServiceServer) UpdateConversationSettings(context.Contex
 }
 func (UnimplementedAgentServiceServer) ListMessages(context.Context, *ConversationRequest) (*MessageList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListMessages not implemented")
+}
+func (UnimplementedAgentServiceServer) GetTask(context.Context, *TaskRequest) (*Task, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTask not implemented")
+}
+func (UnimplementedAgentServiceServer) ListTasks(context.Context, *TaskListRequest) (*TaskList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTasks not implemented")
+}
+func (UnimplementedAgentServiceServer) CancelTask(context.Context, *TaskRequest) (*Task, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelTask not implemented")
+}
+func (UnimplementedAgentServiceServer) ListTaskEvents(context.Context, *TaskEventListRequest) (*TaskEventList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTaskEvents not implemented")
 }
 func (UnimplementedAgentServiceServer) ListApprovals(context.Context, *ApprovalListRequest) (*ApprovalList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListApprovals not implemented")
@@ -520,6 +662,24 @@ func (UnimplementedAgentServiceServer) GetPermissionSettings(context.Context, *W
 }
 func (UnimplementedAgentServiceServer) UpdatePermissionSettings(context.Context, *UpdatePermissionSettingsRequest) (*PermissionSettings, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdatePermissionSettings not implemented")
+}
+func (UnimplementedAgentServiceServer) ListMemories(context.Context, *MemoryListRequest) (*MemoryList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListMemories not implemented")
+}
+func (UnimplementedAgentServiceServer) UpsertMemory(context.Context, *UpsertMemoryRequest) (*Memory, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpsertMemory not implemented")
+}
+func (UnimplementedAgentServiceServer) DeleteMemory(context.Context, *MemoryRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteMemory not implemented")
+}
+func (UnimplementedAgentServiceServer) GetWorkspaceDataSummary(context.Context, *WorkspaceRequest) (*WorkspaceDataSummary, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkspaceDataSummary not implemented")
+}
+func (UnimplementedAgentServiceServer) ListMCPServers(context.Context, *WorkspaceRequest) (*MCPServerList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListMCPServers not implemented")
+}
+func (UnimplementedAgentServiceServer) ListSkills(context.Context, *WorkspaceRequest) (*SkillList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSkills not implemented")
 }
 func (UnimplementedAgentServiceServer) Health(context.Context, *Empty) (*HealthResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Health not implemented")
@@ -680,6 +840,78 @@ func _AgentService_ListMessages_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServiceServer).ListMessages(ctx, req.(*ConversationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_GetTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetTask(ctx, req.(*TaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ListTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListTasks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListTasks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListTasks(ctx, req.(*TaskListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_CancelTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).CancelTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_CancelTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).CancelTask(ctx, req.(*TaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ListTaskEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskEventListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListTaskEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListTaskEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListTaskEvents(ctx, req.(*TaskEventListRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1011,6 +1243,114 @@ func _AgentService_UpdatePermissionSettings_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_ListMemories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MemoryListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListMemories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListMemories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListMemories(ctx, req.(*MemoryListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_UpsertMemory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpsertMemoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).UpsertMemory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_UpsertMemory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).UpsertMemory(ctx, req.(*UpsertMemoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_DeleteMemory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MemoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).DeleteMemory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_DeleteMemory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).DeleteMemory(ctx, req.(*MemoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_GetWorkspaceDataSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetWorkspaceDataSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetWorkspaceDataSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetWorkspaceDataSummary(ctx, req.(*WorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ListMCPServers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListMCPServers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListMCPServers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListMCPServers(ctx, req.(*WorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ListSkills_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListSkills(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListSkills_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListSkills(ctx, req.(*WorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_Health_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Empty)
 	if err := dec(in); err != nil {
@@ -1063,6 +1403,22 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListMessages",
 			Handler:    _AgentService_ListMessages_Handler,
+		},
+		{
+			MethodName: "GetTask",
+			Handler:    _AgentService_GetTask_Handler,
+		},
+		{
+			MethodName: "ListTasks",
+			Handler:    _AgentService_ListTasks_Handler,
+		},
+		{
+			MethodName: "CancelTask",
+			Handler:    _AgentService_CancelTask_Handler,
+		},
+		{
+			MethodName: "ListTaskEvents",
+			Handler:    _AgentService_ListTaskEvents_Handler,
 		},
 		{
 			MethodName: "ListApprovals",
@@ -1131,6 +1487,30 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdatePermissionSettings",
 			Handler:    _AgentService_UpdatePermissionSettings_Handler,
+		},
+		{
+			MethodName: "ListMemories",
+			Handler:    _AgentService_ListMemories_Handler,
+		},
+		{
+			MethodName: "UpsertMemory",
+			Handler:    _AgentService_UpsertMemory_Handler,
+		},
+		{
+			MethodName: "DeleteMemory",
+			Handler:    _AgentService_DeleteMemory_Handler,
+		},
+		{
+			MethodName: "GetWorkspaceDataSummary",
+			Handler:    _AgentService_GetWorkspaceDataSummary_Handler,
+		},
+		{
+			MethodName: "ListMCPServers",
+			Handler:    _AgentService_ListMCPServers_Handler,
+		},
+		{
+			MethodName: "ListSkills",
+			Handler:    _AgentService_ListSkills_Handler,
 		},
 		{
 			MethodName: "Health",

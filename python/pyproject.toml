@@ -59,6 +59,9 @@ dependencies = [
 
     # === Markdown 转换 ===
     "markdownify>=0.11.0",
+
+    # === Browser automation (uses a configured/system Chromium when available) ===
+    "playwright>=1.48.0",
 ]
 
 [project.optional-dependencies]

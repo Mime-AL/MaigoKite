@@ -95,6 +95,18 @@ func (c *AgentClient) UpdateConversationSettings(ctx context.Context, req *agent
 func (c *AgentClient) ListMessages(ctx context.Context, req *agentv1.ConversationRequest) (*agentv1.MessageList, error) {
 	return c.client.ListMessages(ctx, req)
 }
+func (c *AgentClient) GetTask(ctx context.Context, workspaceID, taskID string) (*agentv1.Task, error) {
+	return c.client.GetTask(ctx, &agentv1.TaskRequest{WorkspaceId: workspaceID, TaskId: taskID})
+}
+func (c *AgentClient) ListTasks(ctx context.Context, workspaceID, conversationID string, limit int32) (*agentv1.TaskList, error) {
+	return c.client.ListTasks(ctx, &agentv1.TaskListRequest{WorkspaceId: workspaceID, ConversationId: conversationID, Limit: limit})
+}
+func (c *AgentClient) CancelTask(ctx context.Context, workspaceID, taskID string) (*agentv1.Task, error) {
+	return c.client.CancelTask(ctx, &agentv1.TaskRequest{WorkspaceId: workspaceID, TaskId: taskID})
+}
+func (c *AgentClient) ListTaskEvents(ctx context.Context, workspaceID, conversationID string, afterSequence int64, limit int32) (*agentv1.TaskEventList, error) {
+	return c.client.ListTaskEvents(ctx, &agentv1.TaskEventListRequest{WorkspaceId: workspaceID, ConversationId: conversationID, AfterSequence: afterSequence, Limit: limit})
+}
 func (c *AgentClient) Health(ctx context.Context) (*agentv1.HealthResponse, error) {
 	return c.client.Health(ctx, &agentv1.Empty{})
 }
@@ -197,4 +209,35 @@ func (c *AgentClient) GetPermissionSettings(ctx context.Context, workspaceID str
 
 func (c *AgentClient) UpdatePermissionSettings(ctx context.Context, workspaceID string, settings *agentv1.PermissionSettings) (*agentv1.PermissionSettings, error) {
 	return c.client.UpdatePermissionSettings(ctx, &agentv1.UpdatePermissionSettingsRequest{WorkspaceId: workspaceID, Settings: settings})
+}
+
+func (c *AgentClient) ListMemories(ctx context.Context, workspaceID, subjectUserID, query string, limit int32) (*agentv1.MemoryList, error) {
+	return c.client.ListMemories(ctx, &agentv1.MemoryListRequest{
+		WorkspaceId: workspaceID, SubjectUserId: subjectUserID, Query: query, Limit: limit,
+	})
+}
+
+func (c *AgentClient) UpsertMemory(ctx context.Context, workspaceID, subjectUserID string, memory *agentv1.Memory) (*agentv1.Memory, error) {
+	return c.client.UpsertMemory(ctx, &agentv1.UpsertMemoryRequest{
+		WorkspaceId: workspaceID, SubjectUserId: subjectUserID, Memory: memory,
+	})
+}
+
+func (c *AgentClient) DeleteMemory(ctx context.Context, workspaceID, subjectUserID, memoryID string) error {
+	_, err := c.client.DeleteMemory(ctx, &agentv1.MemoryRequest{
+		WorkspaceId: workspaceID, SubjectUserId: subjectUserID, MemoryId: memoryID,
+	})
+	return err
+}
+
+func (c *AgentClient) GetWorkspaceDataSummary(ctx context.Context, workspaceID string) (*agentv1.WorkspaceDataSummary, error) {
+	return c.client.GetWorkspaceDataSummary(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
+}
+
+func (c *AgentClient) ListMCPServers(ctx context.Context, workspaceID string) (*agentv1.MCPServerList, error) {
+	return c.client.ListMCPServers(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
+}
+
+func (c *AgentClient) ListSkills(ctx context.Context, workspaceID string) (*agentv1.SkillList, error) {
+	return c.client.ListSkills(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
 }

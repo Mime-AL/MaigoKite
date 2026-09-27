@@ -1,52 +1,30 @@
-# NanamiGopher ER 图
+# NanamiGopher 当前 ER 图
 
 > **状态**：Derived
-> **来源**：[Database.md](Database.md)
-> **最后核验**：2026-09-14
+> **来源**：[Database.md](Database.md) 与 `python/agent/repository.py`
+> **最后核验**：2026-09-18
 
-字段、约束和迁移以 Database 与实际 migration 为准；本文档不维护第二套字段表。
+本图只包含当前 SQLite 表。目标 Skill 包、Workflow、Schedule、Document、索引、TaskRun 和 Outbox 见 Database 的 Planned 章节。
 
 ```mermaid
 erDiagram
-    USERS ||--o{ MEMBERSHIPS : joins
-    WORKSPACES ||--o{ MEMBERSHIPS : contains
+    WORKSPACES ||--o{ WORKSPACE_MEMBERSHIPS : contains
     WORKSPACES ||--o{ CONVERSATIONS : owns
     CONVERSATIONS ||--o{ MESSAGES : contains
     CONVERSATIONS ||--o{ TASKS : starts
-    TASKS ||--o{ TASK_RUNS : attempts
-    TASK_RUNS ||--o{ TOOL_CALLS : invokes
+    TASKS ||--o{ TASK_EVENTS : emits
+    TASKS ||--o{ TOOL_CALLS : invokes
     TOOL_CALLS ||--o| APPROVALS : requires
-
-    WORKSPACES ||--o{ MEMORIES : owns
-    USERS ||--o{ MEMORIES : subject
-    WORKSPACES ||--o{ DOCUMENTS : owns
-    DOCUMENTS ||--o{ DOCUMENT_CHUNKS : splits
-    DOCUMENT_CHUNKS ||--o{ INDEX_RECORDS : indexes
-
-    SKILLS ||--o{ SKILL_VERSIONS : publishes
-    WORKSPACES ||--o{ SKILL_GRANTS : installs
-    SKILL_VERSIONS ||--o{ SKILL_GRANTS : grants
-    WORKSPACES ||--o{ CREDENTIAL_REFERENCES : owns
-
-    WORKSPACES ||--o{ WORKFLOWS : owns
-    WORKFLOWS ||--o{ WORKFLOW_VERSIONS : versions
-    WORKFLOW_VERSIONS ||--o{ WORKFLOW_RUNS : runs
-    TASKS ||--o| WORKFLOW_RUNS : executes
-    WORKFLOW_RUNS ||--o{ WORKFLOW_NODE_RUNS : contains
-
-    WORKSPACES ||--o{ SCHEDULES : owns
-    SCHEDULES ||--o{ SCHEDULE_RUNS : triggers
-    TASKS ||--o| SCHEDULE_RUNS : executes
-
+    WORKSPACES ||--o{ USER_PREFERENCES : scopes
+    WORKSPACES ||--o{ WORKSPACE_SETTINGS : configures
     WORKSPACES ||--o{ AUDIT_EVENTS : scopes
-    TASKS ||--o{ OUTBOX_EVENTS : emits
+    WORKSPACES ||--o{ TODOS : owns
+    WORKSPACES ||--o{ USER_MEMORIES : owns
 ```
 
-## 关系说明
+说明：
 
-- Workspace 是业务数据的统一归属边界。
-- Message 是会话事实；Working Memory 不作为重复消息表。
-- TaskRun 表示一次执行尝试，ToolCall 属于具体尝试。
-- Approval 绑定 ToolCall，不是独立可任意创建的业务资源。
-- DocumentChunk 是向量与全文索引的稳定来源。
-- CredentialReference 不包含 Secret 值。
+- 图中的 Task → Conversation、Task → Workspace 是当前逻辑归属；`tasks` 尚未声明相应数据库外键。
+- Approval 通过唯一 `tool_call_id` 与 ToolCall 一对零或一关联。
+- `task_events` 使用 `(conversation_id, sequence)` 保证当前会话内顺序唯一。
+- Working Context 从 Messages 派生，不建立重复消息表。

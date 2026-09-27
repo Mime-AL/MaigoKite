@@ -17,19 +17,39 @@ export const useSessionStore = defineStore('session', () => {
   const messages = ref<Record<string, ChatMessage[]>>({})
   const activeSessionId = ref<string | null>(null)
   const isLoading = ref(false)
-  const isSending = ref(false)
+  const runningTaskIds = ref<Record<string, string[]>>({})
   const error = ref<string | null>(null)
   const approvals = ref<Record<string, Approval[]>>({})
   const activities = ref<Record<string, AgentActivityItem[]>>({})
   const taskActivityStatuses = ref<Record<string, Record<string, AgentActivityGroup['status']>>>({})
   let socket: WebSocket | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let switchGeneration = 0
+  const seenEventIds = new Map<string, Set<string>>()
+  const lastSequences = new Map<string, number>()
   const activeSession = computed(() =>
     sessions.value.find((item) => item.id === activeSessionId.value),
   )
   const activeMessages = computed(() =>
     activeSessionId.value ? messages.value[activeSessionId.value] || [] : [],
   )
+  const isSending = computed(() => {
+    const id = activeSessionId.value
+    return Boolean(id && (runningTaskIds.value[id] || []).length)
+  })
+
+  function markTaskRunning(conversationId: string, taskId: string) {
+    if (!taskId) return
+    const tasks = runningTaskIds.value[conversationId] || []
+    if (!tasks.includes(taskId)) runningTaskIds.value[conversationId] = [...tasks, taskId]
+  }
+
+  function clearTaskRunning(conversationId: string, taskId: string) {
+    if (!taskId) return
+    runningTaskIds.value[conversationId] = (runningTaskIds.value[conversationId] || []).filter(
+      (item) => item !== taskId,
+    )
+  }
 
   function setTaskActivityStatus(
     conversationId: string,
@@ -170,7 +190,7 @@ export const useSessionStore = defineStore('session', () => {
     try {
       sessions.value = await api.listConversations()
     } catch (reason) {
-      error.value = `无法连接 Gateway：${reason instanceof Error ? reason.message : String(reason)}`
+      error.value = `无法连接应用服务：${reason instanceof Error ? reason.message : String(reason)}`
     } finally {
       isLoading.value = false
     }
@@ -187,41 +207,98 @@ export const useSessionStore = defineStore('session', () => {
       throw reason
     }
   }
-  async function switchSession(id: string) {
-    if (activeSessionId.value === id && messages.value[id] && socket) return
+  function connectSocket(id: string, generation: number) {
+    const connected = api.connectEvents(id, (event) => handleEvent(id, event))
+    socket = connected
+    connected.onopen = () => {
+      void (async () => {
+        try {
+          const missed = await api.listTaskEvents(id, lastSequences.get(id) || 0)
+          if (generation !== switchGeneration || activeSessionId.value !== id) return
+          for (const event of missed) handleEvent(id, event, true)
+        } catch {
+          // The live socket remains useful; the next reconnect retries reconciliation.
+        }
+      })()
+    }
+    connected.onclose = () => {
+      if (generation !== switchGeneration || activeSessionId.value !== id) return
+      socket = null
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        if (generation === switchGeneration && activeSessionId.value === id) {
+          void switchSession(id, true)
+        }
+      }, 1000)
+    }
+  }
+
+  async function switchSession(id: string, force = false) {
+    const socketActive = socket && (typeof socket.readyState !== 'number' || socket.readyState <= 1)
+    if (!force && activeSessionId.value === id && messages.value[id] && socketActive) return
     const generation = ++switchGeneration
     activeSessionId.value = id
     error.value = null
     try {
-      const [loaded, pendingApprovals] = await Promise.all([
+      const [loadedResult, approvalsResult, tasksResult, historyResult] = await Promise.allSettled([
         api.listMessages(id),
         api.listApprovals(id),
+        api.listTasks(id),
+        api.listTaskEvents(id, lastSequences.get(id) || 0),
       ])
+      if (loadedResult.status === 'rejected') throw loadedResult.reason
+      const loaded = loadedResult.value
+      const pendingApprovals = approvalsResult.status === 'fulfilled' ? approvalsResult.value : []
+      const tasks = tasksResult.status === 'fulfilled' ? tasksResult.value : []
+      const history = historyResult.status === 'fulfilled' ? historyResult.value : []
       if (generation !== switchGeneration) return
       messages.value[id] = loaded
       approvals.value[id] = pendingApprovals
+      runningTaskIds.value[id] = tasks
+        .filter((task) => ['created', 'queued', 'running', 'retry_wait'].includes(task.status))
+        .map((task) => task.id)
+      for (const event of history) handleEvent(id, event, true)
       socket?.close()
-      socket = api.connectEvents(id, (event) => handleEvent(id, event))
+      connectSocket(id, generation)
     } catch (reason) {
       if (generation !== switchGeneration) return
       messages.value[id] = []
       error.value = `无法载入对话：${reason instanceof Error ? reason.message : String(reason)}`
     }
   }
-  function handleEvent(id: string, event: AgentEvent) {
+  function handleEvent(id: string, event: AgentEvent, replay = false) {
+    const seen = seenEventIds.get(id) || new Set<string>()
+    if (event.event_id && seen.has(event.event_id)) return
+    if (event.event_id) {
+      seen.add(event.event_id)
+      seenEventIds.set(id, seen)
+    }
+    lastSequences.set(id, Math.max(lastSequences.get(id) || 0, event.sequence || 0))
     const list = messages.value[id] || (messages.value[id] = [])
     const content = String(event.payload?.content || '')
     const taskId = event.task_id || ''
-    if (event.type === 'task.started') setTaskActivityStatus(id, taskId, 'running')
+    if (event.type === 'task.started') {
+      setTaskActivityStatus(id, taskId, 'running')
+      markTaskRunning(id, taskId)
+    }
     if (event.type === 'task.waiting_approval')
       setTaskActivityStatus(id, taskId, 'waiting_approval')
-    if (event.type === 'task.succeeded') setTaskActivityStatus(id, taskId, 'completed')
-    if (event.type === 'task.failed') setTaskActivityStatus(id, taskId, 'failed')
-    if (event.type === 'task.cancelled') setTaskActivityStatus(id, taskId, 'cancelled')
+    if (event.type === 'task.succeeded') {
+      setTaskActivityStatus(id, taskId, 'completed')
+      clearTaskRunning(id, taskId)
+    }
+    if (event.type === 'task.failed' || event.type === 'task.interrupted') {
+      setTaskActivityStatus(id, taskId, 'failed')
+      clearTaskRunning(id, taskId)
+    }
+    if (event.type === 'task.cancelled') {
+      setTaskActivityStatus(id, taskId, 'cancelled')
+      clearTaskRunning(id, taskId)
+    }
     handleReasoningActivity(id, event)
     handleToolActivity(id, event)
     handleSubagentActivity(id, event)
-    if (event.type === 'message.delta' && content) {
+    if (!replay && event.type === 'message.delta' && content) {
       const streamId = `stream-${taskId}`
       const streamed = list.find((item) => item.id === streamId)
       if (streamed) streamed.content += content
@@ -238,42 +315,53 @@ export const useSessionStore = defineStore('session', () => {
     if (event.type === 'message.completed') {
       const streamId = `stream-${taskId}`
       const streamed = list.find((item) => item.id === streamId)
-      if (streamed) streamed.streaming = false
-      else if (content)
+      const messageId = String(event.payload.message_id || streamId)
+      const persisted = list.find((item) => item.id === messageId)
+      if (streamed && persisted && streamed !== persisted) {
+        list.splice(list.indexOf(streamed), 1)
+      } else if (streamed) {
+        streamed.id = messageId
+        streamed.streaming = false
+        if (content) streamed.content = content
+      } else if (!persisted && content) {
         list.push({
-          id: streamId,
+          id: messageId,
           conversation_id: id,
           role: 'assistant',
           content,
           created_at: activityTimestamp(event),
           streaming: false,
         })
+      }
       setTaskActivityStatus(id, taskId, 'completed')
-      isSending.value = false
+      clearTaskRunning(id, taskId)
     }
     if (event.type === 'approval.requested') {
       const approvalId = String(event.payload.approval_id || event.payload.id || '')
       const value = { ...event.payload, id: approvalId } as unknown as Approval
       const pending = approvals.value[id] || (approvals.value[id] = [])
       if (approvalId && !pending.some((item) => item.id === approvalId)) pending.push(value)
-      isSending.value = false
+      clearTaskRunning(id, taskId)
     }
     if (event.type === 'approval.decided') {
       const approvalId = String(event.payload.approval_id || '')
       approvals.value[id] = (approvals.value[id] || []).filter((item) => item.id !== approvalId)
-      isSending.value = event.payload.decision === 'allow'
-      if (event.payload.decision === 'allow') setTaskActivityStatus(id, taskId, 'running')
+      if (event.payload.decision === 'allow') {
+        setTaskActivityStatus(id, taskId, 'running')
+        markTaskRunning(id, taskId)
+      } else clearTaskRunning(id, taskId)
     }
     if (event.type === 'error' || event.type === 'task.failed') {
       error.value = event.payload?.message || 'Agent 执行失败'
       setTaskActivityStatus(id, taskId, 'failed')
-      isSending.value = false
+      clearTaskRunning(id, taskId)
     }
   }
   async function sendMessage(content: string) {
     const id = activeSessionId.value
     if (!id || isSending.value) return
-    isSending.value = true
+    const pendingTaskId = `pending-${Date.now()}`
+    markTaskRunning(id, pendingTaskId)
     error.value = null
     const optimistic: ChatMessage = {
       id: `local-${Date.now()}`,
@@ -284,10 +372,12 @@ export const useSessionStore = defineStore('session', () => {
     }
     ;(messages.value[id] || (messages.value[id] = [])).push(optimistic)
     try {
-      await api.sendMessage(id, content)
+      const result = await api.sendMessage(id, content)
+      clearTaskRunning(id, pendingTaskId)
+      markTaskRunning(id, result.task_id)
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
-      isSending.value = false
+      clearTaskRunning(id, pendingTaskId)
     }
   }
   async function setPermissionMode(permissionMode: PermissionMode) {
@@ -320,18 +410,33 @@ export const useSessionStore = defineStore('session', () => {
   async function decideApproval(approval: Approval, decision: 'allow' | 'deny') {
     error.value = null
     try {
-      if (decision === 'allow') isSending.value = true
+      if (decision === 'allow') markTaskRunning(approval.conversation_id, approval.task_id)
       await api.decideApproval(approval.id, decision, approval.version)
     } catch (reason) {
-      isSending.value = false
+      clearTaskRunning(approval.conversation_id, approval.task_id)
       error.value = reason instanceof Error ? reason.message : String(reason)
       throw reason
     }
   }
   function disconnect() {
     switchGeneration++
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = null
     socket?.close()
     socket = null
+  }
+  async function cancelActiveTask() {
+    const id = activeSessionId.value
+    const taskId = id ? (runningTaskIds.value[id] || []).find((item) => !item.startsWith('pending-')) : ''
+    if (!id || !taskId) return
+    try {
+      await api.cancelTask(taskId)
+      clearTaskRunning(id, taskId)
+      setTaskActivityStatus(id, taskId, 'cancelled')
+    } catch (reason) {
+      error.value = reason instanceof Error ? reason.message : String(reason)
+      throw reason
+    }
   }
   const activeApprovals = computed(() =>
     activeSessionId.value ? approvals.value[activeSessionId.value] || [] : [],
@@ -367,6 +472,7 @@ export const useSessionStore = defineStore('session', () => {
     approvals,
     activities,
     taskActivityStatuses,
+    runningTaskIds,
     activeSessionId,
     isLoading,
     isSending,
@@ -383,6 +489,7 @@ export const useSessionStore = defineStore('session', () => {
     setPermissionMode,
     setConversationRuntime,
     decideApproval,
+    cancelActiveTask,
     disconnect,
   }
 })

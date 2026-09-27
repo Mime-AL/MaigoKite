@@ -1,12 +1,15 @@
 """Agent Core composition root, tool loop, and durable approval workflow."""
+
 from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
 
+from agent.browser_runtime import BrowserRuntime
 from agent.config_manager import ConfigManager
 from agent.context_manager import ContextManager
 from agent.event_bus import EventBus
@@ -18,11 +21,22 @@ from agent.observability import Observability
 from agent.repository import SQLiteRepository
 from agent.security.injection_filter import InjectionFilter
 from agent.security.whitelist import Whitelist
+from agent.skill_registry import SkillRegistry
 from agent.task_manager import TaskManager, TaskStatus
 from agent.tools.base import ExecutionContext, ToolResult
 from agent.tools.native import (
-    BashTool, FileEditTool, FileReadTool, FileWriteTool, GlobTool, GrepTool,
-    SleepTool, TodoWriteTool, WebFetchTool, WebSearchTool,
+    BashTool,
+    BrowserTool,
+    FileEditTool,
+    FileReadTool,
+    FileWriteTool,
+    GlobTool,
+    GrepTool,
+    SkillTool,
+    SleepTool,
+    TodoWriteTool,
+    WebFetchTool,
+    WebSearchTool,
 )
 from agent.tools.permission_mgr import PermissionManager, PermissionRequired
 from agent.tools.tool_registry import ToolRegistry
@@ -34,23 +48,49 @@ class AgentPaused(RuntimeError):
         self.approval = approval
 
 
+class AgentCancelled(RuntimeError):
+    pass
+
+
 class AgentCore:
     RESPONSE_MODES = {"fast", "balanced", "thorough"}
+    MEMORY_CATEGORIES = {"preference", "fact", "constraint", "project", "other"}
+    MEMORY_SECRET_PATTERNS = (
+        re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.IGNORECASE),
+        re.compile(r"\b(?:api[_ -]?key|access[_ -]?token|password|secret)\s*[:=]\s*\S+", re.IGNORECASE),
+        re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    )
+
     def __init__(
-        self, config: ConfigManager, event_bus: EventBus, observability: Observability,
-        provider: IChatProvider | None = None, repository: SQLiteRepository | None = None,
+        self,
+        config: ConfigManager,
+        event_bus: EventBus,
+        observability: Observability,
+        provider: IChatProvider | None = None,
+        repository: SQLiteRepository | None = None,
     ) -> None:
         self.config = config
         self.event_bus = event_bus
         self.observability = observability
         self.provider = provider
-        db_path = config.get("storage.sqlite_path", config.get("memory.storage.sqlite_path", "~/.nanamigopher/data/agent.db"))
+        db_path = config.get(
+            "storage.sqlite_path", config.get("memory.storage.sqlite_path", "~/.nanamigopher/data/agent.db")
+        )
         self.repository = repository or SQLiteRepository(db_path)
         self.models = ChatModelRuntime(config, self.repository)
         self._task_manager = TaskManager()
         self._context_manager = ContextManager(int(config.get("context.max_tokens", 32000)))
         self._registry = ToolRegistry()
         workspace_root = Path(config.get("workspace.root", Path.cwd())).expanduser().resolve()
+        self._skills = SkillRegistry()
+        self._browser: BrowserRuntime | None = None
+        if bool(config.get("browser.enabled", True)):
+            executable_path = str(config.get("browser.executable_path", "")).strip()
+            self._browser = BrowserRuntime(
+                workspace_root,
+                headless=bool(config.get("browser.headless", True)),
+                executable_path=executable_path or None,
+            )
         allowlist_config = config.get("permissions.allowlist", {})
         if not isinstance(allowlist_config, dict):
             raise ValueError("permissions.allowlist must be an object")
@@ -76,14 +116,14 @@ class AgentCore:
         if not isinstance(circuit_breaker, dict):
             raise ValueError("permissions.circuit_breaker must be an object")
         blocked_patterns = circuit_breaker.get("blocked_patterns", [])
-        if not isinstance(blocked_patterns, list) or not all(
-            isinstance(value, str) for value in blocked_patterns
-        ):
+        if not isinstance(blocked_patterns, list) or not all(isinstance(value, str) for value in blocked_patterns):
             raise ValueError("permissions.circuit_breaker.blocked_patterns must be a string array")
         if circuit_breaker.get("enabled", True) is False:
             blocked_patterns = []
         self._policy = PermissionManager(
-            config.get("permissions.default_mode", "workspace"), workspace_root, allowlist,
+            config.get("permissions.default_mode", "workspace"),
+            workspace_root,
+            allowlist,
             blocked_patterns,
         )
         self._execution_engine = ExecutionEngine(self._registry, self._policy, self.repository)
@@ -91,35 +131,79 @@ class AgentCore:
         self._initialized = False
         self._max_tool_iterations = int(config.get("tools.max_iterations", 8))
         self._mcp_clients: list[MCPClient] = []
+        self._mcp_runtime: list[dict[str, Any]] = []
         self._tool_credentials: dict[tuple[str, str], str] = {}
+        self._cancelled_tasks: set[str] = set()
 
     async def initialize(self) -> None:
         if self._initialized:
             return
         await self.repository.open()
+        self.event_bus.set_sink(self.repository.append_task_event)
         registry = ToolRegistry()
+        self._mcp_runtime = []
         try:
-            for tool_type in (FileReadTool, FileWriteTool, FileEditTool, BashTool, WebSearchTool, WebFetchTool, GlobTool, GrepTool, SleepTool):
+            for tool_type in (
+                FileReadTool,
+                FileWriteTool,
+                FileEditTool,
+                BashTool,
+                WebSearchTool,
+                WebFetchTool,
+                GlobTool,
+                GrepTool,
+                SleepTool,
+            ):
                 registry.register(tool_type())
             registry.register(TodoWriteTool(self.repository))
+            skill_directories = self.config.get("skills.scan_directories", [])
+            if not isinstance(skill_directories, list) or not all(isinstance(item, str) for item in skill_directories):
+                raise ValueError("skills.scan_directories must be a string array")
+            self._skills = SkillRegistry()
+            for error in self._skills.load_directories(skill_directories, self._policy.workspace_root):
+                await self.observability.log("warning", f"Skill was not loaded: {error}")
+            registry.register(SkillTool(self._skills))
+            if self._browser is not None:
+                registry.register(BrowserTool(self._browser))
             await self._initialize_mcp_servers(registry)
         except BaseException:
             await self._stop_mcp_servers()
+            self.event_bus.set_sink(None)
             await self.repository.close()
             raise
         self._registry = registry
         self._execution_engine.registry = registry
         self._initialized = True
+        await self.reconcile_interrupted_tasks()
         await self.observability.log("info", "Agent Core initialized")
+
+    async def reconcile_interrupted_tasks(self) -> list[dict[str, Any]]:
+        """Persist a truthful terminal state for work without a safe checkpoint."""
+        interrupted = await self.repository.recover_interrupted_tasks()
+        interrupted.extend(await self.repository.interrupt_ephemeral_approvals({"browser"}))
+        for task in interrupted:
+            await self.event_bus.publish(
+                "task.interrupted",
+                {
+                    "task_id": task["id"],
+                    "conversation_id": task["conversation_id"],
+                    "message": task.get("last_error") or "Agent Core stopped before a safe continuation checkpoint",
+                },
+            )
+        return interrupted
 
     async def shutdown(self) -> None:
         await self._stop_mcp_servers()
+        if self._browser is not None:
+            await self._browser.close()
         await self.models.close()
         await self.repository.close()
         self.event_bus.clear()
         self._registry = ToolRegistry()
         self._execution_engine.registry = self._registry
         self._tool_credentials.clear()
+        self._mcp_runtime.clear()
+        self._cancelled_tasks.clear()
         self._initialized = False
 
     async def _initialize_mcp_servers(self, registry: ToolRegistry) -> None:
@@ -134,6 +218,14 @@ class AgentCore:
             if not isinstance(namespace, str) or not isinstance(server, dict):
                 raise ValueError("each MCP server must have a string namespace and object configuration")
             if server.get("enabled", True) is False:
+                self._mcp_runtime.append(
+                    {
+                        "namespace": namespace,
+                        "status": "disabled",
+                        "transport": "stdio",
+                        "tool_names": [],
+                    }
+                )
                 continue
             command = server.get("command")
             args = server.get("args", [])
@@ -146,13 +238,8 @@ class AgentCore:
                 raise ValueError(f"MCP server {namespace!r} env_allowlist must be a string array")
 
             replacements = {"{workspace}": str(workspace_root)}
-            resolved_args = [
-                argument.replace("{workspace}", replacements["{workspace}"])
-                for argument in args
-            ]
-            raw_cwd = str(server.get("cwd") or workspace_root).replace(
-                "{workspace}", replacements["{workspace}"]
-            )
+            resolved_args = [argument.replace("{workspace}", replacements["{workspace}"]) for argument in args]
+            raw_cwd = str(server.get("cwd") or workspace_root).replace("{workspace}", replacements["{workspace}"])
             cwd = Path(raw_cwd).expanduser()
             if not cwd.is_absolute():
                 cwd = workspace_root / cwd
@@ -173,9 +260,15 @@ class AgentCore:
             await client.start()
             self._mcp_clients.append(client)
             discovered = await registry.discover_mcp(client, namespace)
-            await self.observability.log(
-                "info", f"MCP server {namespace} registered {len(discovered)} tool(s)"
+            self._mcp_runtime.append(
+                {
+                    "namespace": namespace,
+                    "status": "running",
+                    "transport": "stdio",
+                    "tool_names": [tool.name for tool in discovered],
+                }
             )
+            await self.observability.log("info", f"MCP server {namespace} registered {len(discovered)} tool(s)")
 
     async def _stop_mcp_servers(self) -> None:
         clients, self._mcp_clients = list(reversed(self._mcp_clients)), []
@@ -209,8 +302,12 @@ class AgentCore:
         return value
 
     async def create_conversation(
-        self, workspace_id: str = "personal", title: str = "", model_id: str = "",
-        permission_mode: str | None = None, response_mode: str = "balanced",
+        self,
+        workspace_id: str = "personal",
+        title: str = "",
+        model_id: str = "",
+        permission_mode: str | None = None,
+        response_mode: str = "balanced",
     ) -> dict[str, Any]:
         mode = permission_mode or (await self.get_permission_settings(workspace_id))["default_mode"]
         try:
@@ -223,9 +320,7 @@ class AgentCore:
             await self.models.get_profile(workspace_id, model_id)
         else:
             _, model_id = await self.models.list_settings(workspace_id)
-        return await self.repository.create_conversation(
-            workspace_id, title, model_id, mode, response_mode
-        )
+        return await self.repository.create_conversation(workspace_id, title, model_id, mode, response_mode)
 
     async def update_conversation_permission(
         self, workspace_id: str, conversation_id: str, permission_mode: str
@@ -237,8 +332,13 @@ class AgentCore:
         return await self.repository.update_conversation_permission(workspace_id, conversation_id, permission_mode)
 
     async def update_conversation_settings(
-        self, workspace_id: str, conversation_id: str, *, model_id: str | None = None,
-        response_mode: str | None = None, permission_mode: str | None = None,
+        self,
+        workspace_id: str,
+        conversation_id: str,
+        *,
+        model_id: str | None = None,
+        response_mode: str | None = None,
+        permission_mode: str | None = None,
     ) -> dict[str, Any]:
         if permission_mode is not None:
             try:
@@ -250,8 +350,11 @@ class AgentCore:
         if model_id is not None and model_id:
             await self.models.get_profile(workspace_id, model_id)
         return await self.repository.update_conversation_settings(
-            workspace_id, conversation_id, model_id=model_id,
-            response_mode=response_mode, permission_mode=permission_mode,
+            workspace_id,
+            conversation_id,
+            model_id=model_id,
+            response_mode=response_mode,
+            permission_mode=permission_mode,
         )
 
     async def list_conversations(self, workspace_id: str = "personal") -> list[dict[str, Any]]:
@@ -285,71 +388,118 @@ class AgentCore:
 
         task = await self._task_manager.create_task(prompt[:60] or "message", prompt)
         await self._task_manager.update_status(task.id, TaskStatus.RUNNING)
-        await self.repository.create_task_state(task.id, workspace_id, conversation_id, task.title, "running")
+        await self.repository.create_task_state(task.id, workspace_id, conversation_id, task.title, "running", prompt)
         trace_id = str(metadata.get("trace_id") or f"trace_{uuid.uuid4().hex}")
         await self.repository.append_message(conversation_id, "user", prompt)
-        await self.event_bus.publish("task.started", {"task_id": task.id, "trace_id": trace_id, "conversation_id": conversation_id})
+        await self.event_bus.publish(
+            "task.started", {"task_id": task.id, "trace_id": trace_id, "conversation_id": conversation_id}
+        )
         try:
             execution_metadata = {
-                **metadata, "workspace_id": workspace_id, "principal_id": principal_id,
+                **metadata,
+                "workspace_id": workspace_id,
+                "principal_id": principal_id,
                 "conversation_id": conversation_id,
             }
             if prompt.startswith("/tool "):
                 response = await self._run_tool_command(prompt, task.id, trace_id, execution_metadata)
             else:
                 response = await self._run_agent(workspace_id, conversation_id, task.id, trace_id, execution_metadata)
+            self._raise_if_cancelled(task.id)
             await self._finish_task(task.id, conversation_id, response)
+            self._cancelled_tasks.discard(task.id)
             return {"task_id": task.id, "conversation_id": conversation_id, "response": response, "status": "succeeded"}
         except AgentPaused as paused:
             await self._task_manager.update_status(task.id, TaskStatus.WAITING_APPROVAL)
             return {
-                "task_id": task.id, "conversation_id": conversation_id,
-                "status": "waiting_approval", "approval": self._approval_payload(paused.approval),
+                "task_id": task.id,
+                "conversation_id": conversation_id,
+                "status": "waiting_approval",
+                "approval": self._approval_payload(paused.approval),
+            }
+        except AgentCancelled:
+            memory_task = await self._task_manager.get_task(task.id)
+            if memory_task is not None:
+                await self._task_manager.cancel_task(task.id)
+            await self.repository.cancel_task(workspace_id, task.id)
+            self._cancelled_tasks.discard(task.id)
+            return {
+                "task_id": task.id,
+                "conversation_id": conversation_id,
+                "status": "cancelled",
+                "error_code": "TASK_CANCELLED",
             }
         except Exception as exc:
             await self._task_manager.update_status(task.id, TaskStatus.FAILED)
-            await self.repository.update_task_status(task.id, "failed")
-            await self.event_bus.publish("task.failed", {
-                "task_id": task.id, "conversation_id": conversation_id,
-                "message": str(exc), "error_type": type(exc).__name__,
-            })
+            await self.repository.update_task_status(task.id, "failed", str(exc))
+            await self.event_bus.publish(
+                "task.failed",
+                {
+                    "task_id": task.id,
+                    "conversation_id": conversation_id,
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
+            self._cancelled_tasks.discard(task.id)
             return {
-                "task_id": task.id, "conversation_id": conversation_id,
-                "error": str(exc), "error_code": "AGENT_ERROR", "retryable": False,
+                "task_id": task.id,
+                "conversation_id": conversation_id,
+                "error": str(exc),
+                "error_code": "AGENT_ERROR",
+                "retryable": False,
             }
 
     async def _finish_task(self, task_id: str, conversation_id: str, response: str) -> None:
-        await self.repository.append_message(conversation_id, "assistant", response)
+        self._raise_if_cancelled(task_id)
+        message = await self.repository.append_message(conversation_id, "assistant", response)
         task = await self._task_manager.get_task(task_id)
         if task is not None:
             await self._task_manager.complete_task(task_id, {"response": response})
         await self.repository.update_task_status(task_id, "succeeded")
-        await self.event_bus.publish("message.completed", {"task_id": task_id, "conversation_id": conversation_id, "content": response})
+        await self.event_bus.publish(
+            "message.completed",
+            {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "message_id": message["id"],
+                "content": response,
+            },
+        )
         await self.event_bus.publish("task.succeeded", {"task_id": task_id, "conversation_id": conversation_id})
 
     def _tool_schemas(self) -> list[dict[str, Any]]:
-        return [{
-            "type": "function",
-            "function": {"name": tool.name, "description": tool.description, "parameters": tool.parameters_schema},
-        } for tool in self._registry.list_tools()]
+        return [
+            {
+                "type": "function",
+                "function": {"name": tool.name, "description": tool.description, "parameters": tool.parameters_schema},
+            }
+            for tool in self._registry.list_tools()
+        ]
 
     async def _conversation_history(self, conversation_id: str) -> list[ChatMessage]:
         history = await self.repository.list_messages(conversation_id)
         self._context_manager.clear()
         for item in history:
             self._context_manager.add_message(item["role"], item["content"])
-        return [ChatMessage(item.role, item.content) for item in self._context_manager.get_messages()]
+        messages = [ChatMessage(item.role, item.content) for item in self._context_manager.get_messages()]
+        if catalog := self._skills.catalog_prompt():
+            messages.insert(0, ChatMessage("system", catalog))
+        return messages
 
     async def _stream_model(
-        self, provider: IChatProvider, history: list[ChatMessage], task_id: str,
-        conversation_id: str, generation_options: dict[str, Any] | None = None,
+        self,
+        provider: IChatProvider,
+        history: list[ChatMessage],
+        task_id: str,
+        conversation_id: str,
+        generation_options: dict[str, Any] | None = None,
     ) -> tuple[str, list[ToolCall]]:
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         fragments: dict[int, dict[str, str]] = {}
-        async for value in provider.stream(
-            history, tools=self._tool_schemas(), **(generation_options or {})
-        ):
+        async for value in provider.stream(history, tools=self._tool_schemas(), **(generation_options or {})):
+            self._raise_if_cancelled(task_id)
             chunk = value if isinstance(value, ChatStreamChunk) else ChatStreamChunk(content=str(value))
             if chunk.content:
                 content_parts.append(chunk.content)
@@ -381,17 +531,29 @@ class AgentCore:
         if calls and content.strip():
             process_parts.append(content.strip())
         if process_parts:
-            await self.event_bus.publish("reasoning.completed", {
-                "activity_id": f"reasoning_{uuid.uuid4().hex}",
-                "task_id": task_id,
-                "conversation_id": conversation_id,
-                "summary": "\n\n".join(process_parts),
-            })
+            await self.event_bus.publish(
+                "reasoning.completed",
+                {
+                    "activity_id": f"reasoning_{uuid.uuid4().hex}",
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "summary": "\n\n".join(process_parts),
+                },
+            )
         if not calls and content:
-            await self.event_bus.publish("message.delta", {
-                "content": content, "task_id": task_id, "conversation_id": conversation_id,
-            })
+            await self.event_bus.publish(
+                "message.delta",
+                {
+                    "content": content,
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                },
+            )
         return content, calls
+
+    def _raise_if_cancelled(self, task_id: str) -> None:
+        if task_id in self._cancelled_tasks:
+            raise AgentCancelled("task cancelled")
 
     @staticmethod
     def _split_visible_reasoning(content: str) -> tuple[str, str]:
@@ -402,13 +564,18 @@ class AgentCore:
         end = candidate.lower().find("</think>", len("<think>"))
         if end < 0:
             return "", content
-        reasoning = candidate[len("<think>"):end].strip()
-        answer = candidate[end + len("</think>"):].lstrip()
+        reasoning = candidate[len("<think>") : end].strip()
+        answer = candidate[end + len("</think>") :].lstrip()
         return reasoning, answer
 
     async def _run_agent(
-        self, workspace_id: str, conversation_id: str, task_id: str, trace_id: str,
-        metadata: dict[str, Any], history: list[ChatMessage] | None = None,
+        self,
+        workspace_id: str,
+        conversation_id: str,
+        task_id: str,
+        trace_id: str,
+        metadata: dict[str, Any],
+        history: list[ChatMessage] | None = None,
     ) -> str:
         conversation = await self.repository.get_conversation(workspace_id, conversation_id)
         response_mode = str(conversation.get("response_mode") or "balanced")
@@ -427,19 +594,36 @@ class AgentCore:
             )
             if not calls:
                 return assistant_content
-            tool_call_values = [{"id": call.id, "name": call.name, "args": call.arguments, "type": "tool_call"} for call in calls]
+            tool_call_values = [
+                {"id": call.id, "name": call.name, "args": call.arguments, "type": "tool_call"} for call in calls
+            ]
             working_history.append(ChatMessage("assistant", assistant_content, {"tool_calls": tool_call_values}))
             await self._execute_tool_batch(
-                calls, assistant_content, tool_call_values, working_history,
-                workspace_id, conversation_id, task_id, trace_id, metadata,
+                calls,
+                assistant_content,
+                tool_call_values,
+                working_history,
+                workspace_id,
+                conversation_id,
+                task_id,
+                trace_id,
+                metadata,
             )
         raise RuntimeError(f"tool iteration limit ({self._max_tool_iterations}) reached")
 
     async def _execute_tool_batch(
-        self, calls: list[ToolCall], assistant_content: str,
-        tool_call_values: list[dict[str, Any]], working_history: list[ChatMessage],
-        workspace_id: str, conversation_id: str, task_id: str, trace_id: str,
-        metadata: dict[str, Any], *, start_index: int = 0,
+        self,
+        calls: list[ToolCall],
+        assistant_content: str,
+        tool_call_values: list[dict[str, Any]],
+        working_history: list[ChatMessage],
+        workspace_id: str,
+        conversation_id: str,
+        task_id: str,
+        trace_id: str,
+        metadata: dict[str, Any],
+        *,
+        start_index: int = 0,
         completed_results: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         completed = list(completed_results or [])
@@ -451,8 +635,14 @@ class AgentCore:
                 "completed_results": completed,
             }
             result = await self._execute_model_tool_call(
-                call, assistant_content, workspace_id, conversation_id, task_id, trace_id,
-                metadata, continuation=continuation,
+                call,
+                assistant_content,
+                workspace_id,
+                conversation_id,
+                task_id,
+                trace_id,
+                metadata,
+                continuation=continuation,
             )
             record = self._tool_result_record(call, result)
             completed.append(record)
@@ -473,14 +663,19 @@ class AgentCore:
             "tool",
             json.dumps(
                 {"summary": record.get("summary", ""), "data": record.get("data", {})},
-                ensure_ascii=False, default=str,
+                ensure_ascii=False,
+                default=str,
             ),
             {"tool_call_id": str(record.get("tool_call_id", ""))},
         )
 
     async def _execution_metadata(
-        self, workspace_id: str, conversation_id: str, principal_id: str,
-        *, approved: bool = False,
+        self,
+        workspace_id: str,
+        conversation_id: str,
+        principal_id: str,
+        *,
+        approved: bool = False,
     ) -> dict[str, Any]:
         conversation = await self.repository.get_conversation(workspace_id, conversation_id)
         permission_settings = await self.get_permission_settings(workspace_id)
@@ -490,106 +685,196 @@ class AgentCore:
             if scope == workspace_id and secret
         }
         return {
-            "workspace_id": workspace_id, "conversation_id": conversation_id,
-            "principal_id": principal_id, "permission_mode": conversation["permission_mode"],
-            "tool_risk_levels": permission_settings["tool_levels"], "approved": approved,
+            "workspace_id": workspace_id,
+            "conversation_id": conversation_id,
+            "principal_id": principal_id,
+            "permission_mode": conversation["permission_mode"],
+            "tool_risk_levels": permission_settings["tool_levels"],
+            "approved": approved,
             "workspace_root": str(self._policy.workspace_root),
             "api_keys": api_keys,
         }
 
     async def _execute_model_tool_call(
-        self, call: ToolCall, assistant_content: str, workspace_id: str, conversation_id: str,
-        task_id: str, trace_id: str, metadata: dict[str, Any],
-        *, continuation: dict[str, Any] | None = None,
+        self,
+        call: ToolCall,
+        assistant_content: str,
+        workspace_id: str,
+        conversation_id: str,
+        task_id: str,
+        trace_id: str,
+        metadata: dict[str, Any],
+        *,
+        continuation: dict[str, Any] | None = None,
     ) -> ToolResult:
         await self.repository.create_tool_call(
-            call.id, workspace_id, conversation_id, task_id, call.name, call.arguments, assistant_content,
+            call.id,
+            workspace_id,
+            conversation_id,
+            task_id,
+            call.name,
+            call.arguments,
+            assistant_content,
             continuation,
         )
-        await self.event_bus.publish("tool.proposed", {
-            "task_id": task_id, "conversation_id": conversation_id, "tool_call_id": call.id,
-            "tool_name": call.name, "arguments": call.arguments,
-        })
-        context = ExecutionContext(trace_id, task_id, call.id, metadata=await self._execution_metadata(
-            workspace_id, conversation_id, str(metadata.get("principal_id", "local-user")),
-        ))
+        await self.event_bus.publish(
+            "tool.proposed",
+            {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "tool_call_id": call.id,
+                "tool_name": call.name,
+                "arguments": call.arguments,
+            },
+        )
+        context = ExecutionContext(
+            trace_id,
+            task_id,
+            call.id,
+            metadata=await self._execution_metadata(
+                workspace_id,
+                conversation_id,
+                str(metadata.get("principal_id", "local-user")),
+            ),
+        )
         try:
             policy = await self._execution_engine.authorize_tool(call.name, call.arguments, context)
         except PermissionRequired as exc:
             approval = await self.repository.create_approval(
-                workspace_id, conversation_id, str(metadata.get("principal_id", "local-user")),
-                task_id, call.id, exc.decision.arguments, exc.decision.risk.name,
+                workspace_id,
+                conversation_id,
+                str(metadata.get("principal_id", "local-user")),
+                task_id,
+                call.id,
+                exc.decision.arguments,
+                exc.decision.risk.name,
             )
             await self.repository.record_audit(
-                workspace_id, str(metadata.get("principal_id", "local-user")),
-                "approval.created", approval["id"], "pending",
+                workspace_id,
+                str(metadata.get("principal_id", "local-user")),
+                "approval.created",
+                approval["id"],
+                "pending",
                 {"tool_call_id": call.id, "tool_name": call.name, "risk": exc.decision.risk.name},
             )
             task = await self._task_manager.get_task(task_id)
             if task is not None:
                 await self._task_manager.update_status(task_id, TaskStatus.WAITING_APPROVAL)
-            await self.event_bus.publish("task.waiting_approval", {
-                "task_id": task_id, "conversation_id": conversation_id,
-                "tool_call_id": call.id, "approval_id": approval["id"],
-            })
+            await self.event_bus.publish(
+                "task.waiting_approval",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "tool_call_id": call.id,
+                    "approval_id": approval["id"],
+                },
+            )
             await self.event_bus.publish("approval.requested", self._approval_payload(approval))
             raise AgentPaused(approval) from exc
         except PermissionError as exc:
             await self.repository.update_tool_call(call.id, "denied", summary=str(exc))
-            await self.event_bus.publish("tool.failed", {
-                "task_id": task_id, "conversation_id": conversation_id, "tool_call_id": call.id,
-                "tool_name": call.name, "message": str(exc), "denied": True,
-            })
+            await self.event_bus.publish(
+                "tool.failed",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "tool_call_id": call.id,
+                    "tool_name": call.name,
+                    "message": str(exc),
+                    "denied": True,
+                },
+            )
             return ToolResult({"error": str(exc), "denied": True}, f"Tool denied: {exc}")
         except Exception as exc:
             await self.repository.update_tool_call(call.id, "failed", summary=str(exc))
-            await self.event_bus.publish("tool.failed", {
-                "task_id": task_id, "conversation_id": conversation_id, "tool_call_id": call.id,
-                "tool_name": call.name, "message": str(exc),
-            })
+            await self.event_bus.publish(
+                "tool.failed",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "tool_call_id": call.id,
+                    "tool_name": call.name,
+                    "message": str(exc),
+                },
+            )
             return ToolResult({"error": str(exc)}, f"Tool failed: {exc}")
         await self.repository.update_tool_call(
-            call.id, "running", arguments=policy.arguments, risk_level=policy.risk.name,
+            call.id,
+            "running",
+            arguments=policy.arguments,
+            risk_level=policy.risk.name,
         )
-        await self.event_bus.publish("tool.started", {
-            "task_id": task_id, "conversation_id": conversation_id,
-            "tool_call_id": call.id, "tool_name": call.name,
-            "arguments": policy.arguments, "resource_scope": policy.resource_scope,
-            "risk_level": policy.risk.name,
-        })
+        await self.event_bus.publish(
+            "tool.started",
+            {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "tool_call_id": call.id,
+                "tool_name": call.name,
+                "arguments": policy.arguments,
+                "resource_scope": policy.resource_scope,
+                "risk_level": policy.risk.name,
+            },
+        )
         try:
             result = await self._execution_engine.execute_authorized(call.name, policy, context)
         except Exception as exc:
             await self.repository.update_tool_call(call.id, "failed", summary=str(exc))
-            await self.event_bus.publish("tool.failed", {
-                "task_id": task_id, "conversation_id": conversation_id, "tool_call_id": call.id,
-                "tool_name": call.name, "message": str(exc),
-            })
+            await self.event_bus.publish(
+                "tool.failed",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "tool_call_id": call.id,
+                    "tool_name": call.name,
+                    "message": str(exc),
+                },
+            )
             return ToolResult({"error": str(exc)}, f"Tool failed: {exc}")
+        self._raise_if_cancelled(task_id)
         await self._complete_tool_call(call, result, task_id, conversation_id)
         return result
 
     async def _complete_tool_call(self, call: ToolCall, result: ToolResult, task_id: str, conversation_id: str) -> None:
         if not result.success:
             await self.repository.update_tool_call(
-                call.id, "failed",
+                call.id,
+                "failed",
                 result={"data": result.data, "metadata": result.metadata},
                 summary=result.summary,
             )
-            await self.event_bus.publish("tool.failed", {
-                "task_id": task_id, "conversation_id": conversation_id,
-                "tool_call_id": call.id, "tool_name": call.name,
-                "message": result.summary, "code": result.error_code or "TOOL_FAILED",
-                "user_hint": result.user_hint, "action": result.action, "data": result.data,
-            })
+            await self.event_bus.publish(
+                "tool.failed",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "tool_call_id": call.id,
+                    "tool_name": call.name,
+                    "message": result.summary,
+                    "code": result.error_code or "TOOL_FAILED",
+                    "user_hint": result.user_hint,
+                    "action": result.action,
+                    "data": result.data,
+                },
+            )
             return
         await self.repository.update_tool_call(
-            call.id, "succeeded", result={"data": result.data, "metadata": result.metadata}, summary=result.summary,
+            call.id,
+            "succeeded",
+            result={"data": result.data, "metadata": result.metadata},
+            summary=result.summary,
         )
-        await self.event_bus.publish("tool.completed", {
-            "task_id": task_id, "conversation_id": conversation_id, "tool_call_id": call.id,
-            "tool_name": call.name, "summary": result.summary, "data": result.data,
-        })
+        await self.event_bus.publish(
+            "tool.completed",
+            {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "tool_call_id": call.id,
+                "tool_name": call.name,
+                "summary": result.summary,
+                "data": result.data,
+            },
+        )
 
     async def _run_tool_command(self, prompt: str, task_id: str, trace_id: str, metadata: dict[str, Any]) -> str:
         try:
@@ -601,41 +886,68 @@ class AgentCore:
             raise ValueError("tool arguments must be a JSON object")
         call = ToolCall(f"call_{uuid.uuid4().hex}", name, arguments)
         result = await self._execute_model_tool_call(
-            call, "__direct_tool__", str(metadata["workspace_id"]), str(metadata["conversation_id"]),
-            task_id, trace_id, metadata,
+            call,
+            "__direct_tool__",
+            str(metadata["workspace_id"]),
+            str(metadata["conversation_id"]),
+            task_id,
+            trace_id,
+            metadata,
         )
         response = result.summary if result.raw in (None, "") else str(result.raw)
-        await self.event_bus.publish("message.delta", {
-            "task_id": task_id, "conversation_id": metadata["conversation_id"], "content": response,
-        })
+        await self.event_bus.publish(
+            "message.delta",
+            {
+                "task_id": task_id,
+                "conversation_id": metadata["conversation_id"],
+                "content": response,
+            },
+        )
         return response
 
     @staticmethod
     def _approval_payload(approval: dict[str, Any]) -> dict[str, Any]:
         arguments = dict(approval.get("arguments") or {})
         scope = (
-            arguments.get("path") or arguments.get("root_dir") or arguments.get("workdir")
-            or arguments.get("url") or "current workspace"
+            arguments.get("path")
+            or arguments.get("root_dir")
+            or arguments.get("workdir")
+            or arguments.get("url")
+            or "current workspace"
         )
         return {
-            "approval_id": approval["id"], "task_id": approval["task_id"],
-            "conversation_id": approval["conversation_id"], "tool_call_id": approval["tool_call_id"],
-            "tool_name": approval["tool_name"], "arguments": arguments,
-            "resource_scope": str(scope), "risk_level": approval["risk_level"],
-            "status": approval["status"], "version": int(approval["version"]),
+            "approval_id": approval["id"],
+            "task_id": approval["task_id"],
+            "conversation_id": approval["conversation_id"],
+            "tool_call_id": approval["tool_call_id"],
+            "tool_name": approval["tool_name"],
+            "arguments": arguments,
+            "resource_scope": str(scope),
+            "risk_level": approval["risk_level"],
+            "status": approval["status"],
+            "version": int(approval["version"]),
             "expires_at": approval["expires_at"],
         }
 
     async def list_approvals(self, workspace_id: str, conversation_id: str | None = None) -> list[dict[str, Any]]:
-        return [self._approval_payload(item) for item in await self.repository.list_approvals(workspace_id, conversation_id)]
+        return [
+            self._approval_payload(item) for item in await self.repository.list_approvals(workspace_id, conversation_id)
+        ]
 
     async def decide_approval(
-        self, workspace_id: str, approval_id: str, principal_id: str,
-        decision: str, version: int,
+        self,
+        workspace_id: str,
+        approval_id: str,
+        principal_id: str,
+        decision: str,
+        version: int,
     ) -> dict[str, Any]:
         approval = await self.repository.decide_approval(workspace_id, approval_id, principal_id, decision, version)
         await self.repository.record_audit(
-            workspace_id, principal_id, "approval.decided", approval_id,
+            workspace_id,
+            principal_id,
+            "approval.decided",
+            approval_id,
             "approved" if decision == "allow" else "denied",
             {"tool_call_id": approval["tool_call_id"], "tool_name": approval["tool_name"]},
         )
@@ -649,10 +961,22 @@ class AgentCore:
             task = await self._task_manager.get_task(task_id)
             if task is not None:
                 await self._task_manager.cancel_task(task_id)
-            await self.repository.append_message(conversation_id, "assistant", response)
-            await self.event_bus.publish("message.delta", {"task_id": task_id, "conversation_id": conversation_id, "content": response})
-            await self.event_bus.publish("message.completed", {"task_id": task_id, "conversation_id": conversation_id, "content": response})
-            await self.event_bus.publish("task.cancelled", {"task_id": task_id, "conversation_id": conversation_id, "message": "approval denied"})
+            message = await self.repository.append_message(conversation_id, "assistant", response)
+            await self.event_bus.publish(
+                "message.delta", {"task_id": task_id, "conversation_id": conversation_id, "content": response}
+            )
+            await self.event_bus.publish(
+                "message.completed",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "message_id": message["id"],
+                    "content": response,
+                },
+            )
+            await self.event_bus.publish(
+                "task.cancelled", {"task_id": task_id, "conversation_id": conversation_id, "message": "approval denied"}
+            )
             return {"task_id": task_id, "conversation_id": conversation_id, "status": "denied", "response": response}
 
         task = await self._task_manager.get_task(task_id)
@@ -662,39 +986,74 @@ class AgentCore:
         arguments = json.loads(tool_row["arguments_json"])
         call = ToolCall(str(tool_row["id"]), str(tool_row["tool_name"]), arguments)
         context = ExecutionContext(
-            f"trace_{uuid.uuid4().hex}", task_id, call.id,
+            f"trace_{uuid.uuid4().hex}",
+            task_id,
+            call.id,
             metadata=await self._execution_metadata(workspace_id, conversation_id, principal_id, approved=True),
         )
         try:
             policy = await self._execution_engine.authorize_tool(call.name, call.arguments, context)
             await self.repository.update_tool_call(
-                call.id, "running", arguments=policy.arguments, risk_level=policy.risk.name,
+                call.id,
+                "running",
+                arguments=policy.arguments,
+                risk_level=policy.risk.name,
             )
-            await self.event_bus.publish("tool.started", {
-                "task_id": task_id, "conversation_id": conversation_id,
-                "tool_call_id": call.id, "tool_name": call.name,
-                "arguments": policy.arguments, "resource_scope": policy.resource_scope,
-                "risk_level": policy.risk.name,
-            })
+            await self.event_bus.publish(
+                "tool.started",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "tool_call_id": call.id,
+                    "tool_name": call.name,
+                    "arguments": policy.arguments,
+                    "resource_scope": policy.resource_scope,
+                    "risk_level": policy.risk.name,
+                },
+            )
             result = await self._execution_engine.execute_authorized(call.name, policy, context)
+            self._raise_if_cancelled(task_id)
+        except AgentCancelled:
+            if task is not None:
+                await self._task_manager.cancel_task(task_id)
+            await self.repository.cancel_task(workspace_id, task_id)
+            self._cancelled_tasks.discard(task_id)
+            return {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "status": "cancelled",
+            }
         except Exception as exc:
             await self.repository.update_tool_call(call.id, "failed", summary=str(exc))
             await self.repository.update_task_status(task_id, "failed")
             if task is not None:
                 await self._task_manager.update_status(task_id, TaskStatus.FAILED)
-            await self.event_bus.publish("tool.failed", {
-                "task_id": task_id, "conversation_id": conversation_id,
-                "tool_call_id": call.id, "tool_name": call.name, "message": str(exc),
-            })
-            await self.event_bus.publish("task.failed", {
-                "task_id": task_id, "conversation_id": conversation_id,
-                "message": str(exc), "error_type": type(exc).__name__,
-            })
+            await self.event_bus.publish(
+                "tool.failed",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "tool_call_id": call.id,
+                    "tool_name": call.name,
+                    "message": str(exc),
+                },
+            )
+            await self.event_bus.publish(
+                "task.failed",
+                {
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
             raise
         await self._complete_tool_call(call, result, task_id, conversation_id)
         if tool_row["assistant_content"] == "__direct_tool__":
             response = result.summary if result.raw in (None, "") else str(result.raw)
-            await self.event_bus.publish("message.delta", {"task_id": task_id, "conversation_id": conversation_id, "content": response})
+            await self.event_bus.publish(
+                "message.delta", {"task_id": task_id, "conversation_id": conversation_id, "content": response}
+            )
         else:
             history = await self._conversation_history(conversation_id)
             try:
@@ -703,12 +1062,14 @@ class AgentCore:
                 continuation = {}
             tool_call_values = continuation.get("tool_calls")
             if not isinstance(tool_call_values, list) or not tool_call_values:
-                tool_call_values = [
-                    {"id": call.id, "name": call.name, "args": call.arguments, "type": "tool_call"}
-                ]
-            history.append(ChatMessage(
-                "assistant", str(tool_row["assistant_content"]), {"tool_calls": tool_call_values},
-            ))
+                tool_call_values = [{"id": call.id, "name": call.name, "args": call.arguments, "type": "tool_call"}]
+            history.append(
+                ChatMessage(
+                    "assistant",
+                    str(tool_row["assistant_content"]),
+                    {"tool_calls": tool_call_values},
+                )
+            )
             completed_results = continuation.get("completed_results")
             if not isinstance(completed_results, list):
                 completed_results = []
@@ -722,22 +1083,38 @@ class AgentCore:
             try:
                 calls = [
                     ToolCall(str(item["id"]), str(item["name"]), dict(item.get("args") or {}))
-                    for item in tool_call_values if isinstance(item, dict)
+                    for item in tool_call_values
+                    if isinstance(item, dict)
                 ]
                 call_index = int(continuation.get("call_index", 0))
                 if call_index + 1 < len(calls):
                     await self._execute_tool_batch(
-                        calls, str(tool_row["assistant_content"]), tool_call_values, history,
-                        workspace_id, conversation_id, task_id, f"trace_{uuid.uuid4().hex}",
-                        metadata, start_index=call_index + 1, completed_results=completed_results,
+                        calls,
+                        str(tool_row["assistant_content"]),
+                        tool_call_values,
+                        history,
+                        workspace_id,
+                        conversation_id,
+                        task_id,
+                        f"trace_{uuid.uuid4().hex}",
+                        metadata,
+                        start_index=call_index + 1,
+                        completed_results=completed_results,
                     )
                 response = await self._run_agent(
-                    workspace_id, conversation_id, task_id, f"trace_{uuid.uuid4().hex}", metadata, history,
+                    workspace_id,
+                    conversation_id,
+                    task_id,
+                    f"trace_{uuid.uuid4().hex}",
+                    metadata,
+                    history,
                 )
             except AgentPaused as paused:
                 return {
-                    "task_id": task_id, "conversation_id": conversation_id,
-                    "status": "waiting_approval", "approval": self._approval_payload(paused.approval),
+                    "task_id": task_id,
+                    "conversation_id": conversation_id,
+                    "status": "waiting_approval",
+                    "approval": self._approval_payload(paused.approval),
                 }
         await self._finish_task(task_id, conversation_id, response)
         return {"task_id": task_id, "conversation_id": conversation_id, "status": "succeeded", "response": response}
@@ -747,6 +1124,42 @@ class AgentCore:
             await self._execution_engine.cancel(task.id)
             await self._task_manager.cancel_task(task.id)
             await self.repository.update_task_status(task.id, "cancelled")
+
+    async def get_task(self, workspace_id: str, task_id: str) -> dict[str, Any]:
+        return await self.repository.get_task(workspace_id, task_id)
+
+    async def list_tasks(self, workspace_id: str, conversation_id: str = "", limit: int = 100) -> list[dict[str, Any]]:
+        return await self.repository.list_tasks(workspace_id, conversation_id, limit)
+
+    async def list_task_events(
+        self,
+        workspace_id: str,
+        conversation_id: str,
+        after_sequence: int = 0,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        await self.repository.get_conversation(workspace_id, conversation_id)
+        return await self.repository.list_task_events(workspace_id, conversation_id, after_sequence, limit)
+
+    async def cancel_task(self, workspace_id: str, task_id: str) -> dict[str, Any]:
+        task = await self.repository.get_task(workspace_id, task_id)
+        if task["status"] in {"succeeded", "failed", "cancelled", "timed_out", "expired"}:
+            return task
+        self._cancelled_tasks.add(task_id)
+        await self._execution_engine.cancel(task_id)
+        memory_task = await self._task_manager.get_task(task_id)
+        if memory_task is not None:
+            await self._task_manager.cancel_task(task_id)
+        cancelled = await self.repository.cancel_task(workspace_id, task_id)
+        await self.event_bus.publish(
+            "task.cancelled",
+            {
+                "task_id": task_id,
+                "conversation_id": cancelled["conversation_id"],
+                "message": "Cancelled by user",
+            },
+        )
+        return cancelled
 
     @property
     def task_manager(self) -> TaskManager:
@@ -779,9 +1192,7 @@ class AgentCore:
     async def delete_chat_model(self, workspace_id: str, model_id: str) -> None:
         await self.models.delete_settings(workspace_id, model_id)
 
-    async def set_default_chat_model(
-        self, workspace_id: str, model_id: str
-    ) -> tuple[list[ChatModelSettings], str]:
+    async def set_default_chat_model(self, workspace_id: str, model_id: str) -> tuple[list[ChatModelSettings], str]:
         return await self.models.set_default(workspace_id, model_id)
 
     async def set_chat_model_credential(
@@ -816,3 +1227,56 @@ class AgentCore:
             raise ValueError("assistant name contains control characters")
         await self.repository.save_preference(workspace_id, user_id, "interface.assistant_name", name)
         return {"assistant_name": name}
+
+    async def list_memories(
+        self, workspace_id: str, user_id: str, query: str = "", limit: int = 100
+    ) -> list[dict[str, Any]]:
+        if len(query) > 200:
+            raise ValueError("memory search query must not exceed 200 characters")
+        return await self.repository.list_user_memories(workspace_id, user_id, query, limit)
+
+    async def upsert_memory(
+        self,
+        workspace_id: str,
+        user_id: str,
+        *,
+        memory_id: str = "",
+        category: str,
+        content: str,
+        confidence: float = 1.0,
+    ) -> dict[str, Any]:
+        category = category.strip().lower()
+        normalized_content = " ".join(content.split())
+        if category not in self.MEMORY_CATEGORIES:
+            raise ValueError("invalid memory category")
+        if not normalized_content:
+            raise ValueError("memory content is required")
+        if len(normalized_content) > 4000:
+            raise ValueError("memory content must not exceed 4000 characters")
+        if any(pattern.search(normalized_content) for pattern in self.MEMORY_SECRET_PATTERNS):
+            raise ValueError("memory content must not contain credentials or private keys")
+        if not 0 <= confidence <= 1:
+            raise ValueError("memory confidence must be between 0 and 1")
+        item = await self.repository.upsert_user_memory(
+            workspace_id,
+            user_id,
+            memory_id=memory_id,
+            category=category,
+            content=normalized_content,
+            source_type="user",
+            source_id=user_id,
+            confidence=confidence,
+        )
+        return item
+
+    async def delete_memory(self, workspace_id: str, user_id: str, memory_id: str) -> None:
+        await self.repository.delete_user_memory(workspace_id, user_id, memory_id)
+
+    async def get_workspace_data_summary(self, workspace_id: str) -> dict[str, Any]:
+        return await self.repository.get_workspace_data_summary(workspace_id)
+
+    async def list_mcp_servers(self) -> list[dict[str, Any]]:
+        return [{**server, "tool_names": list(server.get("tool_names", []))} for server in self._mcp_runtime]
+
+    async def list_skills(self) -> list[dict[str, Any]]:
+        return [item.to_dict() for item in self._skills.list_skills()]

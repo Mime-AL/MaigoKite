@@ -29,7 +29,7 @@ onMounted(() => { void loadFileTree('') })
     <template v-else>
       <header class="explorer-header">
         <div>
-          <p>Workspace</p>
+          <p>工作区</p>
           <h2>文件</h2>
         </div>
         <button class="icon-button" type="button" aria-label="收起文件栏" @click="layoutStore.toggleFileExplorer">

@@ -23,6 +23,17 @@ func TestNewRouterRegistersDistinctModelActionRoutes(t *testing.T) {
 		"POST /api/v1/workspaces/:workspaceID/models/actions/validate",
 		"POST /api/v1/workspaces/:workspaceID/models/actions/discover",
 		"GET /api/v1/workspaces/:workspaceID/runtime-status",
+		"GET /api/v1/workspaces/:workspaceID/memories",
+		"POST /api/v1/workspaces/:workspaceID/memories",
+		"PATCH /api/v1/workspaces/:workspaceID/memories/:memoryID",
+		"DELETE /api/v1/workspaces/:workspaceID/memories/:memoryID",
+		"GET /api/v1/workspaces/:workspaceID/data-summary",
+		"GET /api/v1/workspaces/:workspaceID/mcp-servers",
+		"GET /api/v1/workspaces/:workspaceID/skills",
+		"GET /api/v1/workspaces/:workspaceID/tasks",
+		"GET /api/v1/workspaces/:workspaceID/tasks/:taskID",
+		"POST /api/v1/workspaces/:workspaceID/tasks/:taskID/cancel",
+		"GET /api/v1/workspaces/:workspaceID/conversations/:conversationID/events/history",
 	} {
 		if !routes[expected] {
 			t.Fatalf("expected route %q to be registered", expected)

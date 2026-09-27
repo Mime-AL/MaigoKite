@@ -1,6 +1,6 @@
 # NanamiGopher
 
-An AI-powered agent platform with a multi-language architecture combining Go, Python, and Vue.js.
+A local-first general-purpose Agent that can operate a browser, orchestrate tools, keep durable task state, request approval for side effects, and extend through local Skills or MCP.
 
 ## Overview
 
@@ -8,6 +8,8 @@ NanamiGopher provides a unified interface for AI agent interactions, featuring:
 
 - **Go Gateway** – REST/WebSocket boundary and gRPC client
 - **Python Agent** – LangChain/LangGraph-based AI orchestration
+- **Browser Runtime** – Playwright sessions governed by the same tool policy
+- **Skill / MCP** – Declarative local instructions and process-isolated tool extensions
 - **Vue.js Frontend** – Modern web dashboard
 - **SQLite** – Phase-one relational storage; vector indexes are planned
 
@@ -84,7 +86,9 @@ Key configuration sections:
 - **models** – LLM provider defaults; the UI persists multiple Workspace model profiles
 - **workspace** – root exposed through the read-only file and Git Diff sidebar
 - **permissions** – Circuit breaker, blocked command patterns
-- **memory** – SQLite path, vector database provider
+- **storage** – SQLite path (vector indexes are not part of the core release)
+- **browser** – lazy Playwright/Chromium runtime
+- **skills / mcp** – local Skill directories and trusted stdio MCP servers
 - **observability** – OpenTelemetry, LangFuse integration
 
 Pass the selected file explicitly with `--config` or `NANAMI_CONFIG`; environment variables override selected runtime values.
@@ -116,11 +120,13 @@ Pass the selected file explicitly with `--config` or `NANAMI_CONFIG`; environmen
 
 ## Development Guide
 
-### Adding a New Skill (planned lifecycle)
+### Adding a Local Skill
 
 1. Create a skill file in `~/.nanamigopher/skills/` or `./skills/`
-2. Define the skill manifest with name, description, and command spec
+2. Add YAML front matter with `name`, `description`, optional `version` and `kind`, followed by auditable instructions
 3. Restart the agent to pick up the new skill
+
+Local Skills do not execute package code. Signed package installation, commands, grants and rollback are planned lifecycle features; executable integrations currently use deployment-configured MCP servers.
 
 ### Modifying Models
 

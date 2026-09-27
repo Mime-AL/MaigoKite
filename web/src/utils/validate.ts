@@ -31,5 +31,5 @@ export function isInRange(value: number, min: number, max: number): boolean {
 
 /** 校验文件名合法性 */
 export function isValidFileName(name: string): boolean {
-  return /^[a-zA-Z0-9._\-\/\\]+$/.test(name)
+  return /^[a-zA-Z0-9._/\\-]+$/.test(name)
 }

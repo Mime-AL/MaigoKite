@@ -6,6 +6,8 @@
 
 流水线执行方式见 [CI-CD](../deployment/CI-CD.md)。权限预期引用 [Tool Permission](../agent-capabilities/security/tool-permission.md)，不在本文复制第二份矩阵。
 
+本文是质量目标，不代表每个测试项已经实现。当前可验证证据以 [Milestones](../project/Milestones.md) 和测试目录为准；标有 PostgreSQL、Outbox、lease、Workflow 或 Skill 包生命周期的场景只在对应能力进入交付阶段后成为发布门。
+
 ## 1. 测试层次
 
 | 层次 | 目标 | 触发 |
@@ -32,11 +34,11 @@
 ## 3. Python Agent Core
 
 - Task合法状态转换和乐观锁冲突。
-- Message/Task/Outbox原子创建。
+- Message/Task/TaskEvent 原子创建（当前架构债务的目标回归测试）。
 - Approval 创建、过期、版本和单次消费。
 - ToolCall 幂等与不可重试副作用。
 - cancellation/deadline 传播。
-- 崩溃后的 lease 回收和任务恢复。
+- 当前重启后 interrupted/等待审批恢复；引入调度器后再测试 lease 回收和安全续跑。
 
 ## 4. Tool 与 MCP
 
@@ -59,11 +61,11 @@
 
 ## 6. 数据库
 
-- SQLite/PostgreSQL空库迁移。
+- SQLite 空库与现存文件兼容升级；PostgreSQL 接入后增加双库迁移。
 - 最低支持版本升级。
 - 外键、唯一约束和状态约束。
 - Workspace作为列表索引首列和查询条件。
-- 事务中业务状态与 OutboxEvent一致。
+- 引入 Outbox 后验证业务状态与 OutboxEvent 同事务。
 - 活动 SQLite 的一致性备份与恢复。
 
 ## 7. 前端与 Electron
@@ -81,11 +83,11 @@
 1. 创建 Personal Workspace并完成对话。
 2. Native只读 Tool成功执行。
 3. 文件编辑触发符合模式的审批或自动范围。
-4. `mcp-server` Skill 导入、权限预览、启动、调用和卸载。
-5. WebSocket断线后任务继续并恢复事件。
-6. 取消长任务并终止 MCP子进程树。
-7. 删除 Conversation/Document并清理派生数据。
-8. Team Workspace成员访问和越权拒绝。
+4. 配置式 stdio MCP 启动、发现、调用和关闭；Skill 包导入/卸载在包生命周期实现后测试。
+5. WebSocket 断线后任务继续并恢复事件。
+6. 取消长任务；MCP 强制中断在 transport 取消实现后作为门禁。
+7. 删除 Conversation；Document/派生数据在知识库实现后测试。
+8. 当前本地 Membership 越权拒绝；完整 Team 成员流程在团队 API 实现后测试。
 
 ## 9. 安全测试
 
@@ -104,7 +106,7 @@
 - REST/gRPC/WebSocket延迟。
 - 首 token和完整任务延迟。
 - 并发 Task与ToolCall吞吐。
-- SQLite锁等待/PostgreSQL连接池。
+- SQLite 锁等待；PostgreSQL 接入后再测连接池。
 - MCP进程启动和常驻资源。
 - 长会话上下文构建和检索延迟。
 
@@ -114,7 +116,7 @@
 
 - [ ] 单元、契约、关键集成和安全测试通过。
 - [ ] OpenAPI/Proto/事件无未批准 breaking change。
-- [ ] SQLite/PostgreSQL迁移通过。
+- [ ] 当前目标数据库迁移通过（Phase 1 为 SQLite；PostgreSQL 接入后扩展）。
 - [ ] 无跨 Workspace访问。
 - [ ] 权限模式和 hard-deny符合唯一规范。
 - [ ] 备份可恢复。

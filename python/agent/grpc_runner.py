@@ -6,9 +6,7 @@ the Go API Gateway. Integrates with AgentCore lifecycle.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import signal
 from concurrent import futures
 from typing import Optional
 
@@ -59,13 +57,9 @@ class GRPCRunner:
         )
 
         if self._servicer is None:
-            raise RuntimeError(
-                "AgentServiceServicer not injected. Call inject_servicer() first."
-            )
+            raise RuntimeError("AgentServiceServicer not injected. Call inject_servicer() first.")
 
-        agent_pb2_grpc.add_AgentServiceServicer_to_server(
-            self._servicer, self._server
-        )
+        agent_pb2_grpc.add_AgentServiceServicer_to_server(self._servicer, self._server)
 
         address = f"{self._host}:{self._port}"
         if self._server.add_insecure_port(address) == 0:
@@ -80,6 +74,8 @@ class GRPCRunner:
         self._logger.info("Stopping gRPC server (grace=%ds)...", grace)
         await self._server.stop(grace=grace)
         await self._server.wait_for_exit()
+        if self._servicer is not None:
+            await self._servicer.stop_background(grace)
         self._logger.info("gRPC server stopped.")
 
     async def wait_for_rpcs(self) -> None:

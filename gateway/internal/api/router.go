@@ -78,6 +78,11 @@ func (r *Router) routes() {
 	workspaces.PATCH("/conversations/:conversationID", s.Update)
 	workspaces.DELETE("/conversations/:conversationID", s.Delete)
 	workspaces.GET("/conversations/:conversationID/messages", s.Messages)
+	tasks := &TaskHandler{client: r.client}
+	workspaces.GET("/tasks", tasks.List)
+	workspaces.GET("/tasks/:taskID", tasks.Get)
+	workspaces.POST("/tasks/:taskID/cancel", tasks.Cancel)
+	workspaces.GET("/conversations/:conversationID/events/history", tasks.Events)
 	workspaces.POST("/conversations/:conversationID/messages", m.Send)
 	workspaces.GET("/events", m.Stream)
 	approvals := &ApprovalHandler{client: r.client, hub: r.hub}
@@ -105,6 +110,14 @@ func (r *Router) routes() {
 	permissions := &PermissionHandler{client: r.client}
 	workspaces.GET("/permissions", permissions.Get)
 	workspaces.PATCH("/permissions", r.requireWorkspaceOwner(), permissions.Update)
+	memories := &MemoryHandler{client: r.client}
+	workspaces.GET("/memories", memories.List)
+	workspaces.POST("/memories", memories.Create)
+	workspaces.PATCH("/memories/:memoryID", memories.Update)
+	workspaces.DELETE("/memories/:memoryID", memories.Delete)
+	workspaces.GET("/data-summary", r.requireWorkspaceOwner(), (&DataHandler{client: r.client}).Summary)
+	workspaces.GET("/mcp-servers", (&MCPRuntimeHandler{client: r.client}).List)
+	workspaces.GET("/skills", (&SkillHandler{client: r.client}).List)
 	workspace := newWorkspaceHandler(r.cfg.Workspace.Root)
 	var runtimeHealth agentHealthReader
 	if r.client != nil {

@@ -57,6 +57,21 @@ describe('InputBox', () => {
     expect(wrapper.get('.composer').text()).not.toContain('思考')
   })
 
+  it('turns the send control into an explicit stop action while running', async () => {
+    const wrapper = mount(InputBox, {
+      props: {
+        sessionId: 'conv-1',
+        isSending: true,
+        modelId: 'model-1',
+        modelOptions: configuredModel,
+      },
+    })
+    const button = wrapper.get('button')
+    expect(button.attributes('aria-label')).toBe('停止任务')
+    await button.trigger('click')
+    expect(wrapper.emitted('cancel')).toHaveLength(1)
+  })
+
   it('emits model, speed and approval-mode choices', async () => {
     const wrapper = mount(InputBox, {
       props: { sessionId: 'conv-1', modelId: 'model-1', modelOptions: configuredModel },

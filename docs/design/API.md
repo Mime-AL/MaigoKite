@@ -2,7 +2,7 @@
 
 > **状态**：Current
 > **架构版本**：v1
-> **最后核验**：2026-09-14
+> **最后核验**：2026-09-18
 > **权威范围**：REST 资源、gRPC 服务、WebSocket 事件及兼容规则
 
 最终机器契约应分别由 OpenAPI、Proto 和事件 Schema 表达；本文档说明稳定资源与行为，不复制生成代码。
@@ -39,6 +39,8 @@ deadline
 
 ### 3.1 身份与 Workspace
 
+当前版本没有独立的 `/me`、Workspace CRUD 或成员管理 REST。所有已注册资源都位于 `/workspaces/{workspace_id}` 下，由本地访问中间件与 Agent Core Membership 检查共同约束。以下是团队部署目标，尚未注册：
+
 ```text
 GET    /me
 GET    /workspaces
@@ -66,26 +68,35 @@ POST   /workspaces/{workspace_id}/conversations/{conversation_id}/messages
 ### 3.3 任务、工具调用与审批
 
 ```text
+GET  /workspaces/{workspace_id}/tasks?conversation_id={conversation_id}
 GET  /workspaces/{workspace_id}/tasks/{task_id}
-POST /workspaces/{workspace_id}/tasks/{task_id}:cancel
-POST /workspaces/{workspace_id}/tasks/{task_id}:retry
-GET  /workspaces/{workspace_id}/tasks/{task_id}/tool-calls
+POST /workspaces/{workspace_id}/tasks/{task_id}/cancel
+GET  /workspaces/{workspace_id}/conversations/{conversation_id}/events/history?after={sequence}
 GET  /workspaces/{workspace_id}/approvals
-GET  /workspaces/{workspace_id}/approvals/{approval_id}
 POST /workspaces/{workspace_id}/approvals/{approval_id}/decision
 ```
 
+任务重试和 ToolCall 独立查询尚未注册。取消终止任务并拒绝该任务仍 pending 的审批；第三方 MCP 调用能否立即被 transport 中止仍有限制。
+
 审批由 Agent Core 创建，外部 API 不提供任意创建审批请求的入口。审批决定必须包含目标审批 ID、decision 和审批版本；参数从服务端保存的规范化 ToolCall 读取，客户端不能在决定时替换参数，服务端同时验证版本与过期时间。
 
-### 3.4 Memory 与 Knowledge（Phase 2 Planned）
+### 3.4 Memory 与 Knowledge（Phase 2 In Progress）
 
-以下端点是目标契约，Phase 1 尚未注册：
+当前已注册的 User Memory 契约：
 
 ```text
 GET    /workspaces/{workspace_id}/memories
-POST   /workspaces/{workspace_id}/memories:search
+POST   /workspaces/{workspace_id}/memories
 PATCH  /workspaces/{workspace_id}/memories/{memory_id}
 DELETE /workspaces/{workspace_id}/memories/{memory_id}
+GET    /workspaces/{workspace_id}/data-summary
+```
+
+`GET memories?q=` 当前执行大小写不敏感的关键词查询。所有 Memory 操作使用认证主体作为 `subject_user_id`，客户端不能指定其他用户；写入、修改或删除与对应审计事件在同一数据库事务提交。`data-summary` 仅 Workspace Owner 可读，返回权威数据计数，不返回内容。
+
+以下 Knowledge/索引端点仍是目标契约，尚未注册：
+
+```text
 GET    /workspaces/{workspace_id}/documents
 POST   /workspaces/{workspace_id}/documents
 GET    /workspaces/{workspace_id}/documents/{document_id}
@@ -93,12 +104,20 @@ DELETE /workspaces/{workspace_id}/documents/{document_id}
 POST   /workspaces/{workspace_id}/indexes:rebuild
 ```
 
-### 3.5 Skill（Phase 2 Planned）
+### 3.5 Skill 与 MCP
 
-以下端点是目标契约，Phase 1 尚未注册：
+当前已注册以下只读运行清单：
 
 ```text
-GET    /workspaces/{workspace_id}/skills
+GET /workspaces/{workspace_id}/skills
+GET /workspaces/{workspace_id}/mcp-servers
+```
+
+`skills` 返回从配置目录实际加载的本地声明式 Skill 元数据；`mcp-servers` 返回 Agent Core 实际加载的部署级 stdio Server、状态和工具名。二者都不是安装或 Grant 管理接口。
+
+以下端点是目标契约，当前尚未注册：
+
+```text
 POST   /workspaces/{workspace_id}/skills:import
 POST   /workspaces/{workspace_id}/skills:install
 GET    /workspaces/{workspace_id}/skills/{skill_id}
@@ -124,6 +143,7 @@ POST  /workspaces/{workspace_id}/models/actions/validate
 POST  /workspaces/{workspace_id}/models/actions/discover
 GET   /workspaces/{workspace_id}/credential-references
 POST  /workspaces/{workspace_id}/credential-references
+PUT   /workspaces/{workspace_id}/credential-references/{credential_id}
 DELETE /workspaces/{workspace_id}/credential-references/{credential_id}
 GET   /workspaces/{workspace_id}/preferences
 PATCH /workspaces/{workspace_id}/preferences
@@ -157,14 +177,13 @@ GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 
 ## 4. 命令语义
 
-- 创建类请求接受 `Idempotency-Key`。
-- 重复的相同键和相同请求返回原结果；相同键不同请求返回 Conflict。
-- 更新使用版本号或 ETag 防止丢失更新。
+- 当前审批决定使用版本号防止重复决定和丢失更新。
+- 通用 `Idempotency-Key`、ETag、任务 retry 动作仍是 Planned，客户端当前不得假设已经支持。
 - 取消、审批和重试使用显式动作，不伪装成普通字段 PATCH。
 
 ## 5. gRPC 服务
 
-Python Agent Core 是服务端。建议按领域拆分：
+Python Agent Core 当前由一个 `AgentService` 提供 ProcessMessage、Conversation、Task、TaskEvent、Approval、Model、Skill/MCP 等 RPC。下面的按领域拆分是未来契约目标，并非当前 Proto：
 
 ```protobuf
 service AgentCommandService {
@@ -185,16 +204,16 @@ service AgentEventService {
 }
 ```
 
-所有请求包含 `CallContext`。Proto 中字段一旦发布不得重编号，删除字段必须 `reserved`。
+目标领域服务将统一使用 `CallContext`；当前单体 Proto 仍在各请求上直接携带 `workspace_id`、`principal_id` 等必要字段。Proto 中字段一旦发布不得重编号，删除字段必须 `reserved`。
 
-健康检查使用标准 gRPC Health Checking；不假设同一端口还提供 HTTP `/health`。
+当前 Proto 使用自定义 `Health` RPC，Gateway 对外提供 HTTP `/health`。切换到标准 gRPC Health Checking 属于后续兼容性改造，不能按已实现能力部署探针。
 
 ## 6. WebSocket 事件
 
 连接：
 
 ```text
-GET /api/v1/workspaces/{workspace_id}/events?after={sequence}
+GET /api/v1/workspaces/{workspace_id}/events?conversation_id={conversation_id}
 ```
 
 事件信封：
@@ -206,8 +225,7 @@ GET /api/v1/workspaces/{workspace_id}/events?after={sequence}
   "sequence": 42,
   "type": "task.started",
   "occurred_at": "2026-09-14T00:00:00Z",
-  "workspace_id": "ws_...",
-  "trace_id": "trace_...",
+  "conversation_id": "conv_...",
   "task_id": "task_...",
   "payload": {}
 }
@@ -223,6 +241,7 @@ task.waiting_approval
 task.succeeded
 task.failed
 task.cancelled
+task.interrupted
 reasoning.started
 reasoning.delta
 reasoning.completed
@@ -240,7 +259,7 @@ approval.decided
 
 `message.*` 只承载用户可见的最终回答。模型主动输出的简短过程说明使用 `reasoning.*`，工具与子 Agent 生命周期分别使用 `tool.*` 和 `subagent.*`；三者均通过 `task_id` 关联任务，不写入 Message 资源。系统不传输模型隐藏思维链。
 
-客户端按 `event_id` 去重，按 `sequence` 检测缺口。断线不取消任务；缺口通过 `after` 重放或 REST 快照恢复。
+客户端按 `event_id` 去重，按 `sequence` 检测缺口。断线不取消任务；当前先通过 REST `events/history?after=` 重放，建立 WebSocket 后再按最新 sequence 补拉一次，覆盖普通连接窗口。原子 `after_sequence` WebSocket 握手和历史分页仍是 Planned。
 
 ## 7. 错误模型
 
