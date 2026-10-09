@@ -1,12 +1,22 @@
-"""JSON-Schema validation for tool arguments."""
+"""Product error formatting around the standard JSON Schema validator."""
+
 from __future__ import annotations
+
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable
-import re
+from typing import Any
+
+from jsonschema.exceptions import SchemaError
+from jsonschema.validators import validator_for
+from referencing import Registry
+from referencing.exceptions import Unresolvable
+
+
 class ValidationError(ValueError):
     def __init__(self, message: str, errors: list[dict[str, Any]]) -> None:
         super().__init__(message)
         self.errors = errors
+
 
 class ToolValidator:
     def __init__(self, schema_provider: Callable[[str], dict[str, Any] | None]) -> None:
@@ -22,60 +32,46 @@ class ToolValidator:
         schema = self._schema_provider(tool_name)
         if schema is None:
             return [{"path": [], "message": f"unknown tool: {tool_name}"}]
-        errors: list[dict[str, Any]] = []
-        properties = schema.get("properties", {})
-        for name in schema.get("required", []):
-            if name not in arguments:
-                errors.append({"path": [name], "message": "required property is missing"})
-        for name, value in arguments.items():
-            rule = properties.get(name)
-            if rule is None:
-                errors.append({"path": [name], "message": "additional property is not allowed"})
-                continue
-            expected = rule.get("type")
-            if expected is None and "anyOf" in rule:
-                alternatives = [item.get("type") for item in rule["anyOf"]]
-                if value is None and "null" in alternatives:
-                    continue
-                expected = next((item for item in alternatives if item != "null"), None)
-            types = {
-                "string": str, "integer": int, "number": (int, float),
-                "boolean": bool, "object": dict, "array": list,
-            }
-            if expected in types and (not isinstance(value, types[expected]) or expected == "integer" and isinstance(value, bool)):
-                errors.append({"path": [name], "message": f"must be {expected}"})
-            if "enum" in rule and value not in rule["enum"]:
-                errors.append({"path": [name], "message": "value is not in enum"})
-            if isinstance(value, str):
-                if len(value) < rule.get("minLength", 0): errors.append({"path":[name],"message":"string is too short"})
-                if len(value) > rule.get("maxLength", 1_000_000): errors.append({"path":[name],"message":"string is too long"})
-                if rule.get("pattern") and re.fullmatch(rule["pattern"],value) is None: errors.append({"path":[name],"message":"string does not match pattern"})
-            if isinstance(value,(int,float)) and not isinstance(value,bool):
-                if "minimum" in rule and value<rule["minimum"]: errors.append({"path":[name],"message":"number is below minimum"})
-                if "maximum" in rule and value>rule["maximum"]: errors.append({"path":[name],"message":"number is above maximum"})
-        return errors
+        if not isinstance(arguments, dict):
+            return [{"path": [], "message": "tool arguments must be an object"}]
+        try:
+            validator_class = validator_for(schema)
+            validator_class.check_schema(schema)
+            # MCP schemas are untrusted. Resolve bundled/local references only;
+            # validating arguments must never fetch URLs or read local files.
+            validator = validator_class(schema, registry=Registry())
+            return [
+                {"path": list(error.absolute_path), "message": error.message}
+                for error in validator.iter_errors(arguments)
+            ]
+        except SchemaError as exc:
+            return [{"path": [], "message": f"invalid tool schema: {exc.message}"}]
+        except Unresolvable:
+            return [{"path": [], "message": "tool schema contains an unresolved reference"}]
 
     def sanitize(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         self.validate(tool_name, arguments)
         schema = self._schema_provider(tool_name) or {}
-        properties = schema.get("properties", {})
-        normalized: dict[str, Any] = {}
-        for name, rule in properties.items():
-            if name in arguments:
-                normalized[name] = self._apply_defaults(rule, arguments[name])
-            elif "default" in rule:
-                normalized[name] = self._apply_defaults(rule, deepcopy(rule["default"]))
+        # Preserve schema-permitted additional properties. Keep the existing
+        # explicit property defaults visible to policy before execution.
+        normalized: dict[str, Any] = self._apply_defaults(schema, deepcopy(arguments))
         self.validate(tool_name, normalized)
         return normalized
 
-    def _apply_defaults(self, schema: dict[str, Any], value: Any) -> Any:
-        """Materialize JSON-Schema defaults before policy evaluates resource scope."""
+    def _apply_defaults(self, schema: dict[str, Any] | bool, value: Any) -> Any:
+        """Legacy explicit property/item defaults, not a schema evaluator.
+
+        JSON Schema defaults are annotations. Do not choose union branches or
+        resolve references here; validation belongs entirely to jsonschema.
+        """
+        if not isinstance(schema, dict):
+            return value
         if isinstance(value, dict):
             result = dict(value)
             for name, rule in schema.get("properties", {}).items():
                 if name in result:
                     result[name] = self._apply_defaults(rule, result[name])
-                elif "default" in rule:
+                elif isinstance(rule, dict) and "default" in rule:
                     result[name] = self._apply_defaults(rule, deepcopy(rule["default"]))
             return result
         if isinstance(value, list) and isinstance(schema.get("items"), dict):

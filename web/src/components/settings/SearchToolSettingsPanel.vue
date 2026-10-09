@@ -53,8 +53,8 @@ async function remove(service: 'tavily' | 'google') {
     <article class="provider-row">
       <div class="provider-summary">
         <span class="provider-mark duck">D</span>
-        <div><strong>DuckDuckGo</strong><small>无需配置，作为本地默认兜底。</small></div>
-        <span class="status ready"><i />可用</span>
+        <div><strong>DuckDuckGo</strong><small>无需密钥，能否访问取决于当前网络。</small></div>
+        <span class="status"><i />无需配置</span>
       </div>
     </article>
 

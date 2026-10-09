@@ -1,140 +1,58 @@
-# MCP 集成规范
+# MCP 集成
 
-> **状态**：Current
-> **架构版本**：v1
-> **最后核验**：2026-09-18
-> **权威范围**：MCP transport、客户端、Server 生命周期和工具发现
+> 权威范围：当前传输方式、客户端/进程所有权、工具发现和调用边界。
+> 本地技能格式见 [技能](../skills/skill-lifecycle.md)，策略见 [工具权限](../security/tool-permission.md)。
 
-Skill 包、安装和授权见 [Skill Lifecycle](../skills/skill-lifecycle.md)；工具权限见 [Tool Permission](../security/tool-permission.md)。
+## 1. 当前生命周期
 
-## 1. 边界
-
-- Python Agent Core 是 MCP Client 所有者。
-- 每个 MCP Server 是独立工具进程；当前由 Core 启停，自动监督与重启仍是 Planned。
-- Go Gateway 和 Electron 不直接调用 MCP Tool。
-- 当前版本只承诺 stdio transport。
-- 远程/HTTP transport 为 Planned，启用前必须补充认证、租户和网络信任设计。
-
-## 2. 当前最小生命周期
+Python 核心服务是唯一 MCP Client 和子进程所有者，Go/Electron 不直接调用 MCP 工具。当前为自研 stdio 客户端，全面官方 SDK 迁移尚未完成；不因已有代码就继续扩建协议栈。
 
 ```text
-读取部署者显式配置
-→ 校验 command / args / cwd / env allowlist
-→ 构建最小进程环境
-→ 启动 MCP Server
-→ initialize
-→ initialized
-→ tools/list
-→ 注册 MCPTool
-→ calls（每次请求有超时）
-→ Core shutdown 时 terminate / kill 进程组
+部署者显式配置
+→ 校验 command/args/cwd/env allowlist
+→ 最小环境启动进程
+→ initialize / initialized
+→ tools/list 与工具注册
+→ 受控调用
+→ Core shutdown 终止进程组
 ```
 
-当前运行清单只维护 namespace、transport、running/disabled 状态和工具名称。子进程不会继承完整环境，工作目录必须位于 Workspace；协议 stderr 当前丢弃，不进入日志。
+当前 command 为 argv，不经过 shell；cwd 位于工作区，子进程不继承完整环境。清单只展示命名空间/传输方式/运行状态/工具名。stderr 当前被丢弃，不能假设已能在诊断页读取。
 
-### 2.1 目标完整生命周期（Planned）
+启动失败不得注册未就绪工具。健康重启、独立目录、资源配额、热切换、SkillVersion/Grant 和远程传输方式都未交付。
 
-目标 MCP Manager 还需维护每个 Server 的：
+## 2. 发现与参数
 
-- skill version 与内容 hash。
-- process ID 和工作目录。
-- protocol version 和 capabilities。
-- tool definitions。
-- health、last used、restart count。
-- credential/resource grants。
+结构定义/JSON-RPC 字段以 MCP 标准和实际版本为准，不维护协议字段副本。后续协议升级/取消优先调查官方 SDK，以薄产品 封装 保留权限与命名。
 
-SkillGrant 绑定、健康重启、空闲回收、资源配额和热切换属于后续阶段，不应从“已能发现工具”推断为已经实现。
+- 命名空间防工具名冲突；名称、描述和结构定义大小受限。
+- Server 自报权限不构成授权；默认风险和 destructiveHint 只能收紧，由 ToolPolicy 最终判断。
+- 参数复用 JSON Schema 校验与现有错误 DTO；引用不能在校验时联网或读取外部文件。
+- 模型可见工具范围与执行授权要一致；全面按主体能力过滤仍须验收，不用“发现成功”宣称授权完成。
 
-## 3. 目标启动约束（Current 子集 + Planned）
+## 3. 调用与错误
 
-启动前必须：
-
-1. 验证 SkillVersion 与 SkillGrant（Planned；当前信任边界是部署配置）。
-2. 校验入口命令为解析后的 argv，不通过 shell 拼接。
-3. 创建独立工作目录（Planned；当前只校验配置的 cwd 位于 Workspace）。
-4. 构建环境变量 allowlist，不继承完整 `os.environ`。
-5. 应用文件、网络、进程和资源限制（Planned）。
-6. 设置启动与握手 deadline。
-
-启动失败不得把未完成初始化的 Tool 注册到 Registry。
-
-## 4. 握手与兼容
-
-- Client 提供支持的协议版本和客户端能力。
-- Server 返回协议版本、Server 信息和 capabilities。
-- 版本不兼容时终止进程并记录稳定错误码。
-- 完成 initialized 通知后才能进行工具发现。
-- Server 声明发生变化时重新验证能力和授权。
-
-具体 JSON-RPC 字段以采用的 MCP 协议版本为准，本文不维护协议字段副本。
-
-## 5. 工具发现
+已连接 MCP 工具新增公开转换，接入显式启用的新运行时；协议客户端仍是现有 stdio 实现。工具接线不等于官方 SDK、远端取消或恢复已经验收：
 
 ```text
-tools/list result
-→ 校验名称、描述和 inputSchema
-→ 绑定 server/skill/version
-→ 映射 capability 请求
-→ ToolPolicy 验证可暴露范围
-→ 注册 MCPTool
+ToolRegistry resolve / 参数规范化
+→ PermissionPolicy / 现有 Approval
+→ MCP tools/call（请求超时）
+→ ToolResult / audit / 活动投影
 ```
 
-- 工具名在有效命名空间内唯一。
-- 无效或过大的 Schema 拒绝注册。
-- Server 自报权限不构成授权。
-- Registry 对模型只暴露当前 Principal/Workspace 可用的工具。
+返回内容是不可信数据，不授予权限。非对象结果映射为 MCP_INVALID_RESULT；`isError: true` 映射为 MCP_TOOL_ERROR/ToolResult.failure，保留原始结果和检查连接、凭证、参数的简短提示，不记成工具成功，也不伪造不存在的设置链接。
 
-## 6. 调用
+连接错误不盲目重试副作用。请求/工具调用 ID 用于关联；全面 追踪上下文传播 和 stderr 脱敏采集未接线。配置示例只在 [配置指南](../../user-guide/Configuration.md) 维护。
 
-```text
-ExecutionEngine
-→ ToolRegistry.resolve
-→ 参数校验和 ToolPolicy
-→ MCPClient.call_tool
-→ MCP 请求超时
-→ 结果转换
-→ ToolResult
-```
+## 4. 取消、关闭和隔离限制
 
-- 调用 ID 与 Task/ToolCall/trace 关联。
-- MCP stdout 只承载协议；stderr 的限长脱敏采集属于 Planned，当前不会回传 stderr。
-- 返回内容按不可信数据处理，不能成为系统指令。
-- 副作用调用不得因连接错误盲目自动重试。
-- 显式取消会阻止后续 Tool 步骤，但当前不能强制中断已经进入 `tools/call` 的第三方 Server；依赖请求超时收敛。
+显式取消可阻止后续步骤，不能保证立即中断已进入第三方 `tools/call`的操作；超时限制等待不等于外部副作用停止。当前关闭终止进程组，等待约 5 秒后 kill；活动调用的优雅终止和 SDK 取消能力 需单独验证。
 
-## 7. 目标停止与恢复（Planned，除明确说明外）
+核心服务当前最小环境/cwd 检查不等于完整 OS 沙箱。凭证仅继承显式 allowlist，文件/网络/进程资源隔离尚未完整实现；不得把假想 SkillGrant 写成实际授权器。
 
-- 当前 Core shutdown 直接终止 MCP 进程组，5 秒后强制 kill。
-- 目标正常停止先拒绝新调用，等待或取消活动调用，再执行协议关闭。
-- 目标超过调用 deadline 后终止对应调用或进程树。
-- 非预期退出使关联 Tool 暂时不可用并产生事件。
-- 重启采用限次退避；连续失败进入 quarantined 状态。
-- 更新 SkillVersion 时启动新实例、验证后切换，再关闭旧实例。
+## 5. 后续准入
 
-## 8. 凭证与资源
+先复用官方 MCP SDK 提供协议、stdio 生命周期和取消，再保留最薄命名/策略/错误投影。若官方能力与现有行为有差异，记录迁移和回归成本，不复制第二套协议实现。
 
-- Skill manifest 只声明 credential reference 和用途。
-- CredentialProvider 按 SkillGrant 提供最小范围值。
-- Secret 不写入 Skill 配置、ToolResult 或普通日志。
-- 凭证撤销后相关 Server 必须重启或刷新上下文。
-- 文件访问使用明确 Workspace 根和路径策略。
-
-## 9. 健康与观测
-
-指标至少包括：
-
-- server start/ready latency。
-- active/failed/restarted server 数。
-- tool call latency、timeout、cancel 和 error count。
-- protocol error 和 output truncation count。
-
-健康状态区分 `starting`、`ready`、`degraded`、`failed`、`quarantined`、`stopped`。
-
-## 10. 验收清单
-
-- [x] 只有 Python 管理 MCP 生命周期。
-- [x] Current transport 只有 stdio。
-- [x] 子进程不继承完整环境。
-- [ ] 未授权 Tool 不进入模型可见列表。
-- [ ] 超时和取消终止完整进程树。
-- [x] 副作用调用没有不安全的透明重试。
+远程传输方式只有真实个人服务需求后才设计服务身份、连接会话与网络信任；不预建多租户/插件 Manager。新能力须通过发现、错误、超时、取消、异常退出、资源回收与凭证隔离测试，见 [测试与验收](../../testing/TestPlan.md)。

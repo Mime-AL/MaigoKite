@@ -1,222 +1,99 @@
-# NanamiGopher 前端设计
+# 前端与桌面交互设计
 
-> **状态**：Current
-> **架构版本**：v1
-> **最后核验**：2026-09-18
-> **权威范围**：Vue UI、Electron Host、前端状态与交互边界
+> 权威范围：Vue 页面、客户端投影、Electron 安全和用户交互。
+> API 字段见 [API 设计](API.md)，权限矩阵见 [工具权限](../agent-capabilities/security/tool-permission.md)，运行机制见 [智能体运行时设计](AgentRuntime.md)。
 
-API 字段以 [API](API.md) 为准，权限行为以 [Tool Permission](../agent-capabilities/security/tool-permission.md) 为准。
-
-## 1. 前端分层
+## 1. 分层与当前目录
 
 ```text
-Views
-  → Feature Components
-    → Stores / Composables
-      → Generated API Client / Event Client
-        → Go Gateway
+Views / Feature Components
+→ Pinia Stores / Composables
+→ 集中 API / Event Client
+→ Go Gateway
 ```
 
-- View 负责页面组合，不直接发请求。
-- Store 保存客户端状态，不复制服务端任务状态机。
-- API Client 由 OpenAPI/事件 Schema 生成或集中封装。
-- 所有 Workspace 资源请求显式携带当前 Workspace 上下文。
+页面组合界面，状态仓库保存客户端投影而非服务端状态机；业务请求携带工作区，所有端点集中封装。实际代码在 `web/src/views / components / stores / composables / api / types`，Electron 在 `web/src/electron`。不为架构整洁预建 features/events/supervisor 等空目录。
 
-## 2. 项目结构
+## 2. 页面与产品状态
 
-```text
-web/
-├── src/
-│   ├── app/
-│   ├── router/
-│   ├── features/
-│   │   ├── chat/
-│   │   ├── workspace/
-│   │   ├── inspector/
-│   │   ├── skills/
-│   │   └── settings/
-│   ├── stores/
-│   ├── composables/
-│   ├── api/                # generated client and adapters
-│   ├── events/
-│   ├── components/
-│   └── types/
-└── electron/
-    ├── main.ts
-    ├── preload.ts
-    └── supervisor.ts
-```
+当前可折叠三栏：左侧会话与导航、中间对话/设置、右侧工作区文件/Git 变更。
 
-## 3. 页面结构与阶段边界
+| 表面 | 当前边界 |
+| --- | --- |
+| 对话、模型/称呼/权限/工具设置、运行状态、审计 | 有实际服务接口；新工具启停接线尚未验收 |
+| 文件树、文本预览、Git 差异 | 网关受限只读查询 |
+| 用户记忆 | 手工 CRUD/关键词查询；未自动注入聊天 |
+| MCP / 技能 | 实际加载清单，不是包安装器 |
+| 向量嵌入 / 索引 | 只读未配置状态，无可保存表单 |
+| 数据管理 | 只读权威计数，导出/清理未交付 |
+| 浏览器 | 聊天受控工具，独立工作台未交付 |
+| Inspector / 调度器 / 包管理 / 子智能体工作台 | 未交付，不以预留路由冒充能力 |
 
-当前采用可折叠三栏布局：左栏是会话与导航，中栏是对话或设置工作区，右栏是当前 Workspace 的文件与 Git 变更。Phase 2 允许提前注册边界清晰的状态页，但可变更控件必须已有服务端闭环：
+允许提前注册只读页面，但用普通用户可理解的“尚未启用”解释，不展示开发阶段编号、内部实现术语、空表单或静态假数据。副作用控件必须有 API、持久化、审计与验收闭环。
 
-| 界面 | 状态 |
-|---|---|
-| 总览、会话、审计日志及 Phase 1 设置 | Current |
-| Workspace 文件树、只读预览、Git Diff | Current |
-| 用户记忆管理 | Phase 2 Current：持久化 CRUD 与关键词检索 |
-| MCP 与 Skill | Core Current：MCP 运行清单 + 本地声明式 Skill 清单；安装生命周期 Planned |
-| Embedding 与索引 | Phase 2 Registered：只显示未配置状态和交付门槛 |
-| 数据管理 | Phase 2 Current：权威数据计数；导出/清理 Planned |
-| 浏览器 | Core Current：作为聊天中的受控 Tool；独立浏览器工作台 Planned |
-| Inspector、定时任务、包管理、回顾/归档 | Planned |
+手机单栏 Web/PWA 为规划中，复用 API 与事件，不调用 Electron IPC。首版范围和移动生命周期只在 [手机远程访问](RemoteAccess.md) 维护。
 
-文件栏只消费 Gateway 提供的受限只读契约，不从渲染进程直接访问 Node 文件系统。路由按 feature 划分，真正的访问授权和路径边界仍由 Gateway 执行。
+## 3. 设置与文件交互
 
-### 3.1 模型设置交互
+### 模型
 
-Phase 1 的模型设置采用渐进式的“配置行 → 单一编辑器 → 模型目录”结构：
+配置行 → 单一编辑器 → 可搜索模型目录。同一时间只展开一个编辑器；默认只显示服务摘要、凭证状态与默认标记。
 
-- 一个 Workspace 最多保存 32 个 Chat 模型配置，并显式指定一个默认模型；新会话继承默认模型。
-- 默认页面只展示已配置服务的摘要、凭证状态和默认标记；同一时间最多展开一个编辑器，避免列表、预设与连接参数同时争夺注意力。
-- 每个配置保存名称、Provider、模型 ID 和 Base URL；生成参数使用运行时的稳定默认值，不占用常规设置界面。
-- 添加配置时先选择 OpenAI、Anthropic、Ollama 或常用 OpenAI-compatible 服务。DeepSeek、OpenRouter、阿里云百炼、Groq、Together AI、LM Studio、vLLM 和 llama.cpp 预设只负责填充地址；模型 ID、密钥和最终连接结果仍以用户实际服务为准。
-- API Key 与模型选择位于主操作路径；接口类型、服务预设和 Base URL 收在“自定义设置”中，常规配置无需接触底层协议字段。
-- 用户可使用当前表单值从服务端目录获取模型。OpenAI、Anthropic、OpenAI-compatible 读取 `/models`，Ollama 读取 `/api/tags`；结果进入可搜索的单选目录，确认后才写入草稿且不会自动保存。目录不可用时仍允许手工输入模型 ID。
-- API Key 按模型配置 ID 隔离，只显示“已保存”状态，不回显真实值；Provider 或端点变化时清除旧凭证，禁止跨端点复用。
-- 连接测试使用当前草稿且不保存；草稿变化后立即清除旧测试结果。
-- 聊天输入框可覆盖当前会话的模型、速度档和执行权限。速度档为 `fast / balanced / thorough`，通过统一输出预算控制响应速度；不会触发自动模型路由。
-- 目录发现只负责列出服务端模型，不推断能力与成本。按任务路由、能力/成本选择和自动 fallback 仍属于 Phase 2。
+添加时使用协议/地址预设，不承诺具体模型。目录读取使用当前草稿，选择仅写入草稿；测试也不保存。草稿变化使测试结果失效。目录失败仍可手输准确 ID，普通用户不维护采样温度等服务参数。
 
-### 3.2 权限设置交互
+API 密钥不回显，模型提供方/端点变化不得复用旧凭证。列表/选择字段与发现协议唯一来源为 API/[模型接入](../agent-capabilities/models/model-routing.md)。会话模型、输出预算档与执行模式在输入框附近选择，不改变工作区默认设置。
 
-- 普通用户只选择 `只读 / 工作区 / 完全访问` 三档模式，不编辑逐工具 L1–L5 矩阵。
-- `工作区` 是新安装的推荐默认值：工作区读取、编辑和安全命令自动执行，联网与高风险命令请求批准。
-- 会话可以覆盖 Workspace 默认档位；hard-deny、路径边界和风险动态升级始终由服务端 ToolPolicy 判定。
+### 工具选择
 
-### 3.3 工作区与运行状态
+“设置 → 工具”按实际注册目录显示启用状态；工具可见性与审批权限独立，启用不代表免审批。启动配置的停用列表不能由界面放宽。接口与生效范围见 API 和配置指南，不复制工具清单。
 
-- 设置页只读展示 Gateway 返回的规范化 Workspace 根目录，前端不从 Node 或浏览器环境猜测实际路径。
-- Gateway 和 Agent Core 状态分别显示；Core 不可用时仍保留 Gateway 与 Workspace 信息。
-- 页面区分即时生效设置与进程启动配置。当前 UI 没有可产生“待重启”状态的编辑器，外部 YAML/环境变量变化由下次启动加载。
-- 本地路径属于 Workspace Owner 范围，不通过公共健康检查暴露。
+### 权限与运行状态
 
-### 3.4 文件与 Diff
+用户只选三个稳定权限模式，不编辑 L1–L5。审批展示工具、规范化参数、目标和副作用、风险/有效期；提交后等待服务端确认，不本地标记成功，也不添加尚无服务支持的永久授权按钮。
 
-- 文件树按目录懒加载，默认忽略 `.git`、依赖目录、虚拟环境和构建产物。
-- 文件内容只读预览，单次最多读取 512 KiB；二进制内容不进入页面。
-- “变更”页一次读取当前 Workspace 的 staged、unstaged 和 untracked 状态，选中文件后再懒加载其增加/删除统计与统一 Diff。
-- Gateway 对相对路径、路径穿越和逃逸 Workspace 的符号链接执行强制校验；前端传入的路径不是授权依据。
+运行状态只显示服务返回的真实路径、网关/核心服务独立状态、版本与生效范围；不得根据浏览器/Node 猜路径。当前页面不编辑启动参数，也不宣称检测到外部 YAML 的“待重启变化”。凭证存储等说明可置于帮助/详情，不在主要界面持续展示工程说明。
 
-### 3.5 对话与执行活动
+### 工作区文件
 
-聊天记录与 Agent 执行过程是两类不同的界面对象，不共用消息气泡：
+按目录懒加载，忽略依赖/虚拟环境/构建目录；文本预览只读，不默认读取二进制。Git 状态先查一次，选中文件再加载差异，不隐含暂存/回滚操作。大小限制和路径约束以 API 为准，渲染进程不得自行访问文件系统。
 
-- 对话区只显示用户消息和助手最终回复；模型调用工具前产生的过程说明不得拼接进最终回复。
-- `reasoning.*`、`tool.*` 和 `subagent.*` 事件按 `task_id` 聚合为可折叠的活动流，并按 `sequence` 排序，显示在对应最终回复之前。
-- 活动流只展示模型主动输出的简短过程说明、工具状态和子 Agent 生命周期，不请求、存储或展示模型隐藏思维链。
-- 运行中默认展开，完成后允许折叠；参数与结果放在二级详情中，避免挤占对话主阅读路径。
-- 输入组件只负责编辑和提交用户消息。运行状态通过活动流和 `aria-busy` 表达，不修改输入框内容或占位文本。
-- 运行时发送按钮切换为明确的停止按钮，调用持久 Task 的取消 API；运行状态按 conversation 隔离，切换会话不共享全局发送锁。
-- `message.delta` 只承载面向用户的最终回答增量；过程信息必须使用独立事件类型。前端不得再根据文字内容猜测它属于回答还是执行过程。
-- 可恢复的 Tool 失败通过事件携带稳定错误码、简短 `user_hint` 和受限的内部设置路由；活动流自动展开该提示，原始 JSON 继续收在二级详情中。
-- 助手最终回复按 GitHub Flavored Markdown 渲染。完整的重复 JSON 字符串编码和代码块外的 Markdown 结构转义可在展示层规范化；代码、正则与公式中的反斜杠必须保留。
-- Markdown 生成的 HTML 必须经过 allowlist 清洗后才能进入 DOM；脚本、事件属性、表单和主动加载的媒体资源不得渲染。
+## 4. 回答、活动与错误
 
-### 3.6 Phase 2 页面准入
+- 用户消息/助手回答是聊天记录；公开过程、工具/审批活动是另一类对象，不写进输入框或混进回答气泡。
+- 活动按任务/sequence 排序，可折叠；参数和原始结果在二级详情。保留 subagent 事件兼容不代表已实现编排。
+- `message.*` 更新回答；`reasoning.* / tool.* / approval.*` 更新活动。界面不猜测文本类型，不请求或展示隐藏思维链。
+- tool.failed 显示稳定错误码和简短 user_hint；只对已有设置页提供受限内部链接，不根据模型任意 URL 导航。
+- 输入组件仅负责编辑/发送。运行中显示停止按钮与 aria-busy，会话切换不共享全局发送锁；停止后等待真实服务端终态。
+- Markdown 规范化只处理确认的重复编码和结构转义，保留代码、正则、公式的反斜杠；HTML 清洗后入 DOM，禁脚本、事件属性、表单和主动加载媒体。
 
-Phase 2 页面允许先进入路由和导航，但必须区分两种状态：
+## 5. 客户端投影与重连
 
-- 只读状态页可以提前注册，必须明确标注尚未启用的能力，且不得包含可保存的假控件。
-- 创建、修改、删除等控件只有在 Gateway API、Agent Core 领域能力、持久化、审计和自动化测试形成闭环后才能启用。
+当前 session/settings/layout/memory 和只读能力清单状态仓库按功能分工。没有服务支持时不建空 SkillGrant、Inspector 或调度器状态仓库。
 
-当前 Memory 已满足可变更闭环；MCP 只提供真实运行清单；Embedding/索引只提供状态页；数据管理只开放只读计数。不得用只能修改前端内存的控件或静态假数据代替功能闭环。
+UI 先读取消息、任务、审批与历史事件，WebSocket 建立后按末尾 sequence 再补拉，按 event ID 去重。`message.completed` 的持久消息 ID 替换流式占位。当前单页上限和非原子订阅窗口未解决；详细协议只在 API 维护。
 
-## 4. 状态管理
+网络断开不取消主机任务，UI 不自行推断完成。无幂等保障的命令不自动重试，重复点击须等待/禁用或依赖已存在的版本校验，不假定已有通用幂等键。
 
-当前与目标 Store 边界如下；Planned 项不得仅为占位而创建空 Store：
+## 6. Electron 边界
 
-| Store | 职责 | 阶段 |
-|---|---|---|
-| session | 当前 Workspace 的会话、消息、任务活动和审批投影 | Phase 1 Current |
-| settings | 用户偏好、模型、权限、凭证引用与运行状态 | Phase 1 Current |
-| layout | 三栏布局与纯界面状态 | Phase 1 Current |
-| identity / workspace | 多主体认证、Workspace 列表和 Membership 管理 | Planned |
-| inspector | 可恢复事件窗口、筛选和独立快照 | Planned |
-| memory | User Memory CRUD 与查询投影 | Phase 2 Current |
-| phase2 | MCP、本地 Skill 运行清单与 Workspace 数据摘要 | Current / Phase 2 混合只读投影 |
-| skill | SkillVersion 与 Grant 管理投影 | Phase 3 Planned |
+当前 BrowserWindow 使用 `contextIsolation=true / nodeIntegration=false / sandbox=true / webSecurity=true`。导航和新窗口受控，渲染进程不获任意 Node、Shell 或文件权限。
 
-服务端状态以任务、审批和 TaskEvent Journal 为准；WebSocket 事件用于增量更新。重进对话时先读取消息、任务、审批和事件历史，WebSocket 建立后再按最后 sequence 补拉一次，并按 event ID 去重，从而覆盖普通的“先读历史、后订阅”窗口。`message.completed` 携带持久消息 ID，用于把流式占位替换为真实消息。服务端原子游标握手和超过单页事件的连续分页仍待实现。
+当前预加载层只暴露 `electronAPI.runtimeStatus` 与 `onRuntimeError`，后者返回取消订阅函数。restartService、文件选择、外链 API 不是已实现预加载层方法；业务请求统一走网关。
 
-## 5. API 与事件
+当前主进程启动 Go/Python 子进程，退出发送 SIGTERM；完整退出等待、异常监督、有限重启、资源校验及随机本地认证尚未闭环。不能写成已实现进程监督器。打包路径、签名和干净机器验收仅由 [构建与发布指南](../deployment/ReleaseGuide.md) 定义。
 
-- REST 用于资源 CRUD、命令提交和状态快照。
-- WebSocket 用于消息增量、任务事件、审批通知和 Inspector。
-- 事件按 `event_id` 去重，按 `sequence` 检测缺口。
-- UI 不自行推断任务已完成，必须等待服务端终态。
-- endpoint 不散落在组件或 Electron IPC 中。
-- 消息投影与活动投影分别维护：`message.*` 更新聊天记录，`reasoning.* / tool.* / subagent.*` 更新任务活动流。
+## 7. 性能与可访问性
 
-## 6. 审批交互
+- 高频拖拽/流式更新按 requestAnimationFrame 合并；持久化在交互结束时，不在 mousemove 同步写 localStorage。
+- 长聊天使用 content-visibility 跳过屏外绘制；自动滚动只观察消息数/末条长度，避免全历史扫描。
+- 大面积与重复卡片避免 backdrop-filter；实色/半透明和轻阴影保留一致视觉层次。
+- 按 route name 复用页面，会话 ID 变化不重建整棵组件树；文件和差异按需读取。
+- 弹窗关闭恢复焦点，关键操作键盘可用，允许暂停自动滚动。性能目标需要长会话实测，不以视觉效果代替指标。
 
-审批弹窗必须展示：
+Web 依赖网关；Vite/preview 代理来源按当前配置，不能独立提供业务。桌面构建与手机适配不在 Vue 业务代码复制第二套 API/状态。
 
-- 工具能力和风险等级。
-- 将访问或修改的资源范围。
-- 规范化后的关键参数和副作用预览。
-- 凭证与网络使用范围。
-- 本次允许、拒绝及可用的范围授权选项。
+## 8. 视觉设计覆盖范围
 
-前端提交决定后仍等待服务端确认；不得本地直接把 ToolCall 标记为获批。
+本文件目前是页面结构与交互规范，不是完整视觉设计系统。三栏/移动单栏、设置/审批、活动折叠和性能约束已有说明；字体、色彩、间距、圆角、组件状态、空态/错误态及视觉稿尚未系统定义。
 
-## 7. Electron 边界
-
-### 7.1 BrowserWindow 基线
-
-```text
-contextIsolation = true
-nodeIntegration = false
-sandbox = true
-webSecurity = true
-```
-
-- 生产环境只加载打包资源或受信来源。
-- 禁止渲染进程获得任意 Node、Shell 或文件系统能力。
-- 导航、新窗口、下载和外部链接使用显式 allowlist。
-
-### 7.2 Preload API
-
-Preload 只暴露有限、强类型的方法：
-
-```text
-runtime.status()
-runtime.restartService(service)
-dialog.selectFiles(options)
-shell.openExternal(approvedUrl)
-```
-
-普通会话、Memory、Skill 和权限请求通过统一 API Client 访问 Gateway，不在 preload 中复制一组 REST 包装器。事件订阅必须返回 unsubscribe 方法。
-
-### 7.3 Runtime Supervisor
-
-- 桌面模式由 Electron 启动 Go 和 Python。
-- 验证可执行文件路径和签名/校验值。
-- 使用最小环境变量和随机本地认证材料。
-- 捕获退出状态并执行有限重启。
-- 应用关闭时按 MCP、Python、Go 顺序终止。
-
-容器模式不使用 Electron Supervisor。
-
-## 8. 错误与可访问性
-
-- 对 Validation、AccessDenied、ApprovalRequired、Timeout 和 Offline 使用不同交互。
-- 网络重试不得重复提交没有幂等键的命令。
-- 所有关键操作可用键盘完成，焦点在弹窗关闭后返回触发元素。
-- 流式消息支持暂停自动滚动，Inspector 不应阻塞主输入。
-
-## 9. 构建目标
-
-- Web：静态资源，由 Gateway/反向代理提供 API。
-- 本地 Vite 开发与生产预览统一把 `/api`、`/health` 代理到 Gateway；预览端口可通过 `NANAMI_GATEWAY_PROXY_TARGET` 指定目标，但不能脱离 Gateway 单独提供业务功能。
-- Desktop：Vue资源与 Electron Host 打包，附带受验证的 Go/Python运行时。
-- 环境差异通过构建配置和 Runtime Adapter 处理，不在 Vue 业务组件内分叉。
-
-## 10. 性能基线
-
-- 高频输入（拖拽、流式消息）以 `requestAnimationFrame` 合并到每帧一次更新。
-- 持久化写入在交互结束时执行，不在 `mousemove` 等高频路径中同步写 `localStorage`。
-- 长对话使用 `content-visibility` 跳过屏外消息绘制；自动滚动只观察消息数和末条长度，不扫描全历史。
-- 大面积容器和重复卡片禁用 `backdrop-filter`；使用实色/半透明表面与阴影保留视觉层次。
-- 路由复用按 route name 定位，切换会话 ID 时不重建整个 Chat 组件树。
+后续如需补齐，先在本文件加入一套适用于个人智能体的统一视觉规则；只有设计资产规模确需独立管理时再拆视觉规范，不另建与页面/交互重复的 UI 文档。当前不宣称已有完整 Apple 风格视觉规范，也不因此修改前端实现。

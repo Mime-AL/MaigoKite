@@ -124,19 +124,14 @@ class SandboxExecutor:
             )
             timed_out = False
             try:
-                deadline = asyncio.get_running_loop().time() + timeout
-                while process.returncode is None:
-                    if asyncio.get_running_loop().time() >= deadline:
-                        timed_out = True
-                        self._kill_process_group(process)
-                        break
-                    await asyncio.sleep(0.02)
-                while process.returncode is None:
-                    await asyncio.sleep(0.01)
+                await asyncio.wait_for(process.wait(), timeout)
+            except asyncio.TimeoutError:
+                timed_out = True
+                self._kill_process_group(process)
+                await process.wait()
             except asyncio.CancelledError:
                 self._kill_process_group(process)
-                while process.returncode is None:
-                    await asyncio.sleep(0.01)
+                await process.wait()
                 raise
 
             stdout_file.seek(0)

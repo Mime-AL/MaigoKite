@@ -36,7 +36,7 @@ class WebFetchTool(BaseTool):
     def description(self) -> str:
         return (
             "Fetch the content of a given URL and return it as readable text. "
-            "Automatically extracts the main content, ignoring navigation and ads. "
+            "Converts HTML to Markdown; does not execute JavaScript or remove all navigation. "
             "Supports HTTP and HTTPS URLs."
         )
 
@@ -66,10 +66,10 @@ class WebFetchTool(BaseTool):
         timeout = arguments.get("timeout", 15)
 
         if not url.startswith(("http://", "https://")):
-            return ToolResult(
-                data={},
-                summary="",
-                raw="Error: URL must start with http:// or https://",
+            return ToolResult.failure(
+                data={"url": url},
+                summary="URL must start with http:// or https://",
+                error_code="WEB_FETCH_INVALID_URL",
             )
 
         try:
@@ -136,6 +136,8 @@ class WebFetchTool(BaseTool):
                 data={
                     "url": url,
                     "title": title,
+                    "content": md_content[:10000],
+                    "truncated": len(md_content) > 10000,
                     "content_length": len(md_content),
                 },
                 summary=f"Fetched '{title or url}' ({len(md_content)} characters).",
@@ -143,7 +145,9 @@ class WebFetchTool(BaseTool):
             )
         except Exception as e:
             logger.error("Web fetch failed (%s)", type(e).__name__)
-            return ToolResult(
+            return ToolResult.failure(
                 data={"url": url, "error": str(e)},
                 summary=f"Failed to fetch {url}: {e}",
+                error_code="WEB_FETCH_FAILED",
+                user_hint="无法读取网页，请检查网址与网络连接；需要网页交互时可使用浏览器。",
             )

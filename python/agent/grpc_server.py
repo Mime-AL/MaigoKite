@@ -479,6 +479,22 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         return agent_pb2.PermissionSettings(default_mode=item["default_mode"], tool_levels=item["tool_levels"])
 
+    async def GetToolSettings(self, request, context):
+        item = await self._core.get_tool_settings(request.workspace_id or "personal")
+        return agent_pb2.ToolSettings(tools=[agent_pb2.ToolSetting(**tool) for tool in item["tools"]])
+
+    async def UpdateToolSettings(self, request, context):
+        workspace_id = request.workspace_id or "personal"
+        try:
+            item = await self._core.update_tool_settings(workspace_id, dict(request.enabled))
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        await self._core.repository.record_audit(
+            workspace_id, "local-user", "tools.selection.updated", workspace_id, "success",
+            {"enabled": dict(request.enabled)},
+        )
+        return agent_pb2.ToolSettings(tools=[agent_pb2.ToolSetting(**tool) for tool in item["tools"]])
+
     @staticmethod
     def _memory(item: dict[str, Any]) -> agent_pb2.Memory:
         return agent_pb2.Memory(

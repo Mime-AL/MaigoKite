@@ -59,9 +59,28 @@ class MCPToolWrapper(BaseTool):
     ) -> ToolResult:
         response = await self._client.call_tool(self._source_name, arguments)
         text = json.dumps(response, ensure_ascii=False, default=str)
+        metadata = {"tool": self.name, "source": "mcp"}
+        if not isinstance(response, dict):
+            return ToolResult.failure(
+                data={"result": response},
+                summary="MCP server returned an invalid tool result.",
+                error_code="MCP_INVALID_RESULT",
+                user_hint="MCP 服务返回了无法识别的结果，请检查服务版本和连接配置。",
+                raw=text,
+                metadata=metadata,
+            )
+        if response.get("isError") is True:
+            return ToolResult.failure(
+                data={"result": response},
+                summary=f"MCP tool {self._source_name} reported a failure.",
+                error_code="MCP_TOOL_ERROR",
+                user_hint="MCP 工具执行失败，请查看返回详情，并检查服务连接、凭证和工具参数。",
+                raw=text,
+                metadata=metadata,
+            )
         return ToolResult(
             data={"result": response},
             summary=text[:500],
             raw=text,
-            metadata={"tool": self.name, "source": "mcp"},
+            metadata=metadata,
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from agent.browser_runtime import BrowserRuntime, BrowserRuntimeUnavailable
@@ -72,6 +73,14 @@ class BrowserTool(BaseTool):
                 result = await self.runtime.close_session(self._required(arguments, "session_id"))
             else:
                 raise ValueError(f"unsupported browser action: {action}")
+        except asyncio.CancelledError:
+            # Stop remote navigation/actions too, without closing other sessions.
+            if session_id:
+                try:
+                    await self.runtime.close_session(session_id)
+                except KeyError:
+                    pass
+            raise
         except BrowserRuntimeUnavailable as exc:
             return ToolResult.failure(
                 {"action": action, "error": str(exc)},

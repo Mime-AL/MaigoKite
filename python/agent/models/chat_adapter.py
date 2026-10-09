@@ -8,6 +8,7 @@ the Agent Core never needs to import LangChain directly.
 from __future__ import annotations
 
 import ipaddress
+import inspect
 import os
 from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlparse
@@ -104,10 +105,11 @@ class ChatAdapter(IChatProvider):
         self._extra = build_extra
 
         self._llm = self._build_llm(provider, model, build_extra)
+        self._fallback_llm: Any | None
         if fallback_provider and fallback_model:
             self._fallback_llm = self._build_llm(fallback_provider, fallback_model, build_extra)
         else:
-            self._fallback_llm: Any | None = None
+            self._fallback_llm = None
 
     # ------------------------------------------------------------------
     # Factory
@@ -211,7 +213,7 @@ class ChatAdapter(IChatProvider):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _to_langchain(messages: list[ChatMessage]) -> list[BaseMessage]:
+    def to_langchain_messages(messages: list[ChatMessage]) -> list[BaseMessage]:
         """Convert our ``ChatMessage`` list to LangChain ``BaseMessage`` list."""
         result: list[BaseMessage] = []
         for msg in messages:
@@ -272,18 +274,13 @@ class ChatAdapter(IChatProvider):
     @staticmethod
     def _from_langchain(response: Any) -> ChatResponse:
         """Wrap a LangChain ``AIMessage`` into our ``ChatResponse``."""
-        usage: dict[str, int] = {}
+        from agent.models.usage import message_usage
+
+        usage = message_usage(response)
         finish_reason: str | None = None
 
         if hasattr(response, "response_metadata"):
             meta = response.response_metadata or {}
-            token_usage = meta.get("token_usage")
-            if isinstance(token_usage, dict):
-                usage = {
-                    k: int(v)
-                    for k, v in token_usage.items()
-                    if isinstance(v, (int, float)) and not isinstance(v, bool)
-                }
             finish_reason = meta.get("finish_reason")
 
         tool_calls: list[ToolCall] = []
@@ -338,7 +335,7 @@ class ChatAdapter(IChatProvider):
         Raises:
             Exception: Re-raised when both primary and fallback providers fail.
         """
-        lc_msgs = self._to_langchain(messages)
+        lc_msgs = self.to_langchain_messages(messages)
         tools = kwargs.pop("tools", None)
 
         effective_kwargs: dict[str, Any] = {
@@ -376,14 +373,14 @@ class ChatAdapter(IChatProvider):
         max_tokens: Optional[int] = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatStreamChunk]:
-        """Streaming chat with automatic fallback.
+        """Streaming chat with fallback only before the first emitted chunk.
 
         Yields provider-neutral text and tool-call deltas.
 
         Raises:
             Exception: Re-raised when both primary and fallback providers fail.
         """
-        lc_msgs = self._to_langchain(messages)
+        lc_msgs = self.to_langchain_messages(messages)
         tools = kwargs.pop("tools", None)
 
         effective_kwargs: dict[str, Any] = {
@@ -396,11 +393,18 @@ class ChatAdapter(IChatProvider):
 
         # Try the primary model.
         primary_error: Exception | None = None
+        emitted = False
         try:
             async for chunk in self._with_tools(self._llm, tools).astream(lc_msgs, **effective_kwargs):
-                yield self._stream_chunk(chunk)
+                projected = self._stream_chunk(chunk)
+                emitted = True
+                yield projected
             return
         except Exception as exc:
+            # Mixing two streams can concatenate unrelated tool IDs, names or
+            # JSON argument fragments into a call neither provider requested.
+            if emitted:
+                raise
             primary_error = exc
 
         # Fall back.
@@ -437,18 +441,13 @@ class ChatAdapter(IChatProvider):
                 arguments=str(arguments or ""),
             ))
         metadata = getattr(chunk, "response_metadata", {}) or {}
-        usage_metadata = getattr(chunk, "usage_metadata", {}) or {}
-        usage = {
-            str(key): int(value)
-            for key, value in usage_metadata.items()
-            if isinstance(value, (int, float)) and not isinstance(value, bool)
-        }
+        from agent.models.usage import message_usage
         return ChatStreamChunk(
             content=content,
             reasoning=ChatAdapter._reasoning_text(chunk),
             tool_call_chunks=fragments,
             finish_reason=metadata.get("finish_reason"),
-            usage=usage,
+            usage=message_usage(chunk),
         )
 
     @property
@@ -456,14 +455,41 @@ class ChatAdapter(IChatProvider):
         """Return the currently-selected model name."""
         return self.model
 
+    @property
+    def langchain_model(self) -> Any:
+        """Return the primary model for the production LangGraph runtime."""
+        return self._llm
+
     async def aclose(self) -> None:
         """Release HTTP clients owned by the wrapped LangChain models."""
-        for llm in (self._llm, self._fallback_llm):
+        closed: set[int] = set()
+        providers = (
+            (self._llm, self.provider),
+            (self._fallback_llm, None),
+        )
+        for llm, provider in providers:
             if llm is None:
                 continue
-            async_client = getattr(llm, "root_async_client", None)
-            if async_client is not None and hasattr(async_client, "close"):
-                await async_client.close()
-            client = getattr(llm, "root_client", None)
-            if client is not None and hasattr(client, "close"):
-                client.close()
+            module = type(llm).__module__
+            if provider in {"openai", "openai_compatible"} or module.startswith(
+                "langchain_openai"
+            ):
+                attributes = ("root_async_client", "root_client")
+            elif provider == "ollama" or module.startswith("langchain_ollama"):
+                attributes = ("_async_client", "_client")
+            else:
+                # ChatAnthropic 1.x caches its transports process-wide. Closing
+                # the private client poisons later instances in the same Core
+                # process, so its official cache owns that transport lifecycle.
+                continue
+            for attribute in attributes:
+                client = getattr(llm, attribute, None)
+                if client is None or id(client) in closed:
+                    continue
+                closed.add(id(client))
+                close = getattr(client, "aclose", None) or getattr(client, "close", None)
+                if close is None:
+                    continue
+                result = close()
+                if inspect.isawaitable(result):
+                    await result

@@ -5,7 +5,7 @@ import IconSymbol from '@/components/common/IconSymbol.vue'
 import ModelSettingsPanel from '@/components/settings/ModelSettingsPanel.vue'
 import PermissionSettingsPanel from '@/components/settings/PermissionSettingsPanel.vue'
 import RuntimeStatusPanel from '@/components/settings/RuntimeStatusPanel.vue'
-import SearchToolSettingsPanel from '@/components/settings/SearchToolSettingsPanel.vue'
+import ToolSettingsPanel from '@/components/settings/ToolSettingsPanel.vue'
 import { useSettingsStore } from '@/stores/settings'
 
 type SettingsTab = 'models' | 'tools' | 'permissions' | 'workspace' | 'general'
@@ -19,7 +19,7 @@ const activeTab = ref<SettingsTab>(isSettingsTab(route.query.tab) ? route.query.
 const profileDraft = reactive({ assistantName: settings.profile.assistantName })
 const tabs: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'models', label: '模型服务', icon: 'brain' },
-  { id: 'tools', label: '联网工具', icon: 'globe' },
+  { id: 'tools', label: '工具', icon: 'globe' },
   { id: 'permissions', label: '权限', icon: 'shield' },
   { id: 'workspace', label: '工作区', icon: 'folder' },
   { id: 'general', label: '通用', icon: 'settings' },
@@ -53,7 +53,7 @@ async function handleSavePreferences() {
     <header class="settings-heading">
       <div>
         <h1 class="page-title">设置</h1>
-        <p class="page-subtitle">管理助手称呼、模型、联网工具和执行权限。</p>
+        <p class="page-subtitle">管理助手称呼、模型、可用工具和执行权限。</p>
       </div>
     </header>
 
@@ -71,7 +71,7 @@ async function handleSavePreferences() {
     </nav>
 
     <ModelSettingsPanel v-if="activeTab === 'models'" />
-    <SearchToolSettingsPanel v-else-if="activeTab === 'tools'" />
+    <ToolSettingsPanel v-else-if="activeTab === 'tools'" />
     <PermissionSettingsPanel v-else-if="activeTab === 'permissions'" />
     <RuntimeStatusPanel v-else-if="activeTab === 'workspace'" />
 

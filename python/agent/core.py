@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
 import uuid
+from collections.abc import Awaitable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from agent.browser_runtime import BrowserRuntime
 from agent.config_manager import ConfigManager
@@ -19,6 +21,7 @@ from agent.models.runtime import ChatModelRuntime, ChatModelSettings
 from agent.mcp import MCPClient
 from agent.observability import Observability
 from agent.repository import SQLiteRepository
+from agent.runtime import LangGraphRuntime, ProductToolSpec, RuntimeRunRequest
 from agent.security.injection_filter import InjectionFilter
 from agent.security.whitelist import Whitelist
 from agent.skill_registry import SkillRegistry
@@ -39,6 +42,7 @@ from agent.tools.native import (
     WebSearchTool,
 )
 from agent.tools.permission_mgr import PermissionManager, PermissionRequired
+from agent.tools.native.bash import ExecCommandTool
 from agent.tools.tool_registry import ToolRegistry
 
 
@@ -134,6 +138,11 @@ class AgentCore:
         self._mcp_runtime: list[dict[str, Any]] = []
         self._tool_credentials: dict[tuple[str, str], str] = {}
         self._cancelled_tasks: set[str] = set()
+        self._runtime_backend = str(config.get("agent.runtime", "legacy")).strip().lower()
+        if self._runtime_backend not in {"legacy", "langgraph"}:
+            raise ValueError("agent.runtime must be 'legacy' or 'langgraph'")
+        self._langgraph_runtime: LangGraphRuntime | None = None
+        self._langgraph_entry_tasks: set[asyncio.Task[Any]] = set()
 
     async def initialize(self) -> None:
         if self._initialized:
@@ -148,6 +157,7 @@ class AgentCore:
                 FileWriteTool,
                 FileEditTool,
                 BashTool,
+                ExecCommandTool,
                 WebSearchTool,
                 WebFetchTool,
                 GlobTool,
@@ -173,6 +183,15 @@ class AgentCore:
             raise
         self._registry = registry
         self._execution_engine.registry = registry
+        try:
+            self._configured_tool_selection()
+            if self._runtime_backend == "langgraph":
+                await self._initialize_langgraph_runtime()
+        except BaseException:
+            await self._stop_mcp_servers()
+            self.event_bus.set_sink(None)
+            await self.repository.close()
+            raise
         self._initialized = True
         await self.reconcile_interrupted_tasks()
         await self.observability.log("info", "Agent Core initialized")
@@ -193,6 +212,13 @@ class AgentCore:
         return interrupted
 
     async def shutdown(self) -> None:
+        if self._langgraph_runtime is not None:
+            await self._langgraph_runtime.close()
+            self._langgraph_runtime = None
+        current = asyncio.current_task()
+        entries = [task for task in self._langgraph_entry_tasks if task is not current]
+        if entries:
+            await asyncio.gather(*entries, return_exceptions=True)
         await self._stop_mcp_servers()
         if self._browser is not None:
             await self._browser.close()
@@ -259,7 +285,16 @@ class AgentCore:
             )
             await client.start()
             self._mcp_clients.append(client)
-            discovered = await registry.discover_mcp(client, namespace)
+            enabled_tools = server.get("enabled_tools")
+            disabled_tools = server.get("disabled_tools", [])
+            for key, values in (("enabled_tools", enabled_tools), ("disabled_tools", disabled_tools)):
+                if values is not None and (
+                    not isinstance(values, list) or not all(isinstance(item, str) for item in values)
+                ):
+                    raise ValueError(f"MCP server {namespace!r} {key} must be a string array")
+            discovered = await registry.discover_mcp(
+                client, namespace, enabled_tools=enabled_tools, disabled_tools=disabled_tools or [],
+            )
             self._mcp_runtime.append(
                 {
                     "namespace": namespace,
@@ -277,6 +312,119 @@ class AgentCore:
                 await client.stop()
             except Exception as exc:
                 await self.observability.log("warning", f"Failed to stop MCP server: {type(exc).__name__}")
+
+    async def _initialize_langgraph_runtime(self) -> None:
+        """Reuse product tools; LangChain owns all runtime invocation."""
+        specs = [
+            ProductToolSpec(tool, tool.to_langchain_tool())
+            for tool in self._registry.list_tools() if tool.name != "bash"
+        ]
+
+        configured = str(self.config.get("agent.langgraph_checkpoint_path", "")).strip()
+        if configured:
+            checkpoint_path = configured
+        else:
+            db_value = str(
+                self.config.get(
+                    "storage.sqlite_path",
+                    self.config.get(
+                        "memory.storage.sqlite_path",
+                        "~/.nanamigopher/data/agent.db",
+                    ),
+                )
+            )
+            if db_value == ":memory:":
+                checkpoint_path = str(
+                    self._policy.workspace_root / ".nanami-langgraph-checkpoints.sqlite"
+                )
+            else:
+                database_path = Path(db_value).expanduser()
+                checkpoint_path = str(
+                    database_path.with_name(
+                        f"{database_path.stem}.langgraph{database_path.suffix or '.sqlite'}"
+                    )
+                )
+        runtime = LangGraphRuntime(
+            model_resolver=self._resolve_langgraph_model,
+            workspace_root=self._policy.workspace_root,
+            checkpoint_path=checkpoint_path,
+            repository=self.repository,
+            policy=self._policy,
+            event_publisher=self.event_bus.publish,
+            tools=specs,
+            system_prompt=self._skills.catalog_prompt(),
+            context_max_tokens=self._context_manager.max_tokens,
+            max_model_calls=self._max_tool_iterations,
+            execution_metadata=self._langgraph_execution_metadata,
+        )
+        await runtime.open()
+        self._langgraph_runtime = runtime
+
+    async def _langgraph_execution_metadata(self, request: RuntimeRunRequest) -> dict[str, Any]:
+        return await self._execution_metadata(
+            request.workspace_id, request.conversation_id, request.principal_id,
+        )
+
+    def _configured_tool_selection(self) -> tuple[set[str], set[str]]:
+        """Defaults are visibility preferences, disabled_tools is a config ceiling."""
+        defaults = self.config.get("tools.default_tools", list(ToolRegistry.DEFAULT_TOOLS))
+        disabled = self.config.get("tools.disabled_tools", [])
+        for key, values in (("default_tools", defaults), ("disabled_tools", disabled)):
+            if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+                raise ValueError(f"tools.{key} must be a string array")
+        defaults = ["exec_command" if name == "bash" else name for name in defaults]
+        disabled = ["exec_command" if name == "bash" else name for name in disabled]
+        available = {tool.name for tool in self._registry.list_tools()}
+        known = available | set(ToolRegistry.DEFAULT_TOOLS) | {"sleep", "todo_write"}
+        if unknown := (set(defaults) | set(disabled)) - known:
+            raise ValueError(f"unknown configured tools: {', '.join(sorted(unknown))}")
+        # Connected MCP tools are selected at their server boundary first.
+        defaults = set(defaults) | {name for name in available if "__" in name}
+        return defaults - {"bash"}, set(disabled) | {"bash"}
+
+    async def get_tool_settings(self, workspace_id: str) -> dict[str, Any]:
+        defaults, disabled = self._configured_tool_selection()
+        overrides = await self.repository.get_workspace_setting(workspace_id, "tools.selection")
+        overrides = overrides if isinstance(overrides, dict) else {}
+        return {"tools": [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "source": "mcp" if "__" in tool.name else "builtin",
+                "enabled": tool.name not in disabled and overrides.get(tool.name, tool.name in defaults) is True,
+                "configurable": tool.name not in disabled,
+                "default_enabled": tool.name in defaults and tool.name not in disabled,
+            }
+            for tool in self._registry.list_tools() if tool.name != "bash"
+        ]}
+
+    async def update_tool_settings(self, workspace_id: str, enabled: dict[str, bool]) -> dict[str, Any]:
+        catalog = {item["name"]: item for item in (await self.get_tool_settings(workspace_id))["tools"]}
+        for name, value in enabled.items():
+            if name not in catalog or not isinstance(value, bool):
+                raise ValueError(f"invalid tool selection: {name}")
+            if value and not catalog[name]["configurable"]:
+                raise ValueError(f"tool disabled by startup configuration: {name}")
+        stored = await self.repository.get_workspace_setting(workspace_id, "tools.selection")
+        overrides = dict(stored) if isinstance(stored, dict) else {}
+        overrides.update(enabled)
+        await self.repository.save_workspace_setting(workspace_id, "tools.selection", overrides)
+        return await self.get_tool_settings(workspace_id)
+
+    async def _enabled_tool_names(self, workspace_id: str) -> list[str]:
+        return [item["name"] for item in (await self.get_tool_settings(workspace_id))["tools"] if item["enabled"]]
+
+    async def _resolve_langgraph_model(
+        self, workspace_id: str, model_id: str
+    ) -> tuple[str, Any]:
+        if self.provider is not None:
+            model = getattr(self.provider, "langchain_model", None)
+            if model is None:
+                raise RuntimeError(
+                    "the injected provider does not expose a LangChain chat model"
+                )
+            return f"injected:{id(self.provider)}", model
+        return await self.models.get_langchain_model(workspace_id, model_id)
 
     async def get_permission_settings(self, workspace_id: str) -> dict[str, Any]:
         stored = await self.repository.get_workspace_setting(workspace_id, "permissions.policy")
@@ -375,6 +523,10 @@ class AgentCore:
             raise RuntimeError("Agent Core is not initialized")
         prompt = self._input_filter.sanitize_input(prompt)
         metadata = metadata or {}
+        if self._runtime_backend == "langgraph" and not prompt.startswith("/tool "):
+            return await self._track_langgraph_entry(
+                self._run_langgraph_chat(prompt, metadata)
+            )
         workspace_id = str(metadata.get("workspace_id", "personal"))
         principal_id = str(metadata.get("principal_id", "local-user"))
         conversation_id = str(metadata.get("conversation_id") or metadata.get("session_id") or "")
@@ -450,6 +602,113 @@ class AgentCore:
                 "retryable": False,
             }
 
+    async def _run_langgraph_chat(
+        self, prompt: str, metadata: dict[str, Any]
+    ) -> dict[str, Any]:
+        runtime = self._langgraph_runtime
+        if runtime is None:
+            raise RuntimeError("LangGraph runtime is not initialized")
+        workspace_id = str(metadata.get("workspace_id", "personal"))
+        principal_id = str(metadata.get("principal_id", "local-user"))
+        conversation_id = str(
+            metadata.get("conversation_id") or metadata.get("session_id") or ""
+        )
+        if not conversation_id:
+            conversation_id = (
+                await self.create_conversation(workspace_id, title=prompt[:30])
+            )["id"]
+        else:
+            try:
+                await self.repository.get_conversation(workspace_id, conversation_id)
+            except KeyError:
+                conversation_id = (
+                    await self.create_conversation(workspace_id, title=prompt[:30])
+                )["id"]
+        conversation = await self.repository.get_conversation(
+            workspace_id, conversation_id
+        )
+        request = RuntimeRunRequest(
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            principal_id=principal_id,
+            permission_mode=str(conversation["permission_mode"]),
+            trace_id=str(metadata.get("trace_id") or f"trace_{uuid.uuid4().hex}"),
+        )
+        handle = await runtime.start(prompt, request)
+        try:
+            await handle.collect()
+            await handle.wait()
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                await asyncio.shield(handle.cancel())
+                raise
+        return await self._langgraph_result(
+            workspace_id, handle.request.task_id, conversation_id
+        )
+
+    async def _track_langgraph_entry(
+        self, operation: Awaitable[dict[str, Any]]
+    ) -> dict[str, Any]:
+        current = asyncio.current_task()
+        if current is not None:
+            self._langgraph_entry_tasks.add(current)
+        try:
+            return await operation
+        finally:
+            if current is not None:
+                self._langgraph_entry_tasks.discard(current)
+
+    async def _langgraph_result(
+        self, workspace_id: str, task_id: str, conversation_id: str
+    ) -> dict[str, Any]:
+        task = await self.repository.get_task(workspace_id, task_id)
+        status = str(task["status"])
+        if status == "waiting_approval":
+            approvals = await self.repository.list_approvals(
+                workspace_id, conversation_id
+            )
+            approval = next(
+                item for item in approvals if str(item["task_id"]) == task_id
+            )
+            return {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "status": status,
+                "approval": self._approval_payload(approval),
+            }
+        if status == "succeeded":
+            messages = await self.repository.list_messages(conversation_id)
+            response = next(
+                (
+                    str(item["content"])
+                    for item in reversed(messages)
+                    if str(item["role"]) == "assistant"
+                ),
+                "",
+            )
+            return {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "response": response,
+                "status": status,
+            }
+        if status == "cancelled":
+            return {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "status": status,
+                "error_code": "TASK_CANCELLED",
+            }
+        return {
+            "task_id": task_id,
+            "conversation_id": conversation_id,
+            "status": status,
+            "error": str(task.get("last_error") or "Agent execution failed"),
+            "error_code": "AGENT_ERROR",
+            "retryable": False,
+        }
+
     async def _finish_task(self, task_id: str, conversation_id: str, response: str) -> None:
         self._raise_if_cancelled(task_id)
         message = await self.repository.append_message(conversation_id, "assistant", response)
@@ -468,21 +727,22 @@ class AgentCore:
         )
         await self.event_bus.publish("task.succeeded", {"task_id": task_id, "conversation_id": conversation_id})
 
-    def _tool_schemas(self) -> list[dict[str, Any]]:
+    def _tool_schemas(self, enabled: list[str] | None = None) -> list[dict[str, Any]]:
+        if enabled is None:
+            defaults, disabled = self._configured_tool_selection()
+            enabled = sorted(defaults - disabled)
         return [
             {
                 "type": "function",
                 "function": {"name": tool.name, "description": tool.description, "parameters": tool.parameters_schema},
             }
             for tool in self._registry.list_tools()
+            if tool.name in enabled
         ]
 
     async def _conversation_history(self, conversation_id: str) -> list[ChatMessage]:
         history = await self.repository.list_messages(conversation_id)
-        self._context_manager.clear()
-        for item in history:
-            self._context_manager.add_message(item["role"], item["content"])
-        messages = [ChatMessage(item.role, item.content) for item in self._context_manager.get_messages()]
+        messages = [ChatMessage(item["role"], item["content"]) for item in history]
         if catalog := self._skills.catalog_prompt():
             messages.insert(0, ChatMessage("system", catalog))
         return messages
@@ -494,13 +754,19 @@ class AgentCore:
         task_id: str,
         conversation_id: str,
         generation_options: dict[str, Any] | None = None,
+        workspace_id: str = "personal",
     ) -> tuple[str, list[ToolCall]]:
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         fragments: dict[int, dict[str, str]] = {}
-        async for value in provider.stream(history, tools=self._tool_schemas(), **(generation_options or {})):
+        tools = self._tool_schemas(await self._enabled_tool_names(workspace_id))
+        prepared = self._context_manager.prepare(history, tools)
+        usage: dict[str, int] = {}
+        async for value in provider.stream(prepared, tools=tools, **(generation_options or {})):
             self._raise_if_cancelled(task_id)
             chunk = value if isinstance(value, ChatStreamChunk) else ChatStreamChunk(content=str(value))
+            for key, count in chunk.usage.items():
+                usage[key] = usage.get(key, 0) + count
             if chunk.content:
                 content_parts.append(chunk.content)
             if chunk.reasoning:
@@ -512,6 +778,11 @@ class AgentCore:
                 if fragment.name:
                     current["name"] += fragment.name
                 current["arguments"] += fragment.arguments
+        if usage:
+            await self.event_bus.publish("model.usage", {
+                "task_id": task_id, "conversation_id": conversation_id,
+                "model": provider.model_name, "usage": usage,
+            })
         calls: list[ToolCall] = []
         for index in sorted(fragments):
             item = fragments[index]
@@ -590,7 +861,7 @@ class AgentCore:
         working_history = history or await self._conversation_history(conversation_id)
         for _ in range(self._max_tool_iterations):
             assistant_content, calls = await self._stream_model(
-                provider, working_history, task_id, conversation_id, generation_options
+                provider, working_history, task_id, conversation_id, generation_options, workspace_id
             )
             if not calls:
                 return assistant_content
@@ -693,6 +964,7 @@ class AgentCore:
             "approved": approved,
             "workspace_root": str(self._policy.workspace_root),
             "api_keys": api_keys,
+            "enabled_tools": await self._enabled_tool_names(workspace_id),
         }
 
     async def _execute_model_tool_call(
@@ -817,7 +1089,12 @@ class AgentCore:
             },
         )
         try:
-            result = await self._execution_engine.execute_authorized(call.name, policy, context)
+            result = cast(
+                ToolResult,
+                await self._execution_engine.execute_authorized(
+                    call.name, policy, context
+                ),
+            )
         except Exception as exc:
             await self.repository.update_tool_call(call.id, "failed", summary=str(exc))
             await self.event_bus.publish(
@@ -942,6 +1219,21 @@ class AgentCore:
         decision: str,
         version: int,
     ) -> dict[str, Any]:
+        if self._langgraph_runtime is not None:
+            pending = await self.repository.get_approval(workspace_id, approval_id)
+            task_id = str(pending["task_id"])
+            if await self._langgraph_runtime.has_checkpoint(task_id):
+                return await self._track_langgraph_entry(
+                    self._resume_langgraph_approval(
+                        workspace_id,
+                        approval_id,
+                        principal_id,
+                        decision,
+                        version,
+                        task_id,
+                        str(pending["conversation_id"]),
+                    )
+                )
         approval = await self.repository.decide_approval(workspace_id, approval_id, principal_id, decision, version)
         await self.repository.record_audit(
             workspace_id,
@@ -1011,7 +1303,12 @@ class AgentCore:
                     "risk_level": policy.risk.name,
                 },
             )
-            result = await self._execution_engine.execute_authorized(call.name, policy, context)
+            result = cast(
+                ToolResult,
+                await self._execution_engine.execute_authorized(
+                    call.name, policy, context
+                ),
+            )
             self._raise_if_cancelled(task_id)
         except AgentCancelled:
             if task is not None:
@@ -1119,6 +1416,38 @@ class AgentCore:
         await self._finish_task(task_id, conversation_id, response)
         return {"task_id": task_id, "conversation_id": conversation_id, "status": "succeeded", "response": response}
 
+    async def _resume_langgraph_approval(
+        self,
+        workspace_id: str,
+        approval_id: str,
+        principal_id: str,
+        decision: str,
+        version: int,
+        task_id: str,
+        conversation_id: str,
+    ) -> dict[str, Any]:
+        runtime = self._langgraph_runtime
+        if runtime is None:
+            raise RuntimeError("LangGraph runtime is not initialized")
+        handle = await runtime.resume_approval(
+            workspace_id,
+            approval_id,
+            principal_id,
+            decision,
+            version,
+        )
+        try:
+            await handle.collect()
+            await handle.wait()
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                await asyncio.shield(handle.cancel())
+                raise
+        return await self._langgraph_result(
+            workspace_id, task_id, conversation_id
+        )
+
     async def interrupt(self) -> None:
         for task in await self._task_manager.list_tasks(TaskStatus.RUNNING):
             await self._execution_engine.cancel(task.id)
@@ -1145,6 +1474,11 @@ class AgentCore:
         task = await self.repository.get_task(workspace_id, task_id)
         if task["status"] in {"succeeded", "failed", "cancelled", "timed_out", "expired"}:
             return task
+        if (
+            self._langgraph_runtime is not None
+            and await self._langgraph_runtime.owns_task(task_id)
+        ):
+            return await self._langgraph_runtime.cancel(workspace_id, task_id)
         self._cancelled_tasks.add(task_id)
         await self._execution_engine.cancel(task_id)
         memory_task = await self._task_manager.get_task(task_id)

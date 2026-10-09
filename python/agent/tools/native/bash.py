@@ -1,4 +1,4 @@
-"""BashTool - execute argv without a shell inside a workspace sandbox."""
+"""Command execution without shell expansion; BashTool is a legacy alias."""
 
 from __future__ import annotations
 
@@ -40,10 +40,10 @@ BASH_DESCRIPTION = (
 )
 
 
-class BashTool(BaseTool):
+class ExecCommandTool(BaseTool):
     @property
     def name(self) -> str:
-        return "bash"
+        return "exec_command"
 
     @property
     def description(self) -> str:
@@ -89,9 +89,20 @@ class BashTool(BaseTool):
             summary="; ".join(parts),
             raw=result.stdout or result.stderr or "",
             metadata={
-                "tool": "bash",
+                "tool": self.name,
                 "type": "process",
                 "exit_code": result.exit_code,
                 "sandboxed": result.sandboxed,
             },
+            success=result.exit_code == 0 and not result.timed_out,
+            error_code=("COMMAND_TIMEOUT" if result.timed_out else "COMMAND_FAILED")
+            if result.exit_code != 0 or result.timed_out else None,
         )
+
+
+class BashTool(ExecCommandTool):
+    """Retained for historical /tool calls and pending legacy approvals only."""
+
+    @property
+    def name(self) -> str:
+        return "bash"

@@ -110,6 +110,9 @@ func (r *Router) routes() {
 	permissions := &PermissionHandler{client: r.client}
 	workspaces.GET("/permissions", permissions.Get)
 	workspaces.PATCH("/permissions", r.requireWorkspaceOwner(), permissions.Update)
+	toolSettings := &ToolSettingsHandler{client: r.client}
+	workspaces.GET("/tool-settings", r.requireWorkspaceOwner(), toolSettings.Get)
+	workspaces.PATCH("/tool-settings", r.requireWorkspaceOwner(), toolSettings.Update)
 	memories := &MemoryHandler{client: r.client}
 	workspaces.GET("/memories", memories.List)
 	workspaces.POST("/memories", memories.Create)

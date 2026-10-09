@@ -10,13 +10,15 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     # === LangChain 生态（LLM 适配层 + Tool 定义 + Prompt + Embedding）===
-    "langchain>=0.3.0",
-    "langchain-core>=0.3.0",
+    "langchain>=1.3.14,<2",
+    "langchain-core>=1.5.0,<2",
     "langchain-openai>=0.2.0",
-    "langchain-anthropic>=0.2.0",
+    "langchain-anthropic>=1.4.8,<2",
     "langchain-community>=0.3.0",
     "langchain-ollama>=0.2.0",
-    "langgraph>=0.2.0",
+    "langgraph>=1.2.9,<2",
+    "langgraph-checkpoint-sqlite>=3.1.1",
+    "aiosqlite>=0.20.0",
 
     # === BGE Embedding（本地向量）===
     "langchain-bge>=0.0.3",
@@ -32,6 +34,8 @@ dependencies = [
 
     # === 配置 / 数据模型 ===
     "pydantic>=2.0.0",
+    "jsonschema>=4.26.0,<5",
+    "referencing>=0.37.0,<1",
     "pydantic-settings>=2.0.0",
     "pyyaml>=6.0",
 

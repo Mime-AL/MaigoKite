@@ -184,6 +184,16 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.UpdatePermissionSettingsRequest.SerializeToString,
                 response_deserializer=agent__pb2.PermissionSettings.FromString,
                 _registered_method=True)
+        self.GetToolSettings = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/GetToolSettings',
+                request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
+                response_deserializer=agent__pb2.ToolSettings.FromString,
+                _registered_method=True)
+        self.UpdateToolSettings = channel.unary_unary(
+                '/nanamigopher.agent.v1.AgentService/UpdateToolSettings',
+                request_serializer=agent__pb2.UpdateToolSettingsRequest.SerializeToString,
+                response_deserializer=agent__pb2.ToolSettings.FromString,
+                _registered_method=True)
         self.ListMemories = channel.unary_unary(
                 '/nanamigopher.agent.v1.AgentService/ListMemories',
                 request_serializer=agent__pb2.MemoryListRequest.SerializeToString,
@@ -404,6 +414,18 @@ class AgentServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetToolSettings(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateToolSettings(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListMemories(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -598,6 +620,16 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.UpdatePermissionSettings,
                     request_deserializer=agent__pb2.UpdatePermissionSettingsRequest.FromString,
                     response_serializer=agent__pb2.PermissionSettings.SerializeToString,
+            ),
+            'GetToolSettings': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetToolSettings,
+                    request_deserializer=agent__pb2.WorkspaceRequest.FromString,
+                    response_serializer=agent__pb2.ToolSettings.SerializeToString,
+            ),
+            'UpdateToolSettings': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateToolSettings,
+                    request_deserializer=agent__pb2.UpdateToolSettingsRequest.FromString,
+                    response_serializer=agent__pb2.ToolSettings.SerializeToString,
             ),
             'ListMemories': grpc.unary_unary_rpc_method_handler(
                     servicer.ListMemories,
@@ -1445,6 +1477,60 @@ class AgentService:
             '/nanamigopher.agent.v1.AgentService/UpdatePermissionSettings',
             agent__pb2.UpdatePermissionSettingsRequest.SerializeToString,
             agent__pb2.PermissionSettings.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetToolSettings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/GetToolSettings',
+            agent__pb2.WorkspaceRequest.SerializeToString,
+            agent__pb2.ToolSettings.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateToolSettings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/nanamigopher.agent.v1.AgentService/UpdateToolSettings',
+            agent__pb2.UpdateToolSettingsRequest.SerializeToString,
+            agent__pb2.ToolSettings.FromString,
             options,
             channel_credentials,
             insecure,

@@ -79,7 +79,7 @@ class WebSearchTool(BaseTool):
                 data={"results": [], "error": "search provider is not configured", "engine": engine},
                 summary=f"{engine.title()} search is not configured.",
                 error_code="SEARCH_PROVIDER_NOT_CONFIGURED",
-                user_hint=f"请在“设置 → 联网工具”中配置 {engine.title()}，或改用 DuckDuckGo。",
+                user_hint=f"请在“设置 → 工具”中配置 {engine.title()}，或改用 DuckDuckGo。",
                 action={"label": "配置联网工具", "to": "/settings?tab=tools"},
             )
         if engine == "google":
@@ -89,7 +89,7 @@ class WebSearchTool(BaseTool):
                     data={"results": [], "error": "search provider configuration is invalid", "engine": engine},
                     summary="Google search configuration is invalid.",
                     error_code="SEARCH_PROVIDER_INVALID_CONFIGURATION",
-                    user_hint="Google 搜索需要 API Key 和搜索引擎 ID（CX），请在“设置 → 联网工具”中重新配置。",
+                    user_hint="Google 搜索需要 API Key 和搜索引擎 ID（CX），请在“设置 → 工具”中重新配置。",
                     action={"label": "配置联网工具", "to": "/settings?tab=tools"},
                 )
 
@@ -114,7 +114,7 @@ class WebSearchTool(BaseTool):
                 data={"results": [], "error": "search provider request failed", "engine": engine},
                 summary="Web search provider request failed.",
                 error_code="SEARCH_PROVIDER_UNAVAILABLE",
-                user_hint="联网搜索暂不可用。请检查网络，或在“设置 → 联网工具”中配置其他搜索服务。",
+                user_hint="联网搜索暂不可用。请检查网络，或在“设置 → 工具”中配置其他搜索服务。",
                 action={"label": "配置联网工具", "to": "/settings?tab=tools"},
             )
 

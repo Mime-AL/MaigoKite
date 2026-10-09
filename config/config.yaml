@@ -29,6 +29,12 @@ browser:
   headless: true
   executable_path: ""
 
+# Tool visibility is independent of permission/approval. TODO and sleep are
+# opt-in. Connected MCP tools are selected by each server's allow/deny lists.
+tools:
+  default_tools: [file_read, file_write, file_edit, glob, grep, exec_command, web_search, web_fetch, browser, skill]
+  disabled_tools: []  # Startup ceiling; the settings UI cannot override this.
+
 # Permission settings
 permissions:
   default_mode: "workspace"

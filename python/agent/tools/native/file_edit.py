@@ -16,6 +16,7 @@ class FileEditParams(BaseModel):
 
     path: str = Field(description="The absolute or relative file path to edit.")
     old_string: str = Field(
+        min_length=1,
         description=(
             "The exact substring to search for and replace. "
             "This must match the file content precisely, including whitespace and indentation."
@@ -26,6 +27,7 @@ class FileEditParams(BaseModel):
     )
     count: int = Field(
         default=1,
+        ge=0,
         description="Maximum number of occurrences to replace (default: 1). Use 0 to replace all.",
     )
     encoding: str = Field(default="utf-8", description="File encoding (default: utf-8).")

@@ -21,6 +21,14 @@ class ExecutionEngine:
         workspace_id=str(context.metadata.get("workspace_id","personal"))
         actor=str(context.metadata.get("principal_id","local-user"))
         tool=self.registry.get(tool_name)
+        enabled=context.metadata.get("enabled_tools")
+        selected_name="exec_command" if tool_name=="bash" else tool_name
+        if enabled is not None and selected_name not in enabled:
+            await self.repository.record_audit(
+                workspace_id,actor,"tool.denied",tool_name,"denied",
+                {"reason":"tool is not enabled"},
+            )
+            raise PermissionError("tool is not enabled")
         if tool is None:
             decision=PolicyDecision("deny",RiskLevel.L5,"unknown capability",dict(arguments))
             await self.repository.record_audit(

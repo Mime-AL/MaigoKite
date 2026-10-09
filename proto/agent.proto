@@ -33,6 +33,8 @@ service AgentService {
   rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (UserPreferences);
   rpc GetPermissionSettings(WorkspaceRequest) returns (PermissionSettings);
   rpc UpdatePermissionSettings(UpdatePermissionSettingsRequest) returns (PermissionSettings);
+  rpc GetToolSettings(WorkspaceRequest) returns (ToolSettings);
+  rpc UpdateToolSettings(UpdateToolSettingsRequest) returns (ToolSettings);
   rpc ListMemories(MemoryListRequest) returns (MemoryList);
   rpc UpsertMemory(UpsertMemoryRequest) returns (Memory);
   rpc DeleteMemory(MemoryRequest) returns (Empty);
@@ -210,6 +212,19 @@ message PermissionSettings {
 message UpdatePermissionSettingsRequest {
   string workspace_id = 1;
   PermissionSettings settings = 2;
+}
+message ToolSetting {
+  string name = 1;
+  string description = 2;
+  string source = 3;
+  bool enabled = 4;
+  bool configurable = 5;
+  bool default_enabled = 6;
+}
+message ToolSettings { repeated ToolSetting tools = 1; }
+message UpdateToolSettingsRequest {
+  string workspace_id = 1;
+  map<string, bool> enabled = 2;
 }
 message MemoryListRequest {
   string workspace_id = 1;

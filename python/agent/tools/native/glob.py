@@ -1,94 +1,57 @@
-"""GlobTool - Find files matching glob patterns using LangChain StructuredTool."""
+"""Read-only file discovery using ripgrep's maintained glob/ignore engine."""
 
 from __future__ import annotations
 
-from fnmatch import fnmatch
+import shlex
 from pathlib import Path
 from typing import Any
 
-from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
+from agent.utils.sandbox import SandboxExecutor
 
 
 class GlobParams(BaseModel):
-    """Parameters for glob pattern matching."""
-
-    pattern: str = Field(
-        description=(
-            "A glob / filename-matching pattern (e.g., '**/*.py', 'src/**/*.rs'). "
-            "Uses Python fnmatch-style syntax."
-        ),
-    )
-    root_dir: str = Field(
-        default=".",
-        description="Root directory from which to begin searching (default: current directory).",
-    )
-
-
-def _glob_impl(pattern: str, root_dir: str = ".") -> dict[str, Any]:
-    """Recursively find files matching a glob-style pattern.
-
-    Args:
-        pattern: The glob pattern to match against file names.
-        root_dir: Directory tree root for the search.
-
-    Returns:
-        A dict with keys matches (sorted list of paths) and count.
-    """
-    root = Path(root_dir).resolve()
-    matches: list[str] = []
-    if not root.is_dir():
-        return {"matches": [], "count": 0}
-
-    for entry in root.rglob("*"):
-        if entry.is_file() and fnmatch(entry.name, pattern):
-            matches.append(str(entry.relative_to(root)))
-
-    matches.sort()
-    return {"matches": matches, "count": len(matches)}
-
-
-GLOB_DESCRIPTION = (
-    "Recursively find files matching a glob pattern within a directory tree. "
-    "Returns a sorted list of matched file paths relative to the root directory."
-)
+    pattern: str = Field(min_length=1, description="Ripgrep glob, e.g. '**/*.py' or 'src/**/*.rs'.")
+    root_dir: str = Field(default=".", description="Directory to search inside the workspace.")
+    max_results: int = Field(default=1000, ge=1, le=10000)
 
 
 class GlobTool(BaseTool):
-    """Finds files matching a glob pattern via LangChain StructuredTool."""
-
-    def __init__(self) -> None:
-        self._structured = StructuredTool.from_function(
-            func=_glob_impl,
-            name="glob",
-            description=GLOB_DESCRIPTION,
-            args_schema=GlobParams,
-        )
-
     @property
     def name(self) -> str:
         return "glob"
 
     @property
     def description(self) -> str:
-        return self._structured.description
+        return "Find files using ripgrep globs. Respects ignore files, skips hidden files and does not follow symlinks."
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
         return GlobParams.model_json_schema()
 
-    async def execute(
-        self, context: ExecutionContext, arguments: dict[str, Any]
-    ) -> ToolResult:
-        """Execute the glob search and return matching paths."""
-        result = _glob_impl(**arguments)
-        pattern = arguments.get("pattern", "")
-        matches = result.get("matches", [])
+    async def execute(self, context: ExecutionContext, arguments: dict[str, Any]) -> ToolResult:
+        args = GlobParams.model_validate(arguments)
+        root = Path(args.root_dir).resolve()
+        executor = SandboxExecutor({
+            "workspace_root": context.metadata.get("workspace_root", str(root)), "workdir": str(root),
+        })
+        try:
+            result = await executor.execute_command(shlex.join([
+                "rg", "--no-config", "--files", "--null", "--sort", "path", "--glob", args.pattern, ".",
+            ]))
+        except FileNotFoundError:
+            return ToolResult.failure({}, "ripgrep is not installed.", error_code="RIPGREP_UNAVAILABLE",
+                                      user_hint="文件搜索需要 ripgrep（rg），请安装后重试。")
+        if result.timed_out or result.exit_code not in {0, 1}:
+            return ToolResult.failure({}, result.stderr or "File search failed.", error_code="FILE_SEARCH_FAILED")
+        # A capped output can end in half a filename; never present it as real.
+        paths = result.stdout.split("\0")[:-1]
+        matches = [name.removeprefix("./") for name in paths[:args.max_results]]
+        truncated = result.output_truncated or len(paths) > args.max_results
         return ToolResult(
-            data={"pattern": pattern, "matches": matches, "count": result["count"]},
-            summary=f"Found {result['count']} file(s) matching '{pattern}'",
+            {"pattern": args.pattern, "matches": matches, "count": len(matches), "truncated": truncated},
+            f"Found {len(matches)} file(s)" + (" (truncated)" if truncated else ""),
             raw="\n".join(matches),
-            metadata={"tool": "glob", "type": "file_list"},
         )

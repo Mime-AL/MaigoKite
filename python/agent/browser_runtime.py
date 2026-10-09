@@ -64,9 +64,11 @@ class BrowserRuntime:
                 options["executable_path"] = self.executable_path
             try:
                 self._browser = await self._playwright.chromium.launch(**options)
-            except Exception as exc:
+            except BaseException as exc:
                 await self._playwright.stop()
                 self._playwright = None
+                if not isinstance(exc, Exception):
+                    raise
                 raise BrowserRuntimeUnavailable(
                     "Chromium could not start; configure browser.executable_path or install Playwright Chromium"
                 ) from exc
@@ -76,16 +78,17 @@ class BrowserRuntime:
         await _require_public_http_url(url)
         browser = await self._ensure_browser()
         context = await browser.new_context(accept_downloads=False)
-        await context.route("**/*", self._guard_request)
-        page = await context.new_page()
         session_id = f"browser_{uuid.uuid4().hex}"
         try:
+            await context.route("**/*", self._guard_request)
+            page = await context.new_page()
             await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        except Exception:
+            self._pages[session_id] = page
+            return await self.snapshot(session_id)
+        except BaseException:
+            self._pages.pop(session_id, None)
             await context.close()
             raise
-        self._pages[session_id] = page
-        return await self.snapshot(session_id)
 
     async def snapshot(self, session_id: str) -> dict[str, Any]:
         page = self._require_page(session_id)

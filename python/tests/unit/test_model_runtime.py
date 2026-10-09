@@ -198,11 +198,15 @@ async def test_lm_studio_default_port_adds_openai_v1_prefix():
         model=settings.model,
         base_url="http://127.0.0.1:1234",
     )
+    async_client = adapter._llm.root_async_client
+    sync_client = adapter._llm.root_client
     try:
         endpoint = adapter._llm.root_async_client._prepare_url("/chat/completions")
         assert str(endpoint) == "http://127.0.0.1:1234/v1/chat/completions"
     finally:
         await adapter.aclose()
+    assert async_client.is_closed()
+    assert sync_client.is_closed()
 
 
 def test_chat_adapter_ignores_non_numeric_usage_details():

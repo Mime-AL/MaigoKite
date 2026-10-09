@@ -1,124 +1,83 @@
-# NanamiGopher 测试计划
+# 测试与验收策略
 
-> **状态**：Current
-> **最后核验**：2026-09-14
-> **权威范围**：测试层次、关键场景和发布质量门
+> 权威范围：场景、证据口径与质量门，不宣称下列场景都已实现或通过。
+> 当前状态及历史验收只在 [交付路线与状态](../project/Roadmap.md) 记录；执行命令见 [开发指南](../development/DevelopmentGuide.md)，制品门禁见 [构建与发布指南](../deployment/ReleaseGuide.md)。
 
-流水线执行方式见 [CI-CD](../deployment/CI-CD.md)。权限预期引用 [Tool Permission](../agent-capabilities/security/tool-permission.md)，不在本文复制第二份矩阵。
+## 1. 验证原则
 
-本文是质量目标，不代表每个测试项已经实现。当前可验证证据以 [Milestones](../project/Milestones.md) 和测试目录为准；标有 PostgreSQL、Outbox、lease、Workflow 或 Skill 包生命周期的场景只在对应能力进入交付阶段后成为发布门。
+单元/契约/集成用于日常修改，真实进程恢复和完整 E2E 用于运行时/发布变更，性能与干净机器安装包用于代表性环境。覆盖率、编译或模拟服务成功都不能替代故障恢复和产品语义验收。
 
-## 1. 测试层次
+- 报告代码版本、命令、范围、实际结果和跳过原因；测试文件存在不算通过。
+- PROTOCOL PASS 仅指本地 HTTP/SSE 等协议验收；LIVE PASS 必须真实模型提供方完成相同路径；无凭证/未运行记 UNVERIFIED。
+- 不发明凭证、不改敏感凭证管理来获得真实服务验收结果；缺失某个真实服务验收不妨碍其他检查，但不得宣布完整发布就绪。
+- 新旧路径相同输入比较产品语义，不要求词元完全相同，不为模仿旧内部行为增加新状态机。
+- 不测试或要求尚未进入需求的 Team/PostgreSQL/工作流/包平台作为当前发布前提。
 
-| 层次 | 目标 | 触发 |
-|---|---|---|
-| 单元 | 单个模块和状态转换 | 每次提交 |
-| 契约 | OpenAPI、Proto、事件、配置、Skill Schema | 每次提交 |
-| 集成 | Go/Python、数据库、Tool/MCP、Memory | PR |
-| E2E | 用户关键流程 | 主分支/发布 |
-| 安全 | 访问隔离、权限、Electron、Skill供应链 | PR/发布 |
-| 恢复 | 崩溃、重连、迁移、备份恢复 | 发布 |
-| 性能 | 延迟、吞吐、资源、长任务 | 定期/发布 |
+## 2. 现有入口
 
-覆盖率是辅助指标，不能替代契约、状态机和故障测试。
+| 位置 | 覆盖对象 |
+| --- | --- |
+| `gateway/` Go 测试 | 路由、参数/错误映射、工作区、模型/凭证与文件查询 |
+| `python/tests/unit / integration` 等 | 核心服务、Repository、策略、工具、浏览器和模型 |
+| `web/src/tests` | 状态仓库、设置、活动/审批、文件与 Markdown、Electron 环境 |
+| `test_langgraph_production.py` | 新路径工具/审批/取消与投影 |
+| `test_langgraph_process_recovery.py` | 核心服务进程终止/恢复、文件崩溃点 |
+| `test_context_optimization.py` | 结构定义预算、配对、摘要保护/取消、用量和客户端轮换 |
+| `python/tests/spike` | 选型协议/真实服务验收验证，不代替真实生产入口 |
 
-## 2. Go Gateway
+最近完整批次 HITL 的语义改变尚未验收：旧测试“首项批准立即写第一个文件”不再适用。需要更新预期并验证全部决定齐备前无写入，不能删除失败测试后宣称通过。
 
-- 认证上下文和 Workspace Membership。
-- AccessPolicy 对资源列表、详情和命令的一致约束。
-- 请求大小、限流、超时和错误映射。
-- gRPC metadata/CallContext 传播。
-- WebSocket身份、Origin、订阅过滤、重放和慢消费者。
-- 不直接执行 Tool、不写 Agent领域状态。
+## 3. 生产聊天纵向路径
 
-## 3. Python Agent Core
+```text
+发送聊天 → 所选 Runtime → file_read / file_write
+→ 现有 Policy / Approval → UI event → 最终回复与数据库投影
+```
 
-- Task合法状态转换和乐观锁冲突。
-- Message/Task/TaskEvent 原子创建（当前架构债务的目标回归测试）。
-- Approval 创建、过期、版本和单次消费。
-- ToolCall 幂等与不可重试副作用。
-- cancellation/deadline 传播。
-- 当前重启后 interrupted/等待审批恢复；引入调度器后再测试 lease 回收和安全续跑。
+验证至少：
 
-## 4. Tool 与 MCP
+- legacy 默认可用，新迁移开关路径实际进入 create_agent/LangGraph；显式 /tool 和未迁工具不被误算迁移成功。
+- 内置结构定义、规范化参数与权限策略一致，ToolResult 能进入第二模型回合；失败/拒绝不伪装成功。
+- 多工具调用完整保留，不依赖模型重复提出；同名同参数正确配对；逐项审批、全批获批后执行、任意拒绝、过期/policy change 均有确定结果。
+- 审批摘要值/版本、单次消费、审计与 UI 投影一致；新路径不读取 continuation_json。
 
-- Native/MCP 使用同一 ToolPolicy入口。
-- 未知 capability 默认拒绝。
-- 参数规范化后风险升级。
-- 只读档位只自动执行无副作用读取，副作用操作进入审批。
-- L5逐次审批，hard-deny 不可覆盖。
-- MCP握手、工具发现、超时、取消、异常退出和隔离。
-- MCP子进程不继承完整环境或无关 Secret。
+## 4. 取消与恢复
 
-## 5. Memory 与知识库
+新路径须证明流式输出、file_read、可控可控慢速异步工具期间取消：根任务取消 → 资源清理完成 → 任务.cancelled。终态后无新的非终态事件，核心服务关闭等待所有运行实例，再关闭共享客户端。同步线程不能立即终止要如实记录，不用任务状态掩盖后台工作。
 
-- Working、Conversation、User Memory职责隔离。
-- Message顺序、Summary source range 和失效重建。
-- User Memory来源、确认、可见性、过期和遗忘。
-- Workspace间无检索泄露。
-- Document删除会清理 chunk、FTS、Embedding 和缓存。
-- 更换 Embedding/Chunk版本后索引可重建。
+真正的跨进程 E2E：
 
-## 6. 数据库
+```text
+Core 启动 → file_write interrupt → 文件未写
+→ 终止 Core process → 新 Core 启动
+→ 同 thread/run 审批恢复 → 写入 → 模型续答
+```
 
-- SQLite 空库与现存文件兼容升级；PostgreSQL 接入后增加双库迁移。
-- 最低支持版本升级。
-- 外键、唯一约束和状态约束。
-- Workspace作为列表索引首列和查询条件。
-- 引入 Outbox 后验证业务状态与 OutboxEvent 同事务。
-- 活动 SQLite 的一致性备份与恢复。
+检查检查点落盘、无旧进程内存、参数摘要值/版本、一次合法审批、UI/产品终态一致。额外测试部分批次批准后重启，不只重新实例化适配层。
 
-## 7. 前端与 Electron
+file_write 保留两类崩溃点：批准后执行前；写入后 ToolMessage/检查点提交前。记录实际重放次数与内容状态核对；不把相同内容当通用恰好一次（exactly-once），增加内容冲突/外部修改/并发边界。浏览器易失 session 的 interrupted 与 MCP 外部执行限制按当前路径单独验收。
 
-- Store从状态快照和事件恢复。
-- 事件去重、sequence缺口和重连。
-- 审批预览与服务端确认。
-- 重复点击使用幂等键。
-- `contextIsolation=true`、`nodeIntegration=false`、`sandbox=true`。
-- Preload API白名单、参数校验和 unsubscribe。
-- 外部导航、下载、新窗口和可执行文件路径限制。
+## 5. 模型提供方与上下文
 
-## 8. E2E关键流程
+OpenAI、Anthropic、Ollama、目标兼容服务各记录 text 流式输出 → tool 调用 → tool result → 第二模型回合 → final → 取消。Anthropic 工具循环不能仅用首轮文本替代，真实服务验收矩阵记录在具体验收报告，不复制多份。
 
-1. 创建 Personal Workspace并完成对话。
-2. Native只读 Tool成功执行。
-3. 文件编辑触发符合模式的审批或自动范围。
-4. 配置式 stdio MCP 启动、发现、调用和关闭；Skill 包导入/卸载在包生命周期实现后测试。
-5. WebSocket 断线后任务继续并恢复事件。
-6. 取消长任务；MCP 强制中断在 transport 取消实现后作为门禁。
-7. 删除 Conversation；Document/派生数据在知识库实现后测试。
-8. 当前本地 Membership 越权拒绝；完整 Team 成员流程在团队 API 实现后测试。
+上下文覆盖固定前缀、结构定义开销、最近用户/完整工具配对、超预算错误、摘要失败/空/未缩减保护、摘要不泄漏 UI、取消摘要、调用上限不因审批恢复清零。真实缓存延迟/命中/费用和摘要质量须代表性服务测量，不能用模拟服务数值推断。
 
-## 9. 安全测试
+共享客户端：单运行实例取消不关闭其他运行实例；轮换后不复用旧模型实例；关闭核心服务无泄漏；本地 compatible 绕过系统代理和敏感凭证隔离继续正确。
 
-- IDOR与跨 Workspace访问。
-- JWT/OIDC claims、算法、过期和密钥轮换。
-- 路径穿越、符号链接和 Workspace边界。
-- Shell参数注入和 hard-deny绕过。
-- Prompt/检索/ToolResult注入边界。
-- Skill包篡改、hash不一致、依赖能力升级。
-- Secret日志、Memory、向量和 ToolResult泄露。
+## 6. 产品、安全与持久化
 
-## 10. 性能与可靠性
+- 网关认证/工作区归属贯穿列表、详情、命令、WS 与文件；可信 principal 不来自客户端。
+- 权限预期唯一来源为 [工具权限](../agent-capabilities/security/tool-permission.md)：动态风险、hard-deny、参数变更和撤销均回归。
+- JSON Schema 联合/嵌套/额外属性/离线引用与错误 DTO；MCP isError/非法结果正确失败，超时/异常退出/最小环境与资源清理。
+- 浏览器用真实 Playwright 验证公开 URL、动作审批、截图路径、失败/取消和 session 回收，不自研浏览器协议替代测试。
+- 前端活动/回答分离、事件去重/缺口/超过 1000 条、断线不取消、Markdown/HTML 消毒、审批重复点击和错误提示。
+- 当前 SQLite 空库/旧库升级、外键/排序、状态与事件一致性债务、一致性备份；不假定 Outbox/UoW 已存在。
+- 用户记忆手工管理和遗忘/范围，自动检索未接入不能算通过；未来索引增加后再测删除传播。
+- Electron 窗口/IPC/导航安全及实际安装制品启动、关闭无孤儿进程；开发环境通过不代替 package-smoke。
 
-基准至少记录：
+## 7. 性能与发布
 
-- REST/gRPC/WebSocket延迟。
-- 首 token和完整任务延迟。
-- 并发 Task与ToolCall吞吐。
-- SQLite 锁等待；PostgreSQL 接入后再测连接池。
-- MCP进程启动和常驻资源。
-- 长会话上下文构建和检索延迟。
+记录硬件、模型、代码版本、数据规模和并发，测长聊天渲染/输入、首词元/任务耗时、事件补拉、SQLite 锁、浏览器/MCP 常驻资源。只报“提升倍数”或页面不卡不够。
 
-测试必须注明硬件、模型、数据规模、并发和版本，不能只记录“提升倍数”。
-
-## 11. 发布质量门
-
-- [ ] 单元、契约、关键集成和安全测试通过。
-- [ ] OpenAPI/Proto/事件无未批准 breaking change。
-- [ ] 当前目标数据库迁移通过（Phase 1 为 SQLite；PostgreSQL 接入后扩展）。
-- [ ] 无跨 Workspace访问。
-- [ ] 权限模式和 hard-deny符合唯一规范。
-- [ ] 备份可恢复。
-- [ ] 桌面与服务器至少各完成一次 smoke test。
-- [ ] P0/P1缺陷清零或有明确阻断决定。
+发布须适用质量检查、契约、安全、恢复、备份和干净机器制品验收通过；缺陷影响与未验证项明确。手机配对/锁屏重连等仅在 [手机远程访问](../design/RemoteAccess.md) 的对应版本进入交付时增加，不为本地首版加入远程平台前提。

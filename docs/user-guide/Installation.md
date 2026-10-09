@@ -1,61 +1,37 @@
-# NanamiGopher 安装指南
+# 安装与首次使用
 
-> **状态**：Current
-> **最后核验**：2026-09-14
+当前仓库提供源码开发和 Electron 开发入口，尚无完成验收的独立桌面发布包。Docker/服务器部署不是当前支持方式；构建就绪度见 [构建与发布指南](../deployment/ReleaseGuide.md)。
 
-## 1. 运行形态与就绪度
+## 1. 从源码启动
 
-架构定义三种运行形态：
+依赖版本、初始化与启动命令只在 [开发指南](../development/DevelopmentGuide.md) 维护，避免不同指南给出不同解释器和目录。普通浏览器开发使用根目录 `make dev`；Electron 开发使用 `web/` 的 `npm run electron:dev`。不要同时启动两个本地运行时。
 
-- 桌面模式：Electron 启动本地 Gateway 与 Agent Core。
-- 开发模式：分别运行 Go、Python 和 Vue。
-- 服务器模式：使用 Docker/Kubernetes，见 [Production](../deployment/Production.md)。
+源码方式需要 Go、Python、Node/npm；未来正式安装包应包含所需运行资源，不能要求普通用户自行安装开发环境。
 
-当前仓库尚未提供正式发布包；源码开发模式和 Electron 开发模式已经具备可验证入口，服务器发布仍属于 Planned。
+## 2. 首次使用
 
-## 2. 开发环境要求
+1. 系统建立个人工作区；当前产品不提供团队邀请或管理。
+2. 在模型设置添加服务地址和实际模型 ID，验证连接并选择默认模型；会话可单独选择。
+3. API 密钥通过设置的凭证路径或受支持环境提供，不写入普通 YAML。
+4. 选择权限模式，确认工作区路径，查看网关/核心服务运行状态，再发起测试对话。
 
-- Go、Python、Node.js/npm 的版本以仓库模块配置和 CI 为准。
-- 可选本地模型服务按 [Configuration](Configuration.md) 配置。
-- 第三方模型需要对应 CredentialProvider 中的凭证。
+权限、模型、本地服务与工具设置说明见 [配置指南](Configuration.md)。页面注册或显示“规划中”不表示能力可执行。
 
-## 3. 从源码启动
+## 3. 常见启动问题
 
-```bash
-git clone <repository-url>
-cd NanamiGopher
+- **设置保存 404**：确认访问当前网关，检查前端代理/服务版本和核心服务连接，不用反复重填凭证。
+- **Python 不可用**：确认实际解释器和依赖；核心服务 health 是 gRPC，不是 HTTP `/health`。
+- **端口冲突**：检查是否同时启动开发脚本和 Electron 进程监督器，再检查配置端口。
+- **模型连得上却不能回答/调用工具**：确认真实模型 ID、模型提供方协议与服务端能力；HTTP 200 不代表返回了正确的 completion。
+- **LM Studio/兼容服务端点错误**：使用该服务的 OpenAI-compatible 基础地址，通常包含 `/v1`；已填写的 `/v1` 不会再次追加；应用不通用剥离完整 `/chat/completions` 路径，应填写接口根，具体边界见模型接入设计。不要把显示名称当作模型 ID。
+- **搜索失败**：检查搜索工具配置、凭证与网络；模型凭证不能自动配置搜索服务。
+- **MCP/技能不可用**：只显示实际加载的能力；MCP 是受信服务配置，技能当前为本地声明文件，不提供远程安装。
+- **数据异常**：不要手改或直接复制活动 SQLite 文件；先按 [备份与恢复](../ops-security/Backup.md) 建立一致性副本。
 
-cd gateway
-go mod download
+## 4. 断线、停止与重启
 
-cd ../python
-python3 -m venv ../.venv
-source ../.venv/bin/activate
-python -m pip install -e '.[dev]'
+WebSocket 断开不取消主机任务，关闭页面也不等于停止。使用显式停止操作；取消能力受当前运行时和第三方工具边界限制。
 
-cd ../web
-npm install
-```
+恢复聊天会补拉事件并去重，但当前有单次 1000 条限制和订阅窗口。核心服务重启不同于断网：无安全检查点的任务会 interrupted，浏览器易失 session 不承诺恢复；文件审批能否继续取决于实际路径与检查点/续接数据，不承诺任意任务自动续跑。
 
-安装完成后可从根目录启动：
-
-```bash
-make dev
-```
-
-该命令启动 Python gRPC Agent Core、Go Gateway 和 Vue。也可在 `web/` 执行 `npm run electron:dev`，由 Electron Supervisor 启动本地运行时。首次启动后优先在设置页添加模型并选择默认项；YAML 的 `models.chat` 只作为无数据库配置时的启动 fallback。API Key 从环境或系统密钥环提供，不写入 YAML。
-
-## 4. 首次启动目标流程
-
-1. 系统创建或选择 Personal Workspace。
-2. 配置本地模型或添加云模型凭证引用。
-3. 选择权限模式；模式含义见 [Configuration](Configuration.md)。
-4. 验证 Gateway、Agent Core、数据库和模型健康状态。
-
-## 5. 故障定位
-
-- 进程无法启动：检查运行配置、端口和子进程日志。
-- Python 不可用：检查 gRPC health，而不是假设存在 HTTP `/health`。
-- 模型不可用：检查 Provider endpoint、凭证引用和网络策略。
-- 数据异常：不要手工复制活动 SQLite 文件，按 [Backup](../ops-security/Backup.md) 恢复。
-- 详细开发环境见 [Environment](../development/Environment.md)。
+数据主要为本地 SQLite 与工作区文件，凭证由 OS 凭证存储持有；记忆显式管理不等于自动知识检索。更多诊断见 [日志与诊断](../ops-security/Observability.md)。手机远程访问尚未交付，不应直接公开当前本地端口。

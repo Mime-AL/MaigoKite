@@ -1,42 +1,42 @@
 # NanamiGopher 更新日志
 
-> 状态：Current
-> 本文件只记录已经合并且可验证的变化。计划版本属于 [Roadmap.md](Roadmap.md)，不得提前写成已发布功能。
+> 状态：当前有效
+> 本文件只记录已经合并且可验证的变化。计划版本属于 [交付路线与状态](Roadmap.md)，不得提前写成已发布功能。
 
-格式遵循 Keep a Changelog，版本号遵循 Semantic Versioning。发布记录必须能够关联 Git 标签、构建产物与验收结果。
+记录按“新增、变更、移除”分类，版本号遵循语义化版本规则。发布记录必须能够关联 Git 标签、构建产物与验收结果。
 
-## Unreleased
+## 尚未发布
 
-### Added
+### 新增
 
-- 建立根级权威 Proto，接通 Go Gateway 到 Python Agent Core 的 gRPC 会话、消息、健康检查与事件流。
-- 实现 SQLite Workspace/会话/消息/偏好/审计 Repository、原生 Tool 执行管道和 MCP stdio 客户端。
-- 实现 Vue 会话 Store、REST/WebSocket 客户端、Electron 安全 preload 与本地 Runtime Supervisor。
+- 建立根级权威 Proto，接通 Go 网关到 Python 智能体核心的 gRPC 会话、消息、健康检查与事件流。
+- 实现 SQLite 工作区/会话/消息/偏好/审计 Repository、原生工具执行管道和 MCP stdio 客户端。
+- 实现 Vue 会话状态仓库、REST/WebSocket 客户端、Electron 安全预加载层与本地运行时监督器。
 - 增加 Go、Python gRPC/MCP/领域逻辑与 Vue 交互自动化测试。
-- 增加模型服务预设和基于 Base URL 的模型目录发现，支持 OpenAI/Anthropic/兼容 `/models` 与 Ollama `/api/tags`。
-- 接通配置式 MCP stdio Server 的 Agent Core 启停、工具发现、统一审批与审计链路。
-- 增加 Bash 工作区进程沙箱和 Gateway 完整路由构造回归测试。
-- 增加受 ToolPolicy 管理的 Playwright Browser Tool，并限制公网目标和 Workspace 内截图。
-- 增加持久 TaskEvent Journal、任务查询/取消、断线补拉、重启 interrupted 协调和等待审批 continuation。
-- 增加本地声明式 `SKILL.md` 发现、校验、list/read Tool 与真实 Skill/MCP 运行清单。
-- 增加任务、事件历史和 Skill 清单的 Proto、REST、前端恢复与回归测试。
+- 增加模型服务预设和基于基础地址的模型目录发现，支持 OpenAI/Anthropic/兼容 `/models` 与 Ollama `/api/tags`。
+- 接通配置式 MCP stdio Server 的智能体核心启停、工具发现、统一审批与审计链路。
+- 增加 Bash 工作区进程沙箱和网关完整路由构造回归测试。
+- 增加受 ToolPolicy 管理的 Playwright 浏览器工具，并限制公网目标和工作区内截图。
+- 增加持久任务事件 Journal、任务查询/取消、断线补拉、重启 interrupted 协调和等待审批续接数据。
+- 增加本地声明式 `SKILL.md` 发现、校验、list/read 工具与真实技能/MCP 运行清单。
+- 增加任务、事件历史和技能清单的 Proto、REST、前端恢复与回归测试。
 
-### Changed
+### 变更
 
-- 重构 `docs/` 文档体系，建立 Current、Planned、Deprecated、Generated 状态。
-- 统一系统边界：Go Gateway 是 Python Agent Core 的 gRPC 客户端；Python 是 Agent 领域数据的唯一写入方。
-- 统一 Workspace、权限、工具、MCP、Skill、记忆与凭证语义。
+- 重构 `docs/` 文档体系，建立当前有效、规划中、已弃用、自动生成状态。
+- 统一系统边界：Go 网关是 Python 智能体核心的 gRPC 客户端；Python 是智能体领域数据的唯一写入方。
+- 统一工作区、权限、工具、MCP、技能、记忆与凭证语义。
 - 将 API、数据库、前端、后端、部署、测试和运维文档收敛为单一职责文档。
-- 将原生 Tool 与 MCP 的运行时所有权统一到 Python，Gateway 仅保留协议边界和系统密钥环适配。
+- 将原生工具与 MCP 的运行时所有权统一到 Python，网关仅保留协议边界和系统密钥环适配。
 - 模型设置页移除普通用户不需要的生成参数，权限设置收敛为只读、工作区和完全访问三档。
-- 将模型连接验证和目录发现改为无歧义的 `/models/actions/*` 路由，修复 Gateway 启动冲突。
-- 将产品定位收敛为通用 Agent 执行内核；领域示例改为 Skill/MCP/Workflow 扩展，不再进入核心路线图。
-- 清理未接线的 Embedding、fallback、Langfuse 和 Inspector YAML 开关，并把目标架构与当前实现分节标注。
+- 将模型连接验证和目录发现改为无歧义的 `/models/actions/*` 路由，修复网关启动冲突。
+- 将产品定位收敛为通用智能体执行内核；领域示例改为技能/MCP/工作流扩展，不再进入核心路线图。
+- 清理未接线的向量嵌入、降级、Langfuse 和 Inspector YAML 开关，并把目标架构与当前实现分节标注。
 
-### Removed
+### 移除
 
-- 删除与 `GitWorkflow.md` 重复的 `BranchStrategy.md`。
-- 移除项目文档中未验证的“已发布版本”声明；历史目标仍可从路线图与里程碑查看。
+- 历史整理曾删除重复的分支策略文档；当前贡献规则集中在开发指南。
+- 移除项目文档中未验证的“已发布版本”声明；当前计划和证据统一由交付路线记录。
 
 ## 发布记录
 

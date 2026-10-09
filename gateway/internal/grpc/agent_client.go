@@ -207,6 +207,14 @@ func (c *AgentClient) GetPermissionSettings(ctx context.Context, workspaceID str
 	return c.client.GetPermissionSettings(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
 }
 
+func (c *AgentClient) GetToolSettings(ctx context.Context, workspaceID string) (*agentv1.ToolSettings, error) {
+	return c.client.GetToolSettings(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
+}
+
+func (c *AgentClient) UpdateToolSettings(ctx context.Context, workspaceID string, enabled map[string]bool) (*agentv1.ToolSettings, error) {
+	return c.client.UpdateToolSettings(ctx, &agentv1.UpdateToolSettingsRequest{WorkspaceId: workspaceID, Enabled: enabled})
+}
+
 func (c *AgentClient) UpdatePermissionSettings(ctx context.Context, workspaceID string, settings *agentv1.PermissionSettings) (*agentv1.PermissionSettings, error) {
 	return c.client.UpdatePermissionSettings(ctx, &agentv1.UpdatePermissionSettingsRequest{WorkspaceId: workspaceID, Settings: settings})
 }

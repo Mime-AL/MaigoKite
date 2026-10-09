@@ -29,6 +29,10 @@ skills:
     - "./skills/"
     - "~/.nanamigopher/skills/"
 
+tools:
+  default_tools: [file_read, file_write, file_edit, glob, grep, exec_command, web_search, web_fetch, browser, skill]
+  disabled_tools: []
+
 permissions:
   default_mode: "workspace"
   allowlist:

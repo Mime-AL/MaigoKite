@@ -49,6 +49,8 @@ const (
 	AgentService_UpdateUserPreferences_FullMethodName        = "/nanamigopher.agent.v1.AgentService/UpdateUserPreferences"
 	AgentService_GetPermissionSettings_FullMethodName        = "/nanamigopher.agent.v1.AgentService/GetPermissionSettings"
 	AgentService_UpdatePermissionSettings_FullMethodName     = "/nanamigopher.agent.v1.AgentService/UpdatePermissionSettings"
+	AgentService_GetToolSettings_FullMethodName              = "/nanamigopher.agent.v1.AgentService/GetToolSettings"
+	AgentService_UpdateToolSettings_FullMethodName           = "/nanamigopher.agent.v1.AgentService/UpdateToolSettings"
 	AgentService_ListMemories_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/ListMemories"
 	AgentService_UpsertMemory_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/UpsertMemory"
 	AgentService_DeleteMemory_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/DeleteMemory"
@@ -92,6 +94,8 @@ type AgentServiceClient interface {
 	UpdateUserPreferences(ctx context.Context, in *UpdateUserPreferencesRequest, opts ...grpc.CallOption) (*UserPreferences, error)
 	GetPermissionSettings(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*PermissionSettings, error)
 	UpdatePermissionSettings(ctx context.Context, in *UpdatePermissionSettingsRequest, opts ...grpc.CallOption) (*PermissionSettings, error)
+	GetToolSettings(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*ToolSettings, error)
+	UpdateToolSettings(ctx context.Context, in *UpdateToolSettingsRequest, opts ...grpc.CallOption) (*ToolSettings, error)
 	ListMemories(ctx context.Context, in *MemoryListRequest, opts ...grpc.CallOption) (*MemoryList, error)
 	UpsertMemory(ctx context.Context, in *UpsertMemoryRequest, opts ...grpc.CallOption) (*Memory, error)
 	DeleteMemory(ctx context.Context, in *MemoryRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -455,6 +459,26 @@ func (c *agentServiceClient) UpdatePermissionSettings(ctx context.Context, in *U
 	return out, nil
 }
 
+func (c *agentServiceClient) GetToolSettings(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*ToolSettings, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ToolSettings)
+	err := c.cc.Invoke(ctx, AgentService_GetToolSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) UpdateToolSettings(ctx context.Context, in *UpdateToolSettingsRequest, opts ...grpc.CallOption) (*ToolSettings, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ToolSettings)
+	err := c.cc.Invoke(ctx, AgentService_UpdateToolSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) ListMemories(ctx context.Context, in *MemoryListRequest, opts ...grpc.CallOption) (*MemoryList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MemoryList)
@@ -559,6 +583,8 @@ type AgentServiceServer interface {
 	UpdateUserPreferences(context.Context, *UpdateUserPreferencesRequest) (*UserPreferences, error)
 	GetPermissionSettings(context.Context, *WorkspaceRequest) (*PermissionSettings, error)
 	UpdatePermissionSettings(context.Context, *UpdatePermissionSettingsRequest) (*PermissionSettings, error)
+	GetToolSettings(context.Context, *WorkspaceRequest) (*ToolSettings, error)
+	UpdateToolSettings(context.Context, *UpdateToolSettingsRequest) (*ToolSettings, error)
 	ListMemories(context.Context, *MemoryListRequest) (*MemoryList, error)
 	UpsertMemory(context.Context, *UpsertMemoryRequest) (*Memory, error)
 	DeleteMemory(context.Context, *MemoryRequest) (*Empty, error)
@@ -662,6 +688,12 @@ func (UnimplementedAgentServiceServer) GetPermissionSettings(context.Context, *W
 }
 func (UnimplementedAgentServiceServer) UpdatePermissionSettings(context.Context, *UpdatePermissionSettingsRequest) (*PermissionSettings, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdatePermissionSettings not implemented")
+}
+func (UnimplementedAgentServiceServer) GetToolSettings(context.Context, *WorkspaceRequest) (*ToolSettings, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetToolSettings not implemented")
+}
+func (UnimplementedAgentServiceServer) UpdateToolSettings(context.Context, *UpdateToolSettingsRequest) (*ToolSettings, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateToolSettings not implemented")
 }
 func (UnimplementedAgentServiceServer) ListMemories(context.Context, *MemoryListRequest) (*MemoryList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListMemories not implemented")
@@ -1243,6 +1275,42 @@ func _AgentService_UpdatePermissionSettings_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_GetToolSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetToolSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetToolSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetToolSettings(ctx, req.(*WorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_UpdateToolSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateToolSettingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).UpdateToolSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_UpdateToolSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).UpdateToolSettings(ctx, req.(*UpdateToolSettingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_ListMemories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MemoryListRequest)
 	if err := dec(in); err != nil {
@@ -1487,6 +1555,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdatePermissionSettings",
 			Handler:    _AgentService_UpdatePermissionSettings_Handler,
+		},
+		{
+			MethodName: "GetToolSettings",
+			Handler:    _AgentService_GetToolSettings_Handler,
+		},
+		{
+			MethodName: "UpdateToolSettings",
+			Handler:    _AgentService_UpdateToolSettings_Handler,
 		},
 		{
 			MethodName: "ListMemories",

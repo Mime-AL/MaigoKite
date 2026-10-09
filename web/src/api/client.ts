@@ -1,6 +1,17 @@
 export type PermissionMode = 'read_only' | 'workspace' | 'full_access'
 export type ResponseMode = 'fast' | 'balanced' | 'thorough'
 
+export interface ToolSetting {
+  name: string
+  description: string
+  source: 'builtin' | 'mcp'
+  enabled: boolean
+  configurable: boolean
+  default_enabled: boolean
+}
+
+export interface ToolSettings { tools: ToolSetting[] }
+
 export interface Conversation {
   id: string
   workspace_id: string
@@ -567,6 +578,12 @@ export const api = {
   },
   getPermissionSettings(): Promise<PermissionSettings> {
     return request(`${path}/permissions`)
+  },
+  getToolSettings(): Promise<ToolSettings> {
+    return request(`${path}/tool-settings`)
+  },
+  updateToolSettings(enabled: Record<string, boolean>): Promise<ToolSettings> {
+    return request(`${path}/tool-settings`, { method: 'PATCH', body: JSON.stringify({ enabled }) })
   },
   updatePermissionSettings(settings: PermissionSettings): Promise<PermissionSettings> {
     return request(`${path}/permissions`, { method: 'PATCH', body: JSON.stringify(settings) })

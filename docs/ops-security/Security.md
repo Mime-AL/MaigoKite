@@ -1,101 +1,54 @@
-# NanamiGopher 安全架构
+# 安全边界
 
-> **状态**：Current
-> **最后核验**：2026-09-14
-> **权威范围**：系统威胁模型、身份、凭证、网络和事件响应
+> 权威范围：威胁模型、身份、凭证、网络和数据安全。
+> 工具风险/模式/审批的唯一矩阵见 [工具权限](../agent-capabilities/security/tool-permission.md)。
 
-工具风险等级、权限模式和审批见 [Tool Permission](../agent-capabilities/security/tool-permission.md)，本文不维护第二份权限矩阵。
+## 1. 信任模型
 
-## 1. 信任边界
+用户请求、模型输出、网页/文档、工具/MCP 结果和技能内容均为不可信输入。被模型读取不改变其信任级别，不能成为授权或系统指令。
 
-```text
-不可信输入
-├── 用户/API请求
-├── 上传文档与检索内容
-├── 模型输出
-├── Tool/MCP结果
-└── 第三方 Skill包与进程
+可信边界为网关身份/资源检查、Python ToolPolicy、实际沙箱/资源限制、凭证管理和审计。不能用提示词、前端按钮或“个人使用”代替服务端检查。
 
-可信执行边界
-├── Gateway认证与AccessPolicy
-├── Agent Core ToolPolicy
-├── Sandbox/hard-deny
-├── CredentialProvider
-└── 不可变审计事件
-```
+## 2. 当前身份与缺口
 
-任何内容被模型读取后仍保持原信任级别；检索或 ToolResult 不能提升为系统指令。
+当前以本地个人主体和工作区访问检查为主；外部请求不得自行声明可信 principal。保留成员关系兼容结构，不建设团队邀请/角色平台。
 
-## 2. 身份与 Workspace
+loopback/Origin 限制不是完整设备认证。当前未完成本次启动的本地认证材料、设备配对及全面服务间认证；OIDC/JWT、Vault/KMS 不应写成已接线能力。不得公开核心服务 gRPC、业务库或现有免设备认证入口。
 
-- 桌面模式使用本地设备/用户身份适配器。
-- 服务器模式使用经验证的 OIDC/JWT。
-- Gateway 验证 issuer、audience、expiry、算法和签名密钥。
-- 所有资源访问经过 Workspace Membership 检查。
-- 外部客户端不能声明可信 principal。
-- 服务间 gRPC 使用服务身份并限制网络可达性。
+手机会话、配对、撤销与 HTTPS 信任边界按 [手机远程访问](../design/RemoteAccess.md) 单独设计，不把反向代理到 loopback 当作本地免认证依据。
 
-## 3. 工具与审批
+## 3. 工具、进程与审批
 
-- Gateway AccessPolicy 和 Python ToolPolicy 均需通过。
-- 未知 capability 默认拒绝。
-- L5逐次审批，hard-deny不能由用户确认覆盖。
-- Approval绑定参数 hash、资源范围、主体、任务和有效期。
-- Native 与 MCP Tool 使用相同政策入口和审计要求。
+AccessPolicy 和 ToolPolicy 都需通过。模型/技能/MCP 自报能力不能授权；具体参数、范围、摘要值/版本和单次审批规则只在工具权限文档维护。
 
-## 4. Skill与MCP
+Bash 当前使用受限命令和可用的系统沙箱；不能把应用路径校验称为所有进程的 OS 隔离。MCP 当前信任边界是部署者显式配置，最小环境和受限 cwd 已有，全面资源隔离/独立 Grant 尚未交付。详见 [MCP](../agent-capabilities/mcp/mcp-integration.md)。
 
-- 第三方 Skill按不受信代码处理。
-- 安装前验证 manifest、内容 hash、来源、依赖和能力请求。
-- MCP子进程使用最小环境、独立工作目录和资源限制。
-- 文件和网络范围按 SkillGrant控制。
-- 不自动执行未经验证包的入口命令。
+本地技能是声明文件，不执行目录代码；包摘要值/签名/安装检查是未来门槛，不能伪装当前安装流程。高风险操作与 hard-deny 不因 full_access 或自然人批准而消失。
 
-## 5. 凭证
+## 4. 凭证
 
-| 环境 | Provider |
-|---|---|
-| 桌面 | Keychain / DPAPI / libsecret |
-| 服务器 | Vault / KMS / Secret Manager |
-| 显式 fallback | 使用强KDF和认证加密的本地文件 |
+- 当前网关 OS 凭证存储按模型/工具配置隔离敏感凭证，普通 API 只回显存在状态，受控同步至核心服务内存。
+- 模型提供方/基础地址变化不能把旧凭证发送到新地址；本地模型提供方不读取云端环境密钥。
+- 敏感凭证不进入普通 YAML、业务表、记忆、向量、任务事件、日志或导出内容。
+- MCP 只继承显式 allowlist；不能把核心服务全部环境或所有模型 Key 下发第三方进程。
+- 轮换/撤销应更新后续调用，活动运行实例的共享客户端安全关闭由核心服务生命周期处理，见 [智能体运行时设计](../design/AgentRuntime.md)。
 
-- 数据库只保存 Credential Reference 和元数据。
-- Skill只获得明确声明且已批准的凭证。
-- Secret不进入日志、Memory、向量索引或API响应。
-- 撤销凭证后相关运行实例必须刷新或停止。
+没有明确部署和验收前，不宣称加密文件降级、外部敏感凭证 Manager 或动态 SkillGrant 已实现。
 
-## 6. 网络与客户端
+## 5. 网络与 Electron
 
-- 外部接口使用 HTTPS/WSS。
-- CORS、WebSocket Origin 和重定向采用显式 allowlist。
-- Agent Core、数据库和向量服务不暴露公网。
-- Electron启用 context isolation、sandbox、webSecurity，禁用 renderer Node能力。
-- 外部链接通过受控系统浏览器打开。
+浏览器当前公开 HTTP(S)/地址检查是应用防护，不保证 Chromium 所有出站请求都隔离；DNS 重绑定、重定向、下载和资源访问需实测及主机/容器出口策略。不能把 URL 检查写成完整 SSRF 沙箱。
 
-## 7. 数据保护
+远程入口须 HTTPS/WSS、受限 Origin/CORS、设备会话和最小开放资源。Electron 当前安全窗口基线见 [前端与桌面交互设计](../design/FrontendDesign.md)，任意导航/下载、资源替换和 IPC 参数安全仍须发布验收。
 
-- Workspace是默认隔离边界。
-- 日志和审计字段经过结构化脱敏。
-- 派生索引继承源数据的访问范围和删除策略。
-- 备份先压缩后认证加密，密钥与备份分离。
-- 数据导出和删除产生审计事件。
+## 6. 数据与诊断
 
-## 8. 安全事件
+工作区是默认业务范围。派生索引继承源授权/删除规则，不能存唯一原文或绕过遗忘。消息、截图、工具结果也可能有敏感数据，不只是 Key 才需要保护。
 
-事件至少包括：认证失败、跨Workspace访问、hard-deny、审批绕过、Secret访问、Skill校验失败、沙箱逃逸、异常批量操作。
+日志/审计当前按键过滤不是完整 DLP；递归脱敏、导出和保留策略见 [日志与诊断](Observability.md)。备份必须保护访问与密钥分离，实际流程见 [备份与恢复](Backup.md)，不把规划的自动加密当已实现。
 
-响应流程：
+出现泄露、越权、审批绕过或沙箱问题时：先限制新调用/访问，撤销相关设备或凭证，保留脱敏证据，通知用户并修复复验。未来 Grant/索引不存在时不虚构撤销步骤。
 
-```text
-检测 → 限制影响 → 撤销会话/凭证/Grant
-→ 保存证据 → 通知负责人/用户 → 修复 → 复盘
-```
+## 7. 验收边界
 
-## 9. 验收
-
-- [ ] 身份、Workspace和服务边界明确。
-- [ ] 权限矩阵只引用Tool Permission。
-- [ ] Secret值不在业务数据库。
-- [ ] MCP进程不继承完整环境。
-- [ ] WebSocket与REST执行相同访问控制。
-- [ ] 数据删除能传播到派生索引和备份策略。
+关键安全场景以 [测试与验收](../testing/TestPlan.md) 为唯一测试清单。当前代码防护、未实现能力与待验收项必须分别说明，不能用统一当前有效标签或勾选清单暗示全部安全承诺成立。

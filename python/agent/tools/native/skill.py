@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent.skill_registry import SkillRegistry
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
+
+
+class SkillParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["list", "read"]
+    name: str = Field(default="", max_length=64)
 
 
 class SkillTool(BaseTool):
@@ -22,17 +31,12 @@ class SkillTool(BaseTool):
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["list", "read"]},
-                "name": {"type": "string", "maxLength": 64},
-            },
-            "required": ["action"],
-            "additionalProperties": False,
-        }
+        return SkillParams.model_json_schema()
 
     async def execute(self, context: ExecutionContext, arguments: dict[str, Any]) -> ToolResult:
+        return self._read(arguments)
+
+    def _read(self, arguments: dict[str, Any]) -> ToolResult:
         action = str(arguments.get("action", ""))
         if action == "list":
             items = [item.to_dict() for item in self.registry.list_skills()]

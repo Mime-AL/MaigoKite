@@ -8,7 +8,11 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, AsyncIterator
 
+from langchain.tools import ToolRuntime
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
+
+from agent.tools.validator import ToolValidator
 
 
 class BaseTool(ABC):
@@ -42,6 +46,60 @@ class BaseTool(ABC):
     ) -> ToolResult | ToolResultStream:
         """Execute the tool with the given arguments and context."""
         ...
+
+    def to_langchain_tool(self) -> StructuredTool:
+        """Expose the existing async implementation through public LangChain APIs.
+
+        ToolNode owns invocation and cancellation; the runtime supplies product
+        context. Credentials never become tool arguments or checkpoint state.
+        JSON Schema validation is delegated to the existing standard validator.
+        """
+        schema = self.parameters_schema
+        if {"runtime", "config"} & schema.get("properties", {}).keys():
+            raise ValueError(f"{self.name}: runtime/config are reserved LangChain arguments")
+        validator = ToolValidator(lambda _name: schema)
+
+        async def invoke(runtime: ToolRuntime, **arguments: Any) -> ToolMessage:
+            run = runtime.context
+            context = ExecutionContext(
+                run.request.trace_id,
+                run.request.task_id,
+                str(runtime.tool_call_id),
+                metadata=run.execution_metadata,
+            )
+            try:
+                result = await self.execute(context, validator.sanitize(self.name, arguments))
+                if isinstance(result, ToolResultStream):
+                    result = await result.collect()
+            except (OSError, ValueError) as exc:
+                result = ToolResult.failure(
+                    {}, str(exc), error_code="TOOL_EXECUTION_FAILED",
+                )
+            payload = {
+                "data": result.data,
+                "summary": result.summary,
+                "raw": result.raw if isinstance(result.raw, str) else None,
+                "error_code": result.error_code,
+                "user_hint": result.user_hint,
+                "action": result.action,
+            }
+            # Keep the full product artifact for the UI, without repeating
+            # formatted raw text when structured model content already exists.
+            model_payload = {key: value for key, value in payload.items() if value is not None}
+            if result.data:
+                model_payload.pop("raw", None)
+            return ToolMessage(
+                content=json.dumps(model_payload, ensure_ascii=False, default=str),
+                artifact=payload,
+                tool_call_id=str(runtime.tool_call_id),
+                name=self.name,
+                status="success" if result.success else "error",
+            )
+
+        return StructuredTool.from_function(
+            coroutine=invoke, name=self.name, description=self.description,
+            args_schema=schema,
+        )
 
 
 class ToolResult:

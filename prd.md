@@ -1,6 +1,6 @@
-# NanamiGopher 通用 Agent — 产品需求文档 (PRD)
+# NanamiGopher 通用智能体 — 产品需求文档（历史快照）
 
-> **状态：Deprecated**
+> **状态：已弃用**
 > 本文件是历史提案快照，包含已废弃的组件归属和接口示例，不再作为实现依据。
 > 当前需求、架构与阶段范围以 [`docs/README.md`](docs/README.md) 导航的文档为准。
 

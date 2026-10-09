@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 class ConfigManager:
@@ -67,6 +67,7 @@ class ConfigManager:
             "NANAMI_MODEL_PROVIDER": "models.chat.provider",
             "NANAMI_MODEL_NAME": "models.chat.default",
             "NANAMI_MODEL_BASE_URL": "models.chat.base_url",
+            "NANAMI_AGENT_RUNTIME": "agent.runtime",
         }
         for env_name, key in mapping.items():
             if value := os.getenv(env_name):

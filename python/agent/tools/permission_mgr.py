@@ -45,6 +45,7 @@ class PermissionManager:
         "web_search": RiskLevel.L3,
         "web_fetch": RiskLevel.L3,
         "bash": RiskLevel.L3,
+        "exec_command": RiskLevel.L3,
         "file_write": RiskLevel.L4,
         "file_edit": RiskLevel.L4,
     }
@@ -111,7 +112,11 @@ class PermissionManager:
             effective_mode = self.normalize_mode(mode or self.mode)
         except ValueError:
             return PolicyDecision("deny", RiskLevel.L5, "invalid permission mode", arguments)
-        if self.allowlist and self.allowlist.restricts_tools and not self.allowlist.is_tool_allowed(tool_name):
+        # exec_command is the honest name of the former argv-only bash tool.
+        permission_name = "bash" if tool_name == "exec_command" else tool_name
+        if self.allowlist and self.allowlist.restricts_tools and not (
+            self.allowlist.is_tool_allowed(tool_name) or self.allowlist.is_tool_allowed(permission_name)
+        ):
             return PolicyDecision("deny", RiskLevel.L5, "tool is not in the configured allowlist", arguments)
         if tool_name not in self.BASE_RISK and risk_override is None:
             return PolicyDecision("deny", RiskLevel.L5, "unknown capability", arguments)
@@ -162,7 +167,7 @@ class PermissionManager:
                     and not self.allowlist.is_path_allowed(str(resolved))
                 ):
                     return PolicyDecision("deny", RiskLevel.L5, "path is not in the configured allowlist", normalized)
-        if tool_name == "bash":
+        if tool_name in {"bash", "exec_command"}:
             command = str(normalized.get("command", ""))
             if self._hard_deny.search(command):
                 return PolicyDecision("deny", RiskLevel.L5, "command matches hard-deny policy", normalized)
@@ -235,7 +240,7 @@ class PermissionManager:
             and (
                 risk <= RiskLevel.L2
                 or (risk == RiskLevel.L4 and tool_name in {"file_write", "file_edit"})
-                or (risk <= RiskLevel.L3 and tool_name == "bash")
+                or (risk <= RiskLevel.L3 and tool_name in {"bash", "exec_command"})
             )
         )
         auto = auto or (effective_mode == "full_access" and risk <= RiskLevel.L4)

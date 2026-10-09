@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from langchain_core.language_models.chat_models import BaseChatModel
+
 from agent.config_manager import ConfigManager
 from agent.models.chat_adapter import ChatAdapter, normalize_openai_compatible_base_url
 from agent.models.chat_provider import ChatMessage, IChatProvider
@@ -297,6 +299,19 @@ class ChatModelRuntime:
         provider = self._build_provider(settings, api_key)
         self._providers[cache_key] = (settings, provider)
         return provider
+
+    async def get_langchain_model(
+        self, workspace_id: str, model_id: str = ""
+    ) -> tuple[str, BaseChatModel]:
+        """Return the Core-owned native model used by the LangGraph runtime."""
+        settings = await self.get_profile(workspace_id, model_id)
+        provider = await self.get_provider(workspace_id, settings.id)
+        model = getattr(provider, "langchain_model", None)
+        if not isinstance(model, BaseChatModel):
+            raise RuntimeError("configured provider does not expose a LangChain chat model")
+        # Credential replacement retires the old provider even when settings are
+        # identical. Do not reuse a compiled graph holding that obsolete client.
+        return f"{workspace_id}:{settings.id}:{hash(settings)}:{id(model)}", model
 
     async def validate_connection(
         self,
