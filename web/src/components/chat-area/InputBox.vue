@@ -30,6 +30,7 @@ const props = withDefaults(
     maxSubagentCalls?: number
     maxConcurrentSubagents?: number
     savingSubagents?: boolean
+    waiting?: boolean
   }>(),
   {
     assistantName: '助手',
@@ -155,7 +156,6 @@ function handleKeydown(event: KeyboardEvent) {
   if (
     event.key === 'Escape' &&
     !ui.drawerOpen &&
-    !ui.inboxOpen &&
     !ui.commandOpen &&
     !ui.shortcutsOpen
   ) {
@@ -206,7 +206,7 @@ function handleKeydown(event: KeyboardEvent) {
       <textarea
         ref="textarea"
         v-model="inputValue"
-        :placeholder="$t('问问 ') + assistantName + '…'"
+        :placeholder="waiting ? $t('等你确认后继续…') : $t('问问 ') + assistantName + '…'"
         :disabled="!modelOptions.length"
         rows="1"
         :aria-label="$t('消息内容')"

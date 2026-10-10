@@ -33,7 +33,10 @@ html[data-texture='false'] body::before {
   display: none;
 }
 /* The sample owns layered, below-text grain; other pages keep their old treatment. */
-body:has(.inkline-preview)::before { display: none; }
+body:has(.inkline-preview, .inkline-shell)::before { display: none; }
+html[data-texture='false'] .inkline-shell .sidebar::before,
+html[data-texture='false'] .inkline-shell .drawer::before,
+html[data-texture='false'] .inkline-shell .palette::before { display: none; }
 /* Keep the document-level setting outside scoped styles. */
 html[data-texture='false'] .inkline-preview::before,
 html[data-texture='false'] .inkline-preview .composer::before,
@@ -267,4 +270,10 @@ time, code, kbd { font-variant-numeric: tabular-nums; }
     translate: none !important;
     scale: none !important;
   }
+  .inkline-shell :is(button, a, summary):active { transform: none !important; }
+  .inkline-shell :is(.drawer, .sidebar, .palette, .pending-reminder) {
+    animation: inkline-reduced-fade var(--motion-reduced) linear !important;
+    transform: none !important;
+  }
 }
+@keyframes inkline-reduced-fade { from { opacity: 0; } to { opacity: 1; } }

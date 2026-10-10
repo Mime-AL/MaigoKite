@@ -88,6 +88,7 @@ export type GatewayEvent = {
       risk?: string
       options?: { label: string; recommended?: boolean }[]
       version?: number
+      toolCallId?: string
     }
   | { type: 'await_resolved'; awaitId: string; verdict: Verdict; note?: string }
   | { type: 'question_answered'; awaitId: string; answer: string }
@@ -128,6 +129,10 @@ export interface AwaitItem {
   answer?: string
   note?: string
   closed?: boolean
+  // Presentation association/order only; never an approval authorization fact.
+  toolCallId?: string
+  seq?: number
+  time?: string
 }
 export interface RailNode {
   id: string
@@ -152,7 +157,7 @@ export interface Turn {
   steps: Step[]
   awaits: AwaitItem[]
   memories: { id: string; text: string }[]
-  timeline: { id: string; kind: 'step' | 'await' | 'memory' | 'error' }[]
+  timeline: { id: string; kind: 'step' | 'await' | 'memory' | 'error'; seq?: number; time?: string }[]
   changes: { path: string; diff: string }[]
   plan: PlanItem[]
   jobs: { id: string; status: string; logTail: string }[]

@@ -4,16 +4,16 @@
   flex: 1;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  padding-top: 4px;
+  padding-top: var(--space-2);
 }
 .workspace-group {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-3);
 }
 .workspace-row {
   display: flex;
   align-items: center;
-  gap: 2px;
-  min-height: 36px;
+  gap: var(--space-1);
+  min-height: var(--titlebar-button-size);
   border-radius: var(--radius-sm);
 }
 .group-toggle,
@@ -22,8 +22,8 @@
   display: grid;
   place-items: center;
   flex: none;
-  width: 28px;
-  height: 32px;
+  width: var(--size-28);
+  height: var(--space-8);
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -31,7 +31,7 @@
   color: var(--ink-2);
 }
 .group-toggle {
-  width: 20px;
+  width: var(--space-6);
 }
 .group-toggle .icon-symbol {
   transition: transform var(--motion-fast) var(--ease);
@@ -49,9 +49,9 @@
   align-items: center;
   flex: 1;
   min-width: 0;
-  height: 36px;
-  gap: 6px;
-  padding: 6px 4px;
+  height: var(--titlebar-button-size);
+  gap: var(--size-6);
+  padding: var(--size-6) var(--space-2);
   border: 0;
   border-radius: var(--radius-sm);
   background: var(--transparent);
@@ -72,11 +72,13 @@
   font-variant-numeric: tabular-nums;
 }
 .current > .workspace-row {
-  background: var(--accent-selected);
+  background: var(--transparent);
 }
 .current .workspace-name {
-  color: var(--accent);
+  color: var(--ink);
 }
+.session-date-label { margin: var(--space-5) 0 var(--space-2); padding-left: var(--space-2); color: var(--ink-2); font: var(--weight-medium) var(--text-xs) var(--font-sans); letter-spacing: var(--tracking-label); }
+.workspace-name { font-weight: var(--weight-semibold); }
 .workspace-new {
   opacity: 0.55;
 }
@@ -85,19 +87,19 @@
   opacity: 1;
 }
 .workspace-sessions {
-  margin-left: 10px;
-  padding-left: 6px;
-  border-left: 1px solid var(--rule);
+  margin-left: var(--size-10);
+  padding-left: var(--size-6);
+  border-left: var(--hairline) solid var(--rule);
 }
 .workspace-empty {
-  margin: 6px 8px 10px;
+  margin: var(--size-6) var(--space-3) var(--size-10);
   font-size: var(--text-xs);
 }
 .show-more {
   @include mixins.interactive-row;
-  min-height: 30px;
+  min-height: var(--size-30);
   width: 100%;
-  padding: 4px 8px;
+  padding: var(--space-2) var(--space-3);
   text-align: left;
   background: var(--transparent);
   color: var(--ink-2);

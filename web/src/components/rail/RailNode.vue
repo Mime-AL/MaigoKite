@@ -7,12 +7,18 @@ import ApprovalCard from '@/components/chat-area/ApprovalCard.vue'
 import QuestionCard from '@/components/interact/QuestionCard.vue'
 import { useMemoryStore } from '@/stores/memory'
 import { useRunStore } from '@/stores/run'
+import { t } from '@/i18n'
+import { pendingItem } from '@/utils/rail-presentation'
+import { approvalDescription } from '@/utils/tool-presentation'
 const props = defineProps<{ node: RailNode; turnId: string }>()
 const needsAttention = computed(() => props.node.kind === 'failed' || Boolean(
   props.node.await && !props.node.await.verdict && !props.node.await.closed &&
   props.node.await.answer === undefined,
 ))
 const expanded = ref(needsAttention.value)
+const pending = computed(() => Boolean(props.node.await && pendingItem(props.node.await)))
+const title = computed(() => props.node.await?.mode === 'question' ? t('待回答')
+  : props.node.await?.mode === 'approval' ? approvalDescription(props.node.await).action : props.node.title)
 const glyphs = { read: '○', act: '●', await: '◇', end: '◆', failed: '×', memory: '✦' }
 const memory = useMemoryStore(),
   run = useRunStore()
@@ -39,9 +45,11 @@ async function undoMemory() {
     class="rail-node"
     :class="[
       node.kind,
-      { running: node.running, waiting: node.await && !node.await.verdict && !node.await.closed },
+      { running: node.running, waiting: pending },
     ]"
     :id="`rail-${turnId}-${node.id}`"
+    :data-await-anchor="node.await?.id"
+    :data-order="node.await?.seq ? 'sequence' : node.await?.time ? 'time' : node.await ? 'fallback' : undefined"
   >
     <button
       class="node-button"
@@ -49,19 +57,19 @@ async function undoMemory() {
       :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
-      <span class="node-glyph">{{ glyphs[node.kind] }}</span
-      ><span class="node-title">{{ node.title }}</span>
+      <span class="node-glyph">{{ pending ? '◇' : glyphs[node.kind] }}</span
+      ><span class="node-title">{{ title }}</span>
       <SealMark v-if="node.await?.verdict" :verdict="node.await.verdict" />
       <span v-else class="disclosure">{{ expanded ? '−' : '+' }}</span>
     </button>
     <div v-if="expanded" class="node-body">
-      <RailNodeDetail v-if="node.steps.length" :steps="node.steps" />
+      <RailNodeDetail v-if="node.steps.length && !pending" :steps="node.steps" />
       <ApprovalCard
-        v-if="node.await?.mode === 'approval' && !node.await.verdict && !node.await.closed"
+        v-if="node.await?.mode === 'approval' && pending"
         :item="node.await"
       />
       <QuestionCard
-        v-if="node.await?.mode === 'question' && !node.await.verdict && !node.await.closed"
+        v-if="node.await?.mode === 'question' && pending"
         :item="node.await"
       />
       <p v-if="node.await?.answer !== undefined">{{ $t('已回答：{0}', [node.await.answer]) }}</p>
@@ -77,9 +85,9 @@ async function undoMemory() {
   @include mixins.interactive-row;
   display: flex;
   width: 100%;
-  gap: 12px;
+  gap: var(--space-4);
   align-items: center;
-  min-height: 40px;
+  min-height: var(--rail-node-height);
   padding: 0;
   border: 0;
   text-align: left;
@@ -114,7 +122,7 @@ async function undoMemory() {
   font-size: var(--text-xs);
 }
 .node-body {
-  margin-left: calc(var(--rail-width) + 12px);
+  margin-left: calc(var(--rail-width) + var(--space-4));
 }
 .running .node-glyph {
   color: var(--accent);
@@ -122,6 +130,7 @@ async function undoMemory() {
 .await .node-glyph {
   color: var(--wait);
 }
+.waiting .node-glyph { color: var(--wait); }
 .waiting .node-glyph {
   animation: ink-breathe var(--motion-pulse) var(--ease) infinite;
 }

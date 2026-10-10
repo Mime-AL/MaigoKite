@@ -153,6 +153,7 @@ export function mapGatewayEvent(event: AgentEvent): GatewayEvent[] {
         detail: text(p.arguments || p.resource_scope),
         risk: String(p.risk_level || ''),
         version: Number(p.version || 1),
+        toolCallId: typeof p.tool_call_id === 'string' ? p.tool_call_id : undefined,
       },
     ]
   if (event.type === 'approval.decided')
@@ -169,6 +170,7 @@ export function mapGatewayEvent(event: AgentEvent): GatewayEvent[] {
     return [{
       ...base, type: 'await', awaitId: String(p.question_id || ''), mode: 'question',
       title: text(p.title), detail: '', version: Number(p.version || 1),
+      toolCallId: typeof p.tool_call_id === 'string' ? p.tool_call_id : undefined,
       options: Array.isArray(p.options) ? p.options.flatMap((option) => {
         const value = object(option)
         return typeof value.label === 'string'

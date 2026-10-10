@@ -5,6 +5,7 @@ import type { Conversation } from '@/api/client'
 import { t } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useInboxStore } from '@/stores/inbox'
 import SessionItem from './SessionItem.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 const props = withDefaults(defineProps<{ query?: string; creating?: boolean }>(), {
@@ -16,6 +17,18 @@ const session = useSessionStore(),
   workspace = useWorkspaceStore(),
   router = useRouter()
 const error = ref('')
+const inbox = useInboxStore()
+const blockedIds = computed(() => new Set(inbox.items.filter(item =>
+  !item.closed && !item.verdict && item.answer === undefined).map(item => item.sessionId)))
+function dateGroups(items: Conversation[]) {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const week = new Date(today); week.setDate(week.getDate() - (week.getDay() + 6) % 7)
+  return [
+    { id: 'today', label: '今天', items: items.filter(item => Date.parse(item.updated_at) >= +today) },
+    { id: 'week', label: '本周', items: items.filter(item => Date.parse(item.updated_at) < +today && Date.parse(item.updated_at) >= +week) },
+    { id: 'older', label: '更早', items: items.filter(item => !(Date.parse(item.updated_at) >= +week)) },
+  ].filter(group => group.items.length)
+}
 const showAll = ref<Record<string, boolean>>({})
 const searching = computed(() => !!props.query.trim())
 const groups = computed(() => {
@@ -52,13 +65,14 @@ const groups = computed(() => {
               (item, index) =>
                 index < 5 ||
                 item.id === session.activeSessionId ||
-                session.runningTaskIds[item.id]?.length,
+                session.runningTaskIds[item.id]?.length || blockedIds.value.has(item.id),
             )
       return {
         ...folder,
         label,
         sessions: items,
         visible,
+        dates: dateGroups(visible),
         hidden: items.length - visible.length,
         matchedFolder,
       }
@@ -163,13 +177,10 @@ async function selectGroup(id: string) {
         <p v-if="!group.sessions.length" class="empty-copy workspace-empty">
           {{ session.showArchived ? $t('这个工作区还没有归档对话。') : $t('还没有对话') }}
         </p>
-        <SessionItem
-          v-for="item in group.visible"
-          :key="item.id"
-          :item="item"
-          :collapsed="false"
-          @select="emit('select')"
-        />
+        <section v-for="date in group.dates" :key="date.id" class="session-date-group">
+          <h3 class="session-date-label">{{ $t(date.label) }}</h3>
+          <SessionItem v-for="item in date.items" :key="item.id" :item="item" :collapsed="false" @select="emit('select')" />
+        </section>
         <button
           v-if="group.hidden && !searching"
           class="show-more"

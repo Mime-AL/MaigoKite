@@ -10,12 +10,12 @@ defineProps<{ verdict: Verdict }>()
 <style scoped lang="scss">
 .seal-mark {
   display: inline-grid;
-  width: 12px;
-  height: 12px;
+  width: var(--space-4);
+  height: var(--space-4);
   place-content: center;
   font: var(--text-xs) var(--font-serif);
   color: var(--stone);
-  border: 1px solid currentColor;
+  border: var(--hairline) solid currentColor;
 }
 .denied {
   color: var(--seal);

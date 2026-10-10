@@ -5,6 +5,9 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import ChangesTab from '@/components/drawer/ChangesTab.vue'
 import JobsTab from '@/components/drawer/JobsTab.vue'
 import PlanTab from '@/components/drawer/PlanTab.vue'
+import PendingTab from '@/components/drawer/PendingTab.vue'
+import { useInboxStore } from '@/stores/inbox'
+import { pendingItem } from '@/utils/rail-presentation'
 import FileExplorer from '@/components/layout/FileExplorer.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import ResizeHandle from '@/components/common/ResizeHandle.vue'
@@ -19,11 +22,14 @@ const content = ref<HTMLElement | null>(null)
 const scrollPositions: Partial<Record<typeof ui.drawerTab, number>> = {}
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
 const tabs = [
+  { id: 'pending', label: '等你处理', icon: 'pending', component: PendingTab },
   { id: 'changes', label: '变更', icon: 'review', component: ChangesTab },
   { id: 'jobs', label: '任务', icon: 'activity', component: JobsTab },
   { id: 'plan', label: '计划', icon: 'check', component: PlanTab },
   { id: 'files', label: '文件', icon: 'files', component: FileExplorer },
 ] as const
+const inbox = useInboxStore()
+const pendingCount = computed(() => inbox.items.filter(pendingItem).length)
 const current = computed(() => tabs.find((tab) => tab.id === ui.drawerTab) ?? tabs[0])
 watch(
   () => ui.drawerOpen,
@@ -69,9 +75,9 @@ async function moveTab(event: KeyboardEvent) {
     :aria-label="$t('工作抽屉')"
   >
     <header class="drawer-heading">
-      <div class="drawer-workspace" :title="workspace.current?.root_path">
-        <IconSymbol name="folder" :size="16" /><span>{{
-          workspace.current?.name || $t('工作区')
+      <div class="drawer-workspace" :title="ui.drawerTab === 'pending' ? undefined : workspace.current?.root_path">
+        <IconSymbol :name="ui.drawerTab === 'pending' ? 'pending' : 'folder'" :size="16" /><span>{{
+          ui.drawerTab === 'pending' ? $t('所有对话') : workspace.current?.name || $t('工作区')
         }}</span>
       </div>
       <div class="drawer-controls">
@@ -112,7 +118,7 @@ async function moveTab(event: KeyboardEvent) {
         :class="{ active: ui.drawerTab === tab.id }"
         @click="ui.drawerTab = tab.id"
       >
-        <IconSymbol :name="tab.icon" :size="15" /><span>{{ $t(tab.label) }}</span>
+        <IconSymbol :name="tab.icon" :size="15" /><span>{{ $t(tab.label) }}</span><small v-if="tab.id === 'pending' && pendingCount" class="tab-count">{{ pendingCount }}</small>
       </button>
     </nav>
     <div
@@ -124,7 +130,7 @@ async function moveTab(event: KeyboardEvent) {
       tabindex="0"
     >
       <!-- Keep tab content alive so file selection and scroll positions survive panel toggles. -->
-      <KeepAlive :max="4"
+      <KeepAlive :max="5"
         ><component :is="current.component" :embedded="current.id === 'files' || undefined"
       /></KeepAlive>
     </div>

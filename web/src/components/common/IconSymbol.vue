@@ -11,6 +11,7 @@ const props = withDefaults(defineProps<{
 })
 
 const paths: Record<string, string> = {
+  pending: 'm12 3 9 9-9 9-9-9 9-9Z',
   home: 'M3.5 10.7 12 3.6l8.5 7.1v8.2a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6v-8.2ZM9 20.5v-6.2h6v6.2',
   compose: 'M12 20.5H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5h8M14.2 5.8l4-4 3 3-4 4L12 10l1.2-4.2Z',
   search: 'm20.5 20.5-4.6-4.6M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z',

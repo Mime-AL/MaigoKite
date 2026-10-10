@@ -1,4 +1,34 @@
+@use './breakpoints' as breakpoints;
 :root {
+  --breakpoint-drawer: #{breakpoints.$drawer-overlay};
+  --breakpoint-sidebar: #{breakpoints.$sidebar-overlay};
+  --chat-min-width: 420px;
+  --panel-edge-gap: var(--space-5);
+  --shadow-raised: var(--elevation-raised);
+  --motion-reduced: 80ms;
+  --float-blur: blur(6px);
+  --palette-width: 560px;
+  --palette-top: min(16vh, 140px);
+  --palette-height: min(55vh, 480px);
+  --panel-button-size: 32px;
+  --mac-titlebar-inset: 82px;
+  --pending-badge-size: 18px;
+  --wait-ink: color-mix(in srgb, var(--wait) 65%, var(--ink));
+  --pending-line: 2px;
+  --session-title-size: var(--type-body);
+  --control-row-height: 38px;
+  --rail-node-height: 40px;
+  --detail-max-height: 180px;
+  --thinking-max-height: 220px;
+  --session-actions-space: 60px;
+  --session-dialog-width: 380px;
+  --size-6: 6px;
+  --size-10: 10px;
+  --size-14: 14px;
+  --size-18: 18px;
+  --size-26: 26px;
+  --size-28: 28px;
+  --size-30: 30px;
   --text-code-inline: 0.9em;
   --paper: #faf8f4;
   --paper-2: #f2efe9;
@@ -76,6 +106,7 @@
   --motion-press: 65ms;
   --motion-spin: 800ms;
   --press-offset: 0 1px;
+  --press-shift: var(--hairline);
   --press-scale: 0.96;
   --motion-pulse: 1800ms;
   --motion-grow: 900ms;
@@ -222,11 +253,8 @@
   --seal-hover: color-mix(in srgb, var(--seal) 14%, var(--paper));
   --seal-pressed: color-mix(in srgb, var(--seal) 22%, var(--paper));
   --control-transition:
-    background-color var(--motion-fast) var(--ease),
-    border-color var(--motion-fast) var(--ease),
-    color var(--motion-fast) var(--ease),
-    translate var(--motion-fast) var(--ease),
-    scale var(--motion-fast) var(--ease);
+    transform var(--motion-fast) var(--ease),
+    opacity var(--motion-fast) var(--ease);
   /* Existing settings and workspace components share the Inkline palette. */
   --canvas: var(--paper);
   --canvas-deep: var(--paper);
@@ -250,7 +278,7 @@
   --border-strong: var(--rule);
 }
 /* Only the two chat samples opt in. Existing theme/accent ownership is unchanged. */
-.inkline-preview {
+.inkline-preview, .inkline-shell {
   --paper: var(--preview-paper);
   --paper-2: var(--preview-paper-2);
   --paper-3: var(--preview-paper-3);
@@ -285,7 +313,7 @@
   --shadow-float: var(--elevation-float);
 }
 :root:not([data-accent]), :root[data-accent='stone'] {
-  .inkline-preview { --accent: var(--preview-stone); }
+  .inkline-preview, .inkline-shell { --accent: var(--preview-stone); }
 }
 @supports (animation-timing-function: linear(0, 1)) {
   :root { --ease-spring: linear(0, 0.4 20%, 0.85 40%, 1.04 65%, 1); }

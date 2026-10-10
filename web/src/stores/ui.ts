@@ -73,9 +73,8 @@ export const useUIStore = defineStore('ui', () => {
   )
   const layout = useLayoutStore()
   const drawerOpen = ref(false)
-  const drawerTab = ref<'changes' | 'jobs' | 'plan' | 'files'>('changes')
-  const inboxOpen = ref(false),
-    commandOpen = ref(false),
+  const drawerTab = ref<'changes' | 'jobs' | 'plan' | 'files' | 'pending'>('changes')
+  const commandOpen = ref(false),
     shortcutsOpen = ref(false)
   function setAppearance(patch: Partial<Appearance>) {
     const next = { ...appearance.value, ...patch }
@@ -92,7 +91,7 @@ export const useUIStore = defineStore('ui', () => {
     drawerOpen.value = true
   }
   function closeOverlays() {
-    drawerOpen.value = inboxOpen.value = commandOpen.value = shortcutsOpen.value = false
+    drawerOpen.value = commandOpen.value = shortcutsOpen.value = false
   }
   function apply() {
     const locale = resolveLanguage(appearance.value.language, navigator.language)
@@ -150,7 +149,6 @@ export const useUIStore = defineStore('ui', () => {
     layout,
     drawerOpen,
     drawerTab,
-    inboxOpen,
     commandOpen,
     shortcutsOpen,
     setAppearance,

@@ -124,10 +124,12 @@ export const useRunStore = defineStore('run', () => {
         id: approval.id, sessionId, turnId: approval.task_id, mode: 'approval',
         title: `批准 ${approval.tool_name}`, detail: JSON.stringify(approval.arguments, null, 2),
         risk: approval.risk_level, version: approval.version,
+        toolCallId: approval.tool_call_id,
       })),
       ...snapshot.questions.map((question): AwaitItem => ({
         id: question.id, sessionId, turnId: question.task_id, mode: 'question',
         title: question.title, detail: '', options: question.options, version: question.version,
+        toolCallId: question.tool_call_id, time: question.created_at,
       })),
     ]
     for (const item of pending) {
@@ -137,10 +139,10 @@ export const useRunStore = defineStore('run', () => {
       if (['completed', 'failed', 'cancelled'].includes(turn.status)) continue
       const existing = turn.awaits.find((a) => a.id === item.id)
       if (existing?.verdict || existing?.answer !== undefined) continue
-      if (existing) Object.assign(existing, item, { closed: false })
+      if (existing) Object.assign(existing, item, { closed: false, time: existing.time || item.time })
       else {
         turn.awaits.push({ ...item, closed: false })
-        turn.timeline.push({ id: item.id, kind: 'await' })
+        turn.timeline.push({ id: item.id, kind: 'await', time: item.time })
       }
       turn.status = 'waiting'
       stateSequences.set(key, snapshot.last_sequence)
@@ -218,6 +220,11 @@ export const useRunStore = defineStore('run', () => {
         turn.thinkingStatus = 'completed'
         break
       case 'step_start': {
+        // Replay can precede a snapshot-installed await. Retain real ordering
+        // metadata without changing execution state or the snapshot watermark.
+        const ordered = turn.timeline.find((item) => item.id === event.stepId && item.kind === 'step')
+        if (ordered && event.seq > 0 && (!ordered.seq || event.seq < ordered.seq))
+          Object.assign(ordered, { seq: event.seq, time: event.time })
         let step = turn.steps.find((s) => s.id === event.stepId)
         if (step) {
           // Delegation progress updates the same activity, not the main reply.
@@ -239,7 +246,7 @@ export const useRunStore = defineStore('run', () => {
             startedAt: event.pending ? undefined : event.time ? Date.parse(event.time) : Date.now(),
           }
           turn.steps.push(step)
-          turn.timeline.push({ id: step.id, kind: 'step' })
+          turn.timeline.push({ id: step.id, kind: 'step', seq: event.seq, time: event.time })
         }
         break
       }
@@ -258,7 +265,7 @@ export const useRunStore = defineStore('run', () => {
             durationMs: 0,
           }
           turn.steps.push(step)
-          turn.timeline.push({ id: step.id, kind: 'step' })
+          turn.timeline.push({ id: step.id, kind: 'step', seq: event.seq, time: event.time })
         }
         if (step)
           Object.assign(step, {
@@ -278,6 +285,16 @@ export const useRunStore = defineStore('run', () => {
       }
       case 'await': {
         const existing = turn.awaits.find((a) => a.id === event.awaitId)
+        const ordered = turn.timeline.find((item) => item.id === event.awaitId && item.kind === 'await')
+        if (ordered && event.seq > 0 && (!ordered.seq || event.seq < ordered.seq))
+          Object.assign(ordered, { seq: event.seq, time: event.time })
+        if (existing) {
+          existing.toolCallId ||= event.toolCallId
+          if (event.seq > 0 && (!existing.seq || event.seq < existing.seq)) {
+            existing.seq = event.seq
+            existing.time = event.time || existing.time
+          }
+        }
         if (!existing) {
           turn.awaits.push({
             id: event.awaitId,
@@ -289,9 +306,10 @@ export const useRunStore = defineStore('run', () => {
             risk: event.risk,
             options: event.options,
             version: event.version || 1,
+            toolCallId: event.toolCallId, seq: event.seq, time: event.time,
             closed: staleState || ['completed', 'failed', 'cancelled'].includes(turn.status),
           })
-          turn.timeline.push({ id: event.awaitId, kind: 'await' })
+          turn.timeline.push({ id: event.awaitId, kind: 'await', seq: event.seq, time: event.time })
         } else if (!staleState && !existing.verdict && existing.answer === undefined) {
           Object.assign(existing, {
             title: event.title, detail: event.detail, risk: event.risk,
@@ -334,7 +352,7 @@ export const useRunStore = defineStore('run', () => {
       case 'memory_added':
         if (!turn.memories.some((m) => m.id === event.memoryId)) {
           turn.memories.push({ id: event.memoryId, text: event.text })
-          turn.timeline.push({ id: event.memoryId, kind: 'memory' })
+          turn.timeline.push({ id: event.memoryId, kind: 'memory', seq: event.seq, time: event.time })
         }
         break
       case 'job_update': {
@@ -344,7 +362,7 @@ export const useRunStore = defineStore('run', () => {
         break
       }
       case 'error':
-        turn.timeline.push({ id: `error-${event.seq}`, kind: 'error' })
+        turn.timeline.push({ id: `error-${event.seq}`, kind: 'error', seq: event.seq, time: event.time })
         if (!staleState) {
           turn.error = event.message
           turn.status = 'failed'

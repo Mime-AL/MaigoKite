@@ -9,6 +9,7 @@ import RecentChats from '@/components/sidebar/RecentChats.vue'
 import ResizeHandle from '@/components/common/ResizeHandle.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
+import { overlayPanel } from '@/utils/layout-media'
 defineProps<{ maximumWidth?: number }>()
 const session = useSessionStore(),
   settings = useSettingsStore(),
@@ -50,7 +51,7 @@ function toggleArchive() {
   query.value = ''
 }
 function closeOnNarrowScreen() {
-  if (window.innerWidth < 720 && !ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
+  if (overlayPanel('sidebar') && !ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
 }
 </script>
 <template>
@@ -61,17 +62,14 @@ function closeOnNarrowScreen() {
     :aria-label="$t('会话侧栏')"
   >
     <div class="identity">
-      <button
+      <span
         v-if="ui.layout.sidebarCollapsed"
-        class="sidebar-icon brand-button"
-        :aria-label="$t('展开侧栏')"
-        :title="$t('展开侧栏') + ' (' + mod + '+B)'"
-        @click="ui.layout.toggleSidebar()"
+        class="brand-button"
       >
         <AppIcon v-if="ui.appearance.avatar === '助'" /><span v-else class="avatar">{{
           ui.appearance.avatar
         }}</span>
-      </button>
+      </span>
       <template v-else>
         <AppIcon v-if="ui.appearance.avatar === '助'" /><span v-else class="avatar">{{
           ui.appearance.avatar
@@ -79,14 +77,6 @@ function closeOnNarrowScreen() {
         <strong :title="settings.profile.assistantName">{{
           settings.profile.assistantName
         }}</strong>
-        <button
-          class="sidebar-icon"
-          :aria-label="$t('收起侧栏')"
-          :title="$t('收起侧栏') + ' (' + mod + '+B)'"
-          @click="ui.layout.toggleSidebar()"
-        >
-          <IconSymbol name="sidebar" :size="18" />
-        </button>
       </template>
     </div>
     <button

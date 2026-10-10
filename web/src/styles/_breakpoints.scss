@@ -1,0 +1,10 @@
+// One numeric source; tokens exports these values for the layout's JS queries.
+$drawer-overlay: 1100px;
+$sidebar-overlay: 720px;
+
+@mixin drawer-overlay {
+  @media (width <= $drawer-overlay) { @content; }
+}
+@mixin sidebar-overlay {
+  @media (width < $sidebar-overlay) { @content; }
+}

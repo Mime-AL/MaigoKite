@@ -5,6 +5,8 @@ import type { AwaitItem } from '@/api/events'
 import type { Approval } from '@/api/client'
 import { useInboxStore } from '@/stores/inbox'
 import InkButton from '@/components/common/InkButton.vue'
+import { useSessionStore } from '@/stores/session'
+import { approvalDescription } from '@/utils/tool-presentation'
 const props = defineProps<{ item?: AwaitItem; approval?: Approval }>()
 const item = computed<AwaitItem | undefined>(
   () =>
@@ -27,6 +29,9 @@ const inbox = useInboxStore(),
   note = ref(''),
   failure = ref('')
 const pendingDecision = ref<'allow' | 'deny' | null>(null)
+const session = useSessionStore()
+const description = computed(() => item.value ? approvalDescription(item.value, props.approval ||
+  session.approvals[item.value.sessionId]?.find(record => record.id === item.value?.id)) : undefined)
 async function decide(decision: 'allow' | 'deny') {
   if (!item.value || pendingDecision.value || inbox.busy.includes(item.value.id)) return
   pendingDecision.value = decision
@@ -43,10 +48,16 @@ async function decide(decision: 'allow' | 'deny') {
 <template>
   <article v-if="item" class="approval-card" :data-await="item.id">
     <header>
-      <strong>{{ item.title }}</strong
-      ><span>{{ item.risk }}</span>
+      <strong>{{ description?.action }}</strong><span class="await-label">{{ $t('等你处理') }}</span>
     </header>
-    <pre>{{ item.detail }}</pre>
+    <p class="approval-target">{{ description?.target }}</p>
+    <p v-if="description?.command" class="approval-command">{{ description.command }}</p>
+    <p class="approval-impact">{{ description?.impact }}</p>
+    <details class="approval-details">
+      <summary>{{ $t('操作详情') }}</summary>
+      <dl><dt>{{ $t('工具') }}</dt><dd>{{ description?.tool }}</dd><dt>{{ $t('风险等级') }}</dt><dd>{{ item.risk }}</dd></dl>
+      <pre>{{ item.detail }}</pre>
+    </details>
     <div v-if="rejecting">
       <label>{{ $t('驳回理由（可选）') }}<textarea v-model="note" rows="2" maxlength="2000" /></label>
     </div>
@@ -55,6 +66,7 @@ async function decide(decision: 'allow' | 'deny') {
       <InkButton
         tone="primary"
         data-verdict="allow"
+        data-await-action
         :disabled="inbox.busy.includes(item.id) || pendingDecision !== null"
         :loading="pendingDecision === 'allow'"
         @click="decide('allow')"
@@ -63,6 +75,7 @@ async function decide(decision: 'allow' | 'deny') {
       <InkButton
         tone="danger"
         data-verdict="deny"
+        data-await-action
         :disabled="inbox.busy.includes(item.id) || pendingDecision !== null"
         :loading="pendingDecision === 'deny'"
         @click="rejecting ? decide('deny') : (rejecting = true)"
@@ -74,13 +87,21 @@ async function decide(decision: 'allow' | 'deny') {
 </template>
 <style scoped lang="scss">
 .approval-card {
-  margin: 8px 0 16px;
-  padding: 16px;
-  border: 1px solid var(--rule);
-  border-left: 2px solid var(--wait);
+  margin: var(--space-3) 0 var(--space-5);
+  padding: var(--space-5);
+  border: var(--hairline) solid var(--rule);
+  border-left: var(--space-1) solid var(--wait);
   border-radius: var(--radius-md);
   background: var(--paper-2);
 }
+.approval-target { color: var(--ink); font: var(--text-sm) var(--font-mono); overflow-wrap: anywhere; }
+.approval-command { color: var(--ink); white-space: pre-wrap; font: var(--text-sm) var(--font-mono); }
+.approval-impact { color: var(--ink-2); line-height: var(--leading-normal); }
+.await-label { color: var(--wait-ink); font-size: var(--text-xs); }
+.approval-details { margin-block: var(--space-4); font-size: var(--text-xs); }
+.approval-details summary { cursor: pointer; color: var(--ink-2); }
+dl { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-4); }
+dd { margin: 0; overflow-wrap: anywhere; }
 header {
   display: flex;
   justify-content: space-between;
@@ -90,7 +111,7 @@ header span {
   color: var(--ink-2);
 }
 pre {
-  max-height: 180px;
+  max-height: var(--detail-max-height);
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -100,22 +121,22 @@ pre {
 }
 footer {
   display: flex;
-  gap: 8px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 small {
-  margin-left: 6px;
+  margin-left: var(--size-6);
   opacity: 0.6;
 }
 label {
   display: grid;
-  gap: 6px;
+  gap: var(--size-6);
   font-size: var(--text-xs);
   color: var(--ink-2);
 }
 textarea {
   width: 100%;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-4);
 }
 .cancel-note {
   border: 0;

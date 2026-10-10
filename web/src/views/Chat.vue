@@ -7,8 +7,10 @@ import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 import { useRunStore } from '@/stores/run'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useInboxStore } from '@/stores/inbox'
+import type { AwaitItem } from '@/api/events'
 import { useAutoFollow } from '@/composables/useAutoFollow'
-import { railNodes } from '@/stores/run-projection'
+import { presentationNodes, pendingItem, pendingOrder } from '@/utils/rail-presentation'
 import { remainingMessages } from '@/stores/session-projection'
 import { revealRailNode } from '@/utils/rail-navigation'
 import { pickMygoQuote } from '@/config/mygo-quotes'
@@ -20,6 +22,7 @@ import RailMinimap from '@/components/rail/RailMinimap.vue'
 import InputBox from '@/components/chat-area/InputBox.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
 import WelcomeSheet from '@/components/chat-area/WelcomeSheet.vue'
+import PendingReminder from '@/components/chat-area/PendingReminder.vue'
 const route = useRoute(),
   router = useRouter(),
   session = useSessionStore(),
@@ -28,6 +31,8 @@ const route = useRoute(),
   run = useRunStore(),
   workspace = useWorkspaceStore()
 const sessionId = computed(() => String(route.params.id || ''))
+const inbox = useInboxStore()
+const pending = computed(() => inbox.items.filter(item => item.sessionId === sessionId.value && pendingItem(item)).sort(pendingOrder))
 const scroll = ref<HTMLElement | null>(null),
   composer = ref<InstanceType<typeof InputBox> | null>(null),
   visibleCount = ref(20),
@@ -41,7 +46,7 @@ const draftSubagentModels = ref<string[]>([])
 const turns = computed(() => run.turns[sessionId.value] || [])
 const nodes = computed(() =>
   turns.value.flatMap((t) => [
-    ...railNodes(t).map((n) => ({ id: n.id, turnId: t.id })),
+    ...presentationNodes(t).map((n) => ({ id: n.id, turnId: t.id })),
     ...(t.summary ? [{ id: 'end', turnId: t.id }] : []),
   ]),
 )
@@ -246,6 +251,25 @@ async function jump(node: { id: string; turnId: string }) {
       '[data-rail-node="' + CSS.escape(node.turnId + ':' + node.id) + '"]',
     ))
 }
+async function locate(item: AwaitItem) {
+  const index = timeline.value.findIndex(entry => entry.turn?.id === item.turnId)
+  if (index >= 0) visibleCount.value = Math.max(visibleCount.value, timeline.value.length - index)
+  await nextTick()
+  const anchor = scroll.value?.querySelector<HTMLElement>(`[data-await-anchor="${CSS.escape(item.id)}"]`)
+  const node = anchor?.querySelector<HTMLButtonElement>('.node-button')
+  revealRailNode(node || null)
+  if (node?.getAttribute('aria-expanded') === 'false') node.click()
+  await nextTick()
+  const card = scroll.value?.querySelector<HTMLElement>(`[data-await="${CSS.escape(item.id)}"]`)
+  const control = card?.querySelector<HTMLElement>('[data-await-action]:not(:disabled), textarea:not(:disabled)')
+  control?.focus({ preventScroll: true })
+  control?.scrollIntoView({ block: 'center' })
+}
+watch(() => [route.query.await, sessionId.value, pending.value.map(item => item.id).join('|')], () => {
+  const id = typeof route.query.await === 'string' ? route.query.await : ''
+  const item = pending.value.find(entry => entry.id === id)
+  if (item) void locate(item)
+}, { flush: 'post', immediate: true })
 </script>
 <template>
   <div class="chat-page inkline-preview" :class="{ empty: !timeline.length }">
@@ -333,10 +357,12 @@ async function jump(node: { id: string; turnId: string }) {
       <span>{{ $t('此对话已归档，可查看历史记录。') }}</span>
       <button class="secondary-button" :disabled="restoring" :aria-busy="restoring || undefined" @click="restore">{{ restoring ? $t('正在恢复…') : $t('恢复对话') }}</button>
     </div>
+    <PendingReminder :items="pending" :scroll-root="scroll" @locate="locate" />
     <InputBox
-      v-else
+      v-if="!session.activeSession?.archived"
       ref="composer"
       :session-id="sessionId"
+      :waiting="pending.length > 0"
       :assistant-name="settings.profile.assistantName"
       :is-sending="session.isSending"
       :is-submitting="sending"

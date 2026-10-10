@@ -1,4 +1,5 @@
 @use '@/styles/mixins' as mixins;
+@use '@/styles/breakpoints' as breakpoints;
 .drawer {
   position: relative;
   display: flex;
@@ -6,22 +7,25 @@
   width: var(--drawer-width);
   flex: none;
   min-height: 0;
-  border-left: 1px solid var(--rule);
+  border-left: var(--hairline) solid var(--rule);
   background: var(--paper);
   z-index: 20;
+  isolation: isolate;
+  box-shadow: var(--shadow-raised);
+  animation: drawer-arrive var(--motion-panel) var(--ease-out);
 }
 .drawer-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  min-height: 46px;
-  padding: 6px 10px 6px 14px;
+  gap: var(--space-3);
+  min-height: var(--titlebar-window-button-width);
+  padding: var(--size-6) var(--size-10) var(--size-6) var(--size-14);
 }
 .drawer-workspace {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
   min-width: 0;
   color: var(--ink-2);
   font-size: var(--text-sm);
@@ -35,14 +39,14 @@
   display: flex;
   align-items: center;
   flex: none;
-  gap: 4px;
+  gap: var(--space-2);
 }
 .drawer-control {
   @include mixins.interactive-row;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: var(--space-8);
+  height: var(--space-8);
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -55,22 +59,23 @@
 }
 .drawer-tabs {
   display: flex;
-  gap: 2px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--rule);
+  overflow-x: auto;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  border-bottom: var(--hairline) solid var(--rule);
 }
 .drawer-tabs button {
   @include mixins.interactive-row;
   display: flex;
-  flex: 1;
+  flex: 1 0 auto;
   min-width: 0;
   justify-content: center;
   align-items: center;
-  gap: 6px;
-  min-height: 38px;
-  padding: 8px 6px;
+  gap: var(--size-6);
+  min-height: var(--control-row-height);
+  padding: var(--space-3) var(--size-6);
   border: 0;
-  border-bottom: 2px solid var(--transparent);
+  border-bottom: var(--space-1) solid var(--transparent);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: var(--transparent);
   color: var(--ink-2);
@@ -92,16 +97,16 @@
   display: none;
 }
 .drawer.wide {
-  width: min(var(--drawer-maximum-width, var(--drawer-width)), calc(100vw - 16px));
+  width: min(var(--drawer-maximum-width, var(--drawer-width)), calc(100vw - var(--space-5)));
 }
-@media (max-width: 1100px) {
+@include breakpoints.drawer-overlay {
   .drawer {
     position: fixed;
     right: 0;
     top: var(--titlebar-height);
     bottom: 0;
-    width: min(var(--drawer-width), calc(100vw - 16px));
-    box-shadow: var(--shadow-float);
+    width: min(var(--drawer-width), calc(100vw - var(--space-5)));
+    box-shadow: var(--shadow-raised);
   }
   .drawer-shade {
     display: block;
@@ -111,3 +116,6 @@
     background: var(--backdrop);
   }
 }
+.drawer::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background-image: var(--noise); opacity: var(--noise-paper-opacity); }
+.tab-count { color: var(--wait-ink); padding-inline: var(--space-2); border-radius: var(--radius-pill); background: var(--wait-soft); font-variant-numeric: tabular-nums; }
+@keyframes drawer-arrive { from { opacity: 0; transform: translateX(var(--space-6)); } to { opacity: 1; transform: translateX(0); } }

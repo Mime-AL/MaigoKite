@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { i18n } from '@/i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { Conversation } from '@/api/client'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRunStore } from '@/stores/run'
+import { useInboxStore } from '@/stores/inbox'
 import { useDialog } from '@/composables/useDialog'
 import Pulse from '@/components/shell/Pulse.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import { pendingOrder } from '@/utils/rail-presentation'
 const props = defineProps<{ item: Conversation; collapsed: boolean }>()
 const emit = defineEmits<{ select: [] }>()
 const session = useSessionStore(),
@@ -22,6 +24,11 @@ const title = ref(''),
   folder = ref(''),
   error = ref(''),
   busy = ref<'save' | 'archive' | 'delete' | ''>('')
+const inbox = useInboxStore(), route = useRoute()
+const pending = computed(() => props.item.id === String(route.params.id || '') ? [] : inbox.items
+  .filter(item => item.sessionId === props.item.id && !item.closed && !item.verdict && item.answer === undefined).sort(pendingOrder))
+const destination = computed(() => ({ path: '/chat/' + props.item.id,
+  ...(pending.value[0] ? { query: { await: pending.value[0].id } } : {}) }))
 const running = computed(
   () =>
     Boolean(session.runningTaskIds[props.item.id]?.length) ||
@@ -77,15 +84,18 @@ async function act(action: 'save' | 'archive' | 'delete') {
 <template>
   <div class="session-row" :class="{ collapsed }" @contextmenu.prevent="manage">
     <router-link
-      :to="'/chat/' + item.id"
+      :to="destination"
       class="session-link"
       :title="item.title"
       @click="emit('select')"
       @dblclick.prevent="manage"
     >
-      <Pulse :state="run.pulse(item.id)" /><span v-if="!collapsed">{{
+      <Pulse v-if="running && !pending.length" :state="run.pulse(item.id)" /><span v-if="!collapsed">{{
         item.title || $t('未命名对话')
       }}</span>
+      <small v-if="pending.length" class="session-pending" :title="$t('{0} 项等你处理', [pending.length])">
+        <Pulse state="waiting" :size="10" /><span v-if="!collapsed">{{ $t('等你处理') }}</span>
+      </small>
     </router-link>
     <template v-if="!collapsed">
       <time
