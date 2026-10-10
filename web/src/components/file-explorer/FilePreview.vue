@@ -109,7 +109,7 @@ header strong {
 }
 header small {
   margin-top: 2px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 dl {
@@ -120,7 +120,7 @@ dl {
   font-size: var(--text-xs);
 }
 dt {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 dd {
   margin: 0;
@@ -134,7 +134,7 @@ dd {
 }
 .content p,
 .content small {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 .content pre {

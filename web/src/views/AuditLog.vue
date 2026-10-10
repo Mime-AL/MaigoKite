@@ -91,7 +91,7 @@ onMounted(async () => {
   font-weight: var(--weight-semibold);
 }
 .event-count {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 .table-wrap {
@@ -108,7 +108,7 @@ td {
   text-align: left;
 }
 th {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   background: var(--surface-muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
@@ -164,7 +164,7 @@ code {
 .state p {
   max-width: 420px;
   margin: 6px 0 0;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 .state.error {

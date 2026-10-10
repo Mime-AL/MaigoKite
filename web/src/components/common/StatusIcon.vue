@@ -21,7 +21,7 @@ function iconName() {
   height: 22px;
   place-items: center;
   border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   background: var(--surface-strong);
 }
 .status-icon.running {

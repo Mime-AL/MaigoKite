@@ -29,7 +29,7 @@ header {
 }
 strong {
   font-size: var(--text-xs);
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-weight: var(--weight-medium);
 }
 time {

@@ -49,7 +49,7 @@ li {
   color: var(--ink-2);
 }
 .completed {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .in_progress span {
   color: var(--accent);

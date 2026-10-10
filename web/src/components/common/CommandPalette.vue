@@ -196,7 +196,7 @@ button.selected {
   background: var(--accent-selected);
 }
 small {
-  color: var(--ink-3);
+  color: var(--ink-2);
   min-width: 30px;
   font-size: var(--text-xs);
 }

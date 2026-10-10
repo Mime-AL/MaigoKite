@@ -28,7 +28,7 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: var(--transparent);
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .group-toggle {
   width: 20px;
@@ -67,7 +67,7 @@
   font-weight: var(--weight-semibold);
 }
 .workspace-name small {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
@@ -100,7 +100,7 @@
   padding: 4px 8px;
   text-align: left;
   background: var(--transparent);
-  color: var(--ink-3);
+  color: var(--ink-2);
   border: 0;
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);

@@ -80,7 +80,7 @@ onMounted(() => {
   border-bottom: 2px solid var(--transparent);
   border-radius: var(--radius-none);
   padding: 10px 8px 14px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   background: var(--transparent);
   white-space: nowrap;
   font-size: var(--text-sm);

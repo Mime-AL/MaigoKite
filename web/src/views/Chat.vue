@@ -19,7 +19,7 @@ import RailTrack from '@/components/rail/RailTrack.vue'
 import RailMinimap from '@/components/rail/RailMinimap.vue'
 import InputBox from '@/components/chat-area/InputBox.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
-import AppIcon from '@/components/common/AppIcon.vue'
+import WelcomeSheet from '@/components/chat-area/WelcomeSheet.vue'
 const route = useRoute(),
   router = useRouter(),
   session = useSessionStore(),
@@ -248,20 +248,16 @@ async function jump(node: { id: string; turnId: string }) {
 }
 </script>
 <template>
-  <div class="chat-page" :class="{ empty: !timeline.length }">
+  <div class="chat-page inkline-preview" :class="{ empty: !timeline.length }">
     <div class="conversation">
       <div ref="scroll" class="message-list" @scroll.passive="onScroll">
-        <section v-if="!turns.length && !unprojectedMessages.length" class="welcome-state">
-          <AppIcon class="welcome-icon" :size="64" />
-          <span class="welcome-date">{{
-            new Date().toLocaleDateString($i18n.locale, {
-              month: 'long',
-              day: 'numeric',
-              weekday: 'long',
-            })
-          }}</span>
-          <h1>{{ $t('{0}，{1}', [greeting, ui.appearance.greetingName === '你' ? $t('你') : ui.appearance.greetingName]) }}</h1>
-          <p>{{ welcomeQuote }}</p>
+        <WelcomeSheet
+          v-if="!turns.length && !unprojectedMessages.length" class="welcome-state"
+          :date="new Date().toLocaleDateString($i18n.locale, { month: 'long', day: 'numeric', weekday: 'long' })"
+          :greeting="$t('{0}，{1}', [greeting, ui.appearance.greetingName === '你' ? $t('你') : ui.appearance.greetingName])"
+          :quote="welcomeQuote"
+          @draft="composer?.restoreDraft($event)"
+        >
           <nav v-if="unfinished.length" class="unfinished">
             <span>{{ $t('上次没做完的事') }}</span
             ><router-link
@@ -271,7 +267,7 @@ async function jump(node: { id: string; turnId: string }) {
               >{{ turn.userText }}</router-link
             >
           </nav>
-        </section>
+        </WelcomeSheet>
         <div v-else class="messages-inner">
           <p v-if="session.historyTruncated[sessionId]" class="chat-error" role="status">{{ $t('较早的记录未完整加载。') }}</p>
           <button v-if="timeline.length > visibleCount" class="earlier" @click="visibleCount += 20">{{ $t('再看前面的内容') }}</button>

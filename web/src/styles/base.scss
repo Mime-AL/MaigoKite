@@ -18,6 +18,7 @@ html {
 }
 body {
   overflow: hidden;
+  isolation: isolate;
 }
 body::before {
   content: '';
@@ -31,6 +32,14 @@ body::before {
 html[data-texture='false'] body::before {
   display: none;
 }
+/* The sample owns layered, below-text grain; other pages keep their old treatment. */
+body:has(.inkline-preview)::before { display: none; }
+/* Keep the document-level setting outside scoped styles. */
+html[data-texture='false'] .inkline-preview::before,
+html[data-texture='false'] .inkline-preview .composer::before,
+html[data-texture='false'] .inkline-preview .receipt > div::before,
+html[data-texture='false'] .inkline-preview .markdown-content pre::before,
+html[data-texture='false'] .inkline-preview .node-details pre::before { display: none; }
 button,
 input,
 textarea,
@@ -51,22 +60,21 @@ button:not(:disabled, [aria-disabled='true']):active {
 }
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: var(--opacity-disabled);
 }
 button[aria-busy='true'] {
   cursor: progress;
-  opacity: 0.8;
+  opacity: var(--opacity-busy);
 }
 button[aria-busy='true']::before {
   content: '';
   display: inline-block;
   flex: none;
-  width: 12px;
-  height: 12px;
-  border: 2px solid currentColor;
-  border-right-color: var(--transparent);
-  border-radius: var(--radius-round);
-  animation: spin var(--motion-spin) linear infinite;
+  width: var(--space-4);
+  height: var(--ink-loader-height);
+  background: currentColor;
+  border-radius: var(--radius-pill);
+  animation: ink-breathe var(--motion-pulse) var(--ease) infinite;
 }
 a {
   color: var(--accent);
@@ -113,9 +121,11 @@ textarea {
   resize: vertical;
 }
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline: var(--focus-width) solid var(--accent);
+  outline-offset: var(--focus-offset);
 }
+::placeholder { color: var(--ink-3); opacity: 1; }
+time, code, kbd { font-variant-numeric: tabular-nums; }
 ::selection {
   background: var(--accent-soft);
 }
@@ -145,7 +155,7 @@ textarea {
   line-height: var(--leading-small);
 }
 .page-eyebrow {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 .glass-card {

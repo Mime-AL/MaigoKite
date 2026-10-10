@@ -184,7 +184,7 @@ function close() {
   font-size: var(--text-xs);
 }
 .workspace-label small {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 .workspace-selector > .icon-button {

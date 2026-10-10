@@ -22,7 +22,7 @@ const sidebarWidth = computed(() => Math.min(ui.layout.sidebarWidth, sidebarMaxi
 const drawerMaximum = computed(() =>
   Math.max(
     panelWidths.right.min,
-    viewportWidth.value < 1100
+    viewportWidth.value <= 1100
       ? viewportWidth.value - 16
       : viewportWidth.value - (ui.layout.sidebarCollapsed ? 56 : sidebarWidth.value) - 420,
   ),
@@ -33,7 +33,10 @@ const panelStyle = computed(() => ({
   '--drawer-maximum-width': drawerMaximum.value + 'px',
 }))
 function updateViewport() {
+  const wasWide = viewportWidth.value > 720
   viewportWidth.value = window.innerWidth
+  if (wasWide && viewportWidth.value <= 720 && !ui.layout.sidebarCollapsed)
+    ui.layout.toggleSidebar()
 }
 useShortcuts()
 useDesktopBridge()
@@ -43,7 +46,7 @@ onMounted(() => {
   void settings.loadPreferences()
   if (!settings.loaded) void settings.loadSettings()
   inbox.start()
-  if (window.innerWidth < 720 && !ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
+  if (window.innerWidth <= 720 && !ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
 })
 onUnmounted(() => {
   window.removeEventListener('resize', updateViewport)

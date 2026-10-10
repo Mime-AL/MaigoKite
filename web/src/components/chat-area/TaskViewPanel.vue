@@ -40,7 +40,7 @@ defineProps<{
 }
 .task-row span,
 .task-row small {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   text-transform: capitalize;
 }

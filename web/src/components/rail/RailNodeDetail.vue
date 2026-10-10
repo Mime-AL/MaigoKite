@@ -67,13 +67,13 @@ header {
   margin: 6px 0;
 }
 small {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   flex: none;
 }
 summary {
   cursor: pointer;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 pre {

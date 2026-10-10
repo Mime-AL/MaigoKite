@@ -10,7 +10,7 @@ kbd {
   border-radius: var(--radius-sm);
   padding: 2px 5px;
   font: var(--text-xs) var(--font-mono);
-  color: var(--ink-3);
+  color: var(--ink-2);
   background: var(--paper-2);
 }
 </style>

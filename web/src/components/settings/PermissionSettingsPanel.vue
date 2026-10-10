@@ -175,7 +175,7 @@ h3 {
 .mode-grid button p {
   margin-top: auto;
   padding-top: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
 }

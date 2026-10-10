@@ -48,8 +48,9 @@ function toggleThinking(event: Event) {
 </script>
 <template>
   <section class="rail-track" :class="{ growing: turn.status === 'running' }">
-    <svg class="track-line" viewBox="0 0 2 100" preserveAspectRatio="none" aria-hidden="true">
-      <path d="M1 0V100" pathLength="100" />
+    <svg class="track-line" viewBox="0 0 12 100" preserveAspectRatio="none" fill="none" aria-hidden="true">
+      <path class="rail-brush" d="M6 0C3 20 9 33 6 50S4 76 6 100" />
+      <path class="rail-hair" d="M8 1C7 28 10 42 8 59S7 81 8 98" />
     </svg>
     <details
       v-if="active || hasThinking || nodes.length"
@@ -91,21 +92,23 @@ function toggleThinking(event: Event) {
 }
 .track-line {
   position: absolute;
-  left: calc(var(--rail-width) / 2);
+  left: calc((var(--rail-width) - var(--rail-path-width)) / 2);
   top: 0;
-  width: 1px;
+  width: var(--rail-path-width);
   height: 100%;
   overflow: visible;
-  stroke: var(--rule);
-  stroke-width: 1;
+  stroke: var(--preview-rail-idle);
+  stroke-width: var(--rail-stroke);
+  stroke-linecap: round;
 }
 .track-line path {
   vector-effect: non-scaling-stroke;
 }
-.growing .track-line path {
+.rail-hair { stroke-width: var(--rail-hair-stroke); opacity: var(--rail-soft-opacity); }
+.growing .track-line {
   stroke: var(--accent);
-  stroke-dasharray: 100;
-  animation: ink-grow var(--motion-grow) var(--ease);
+  transform-origin: top;
+  animation: ink-reveal var(--motion-grow) var(--ease-out);
 }
 .answer {
   position: relative;

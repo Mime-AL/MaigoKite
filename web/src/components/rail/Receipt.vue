@@ -83,7 +83,7 @@ p {
   flex-wrap: wrap;
 }
 p span {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .receipt div button {
   margin-left: auto;

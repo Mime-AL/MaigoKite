@@ -17,7 +17,7 @@
 }
 .state {
   padding: 28px 16px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   text-align: center;
 }
@@ -108,7 +108,7 @@
   white-space: nowrap;
 }
 .diff-preview small {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 .diff-preview pre {
@@ -141,11 +141,11 @@
   background: var(--primary-soft);
 }
 .diff-preview code.header {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-weight: var(--weight-bold);
 }
 .diff-preview > p {
   padding: 20px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }

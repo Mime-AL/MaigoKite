@@ -88,7 +88,7 @@
   gap: 6px;
   padding-top: 11px;
   border-top: 1px solid var(--border-color);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 .metric-card small i {
@@ -117,7 +117,7 @@
 }
 .panel-header p {
   margin: 0 0 2px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
@@ -171,14 +171,14 @@
 }
 .session-copy small {
   margin-top: 3px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 .panel-empty {
   display: grid;
   min-height: 250px;
   place-items: center;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 .rich-empty {
@@ -241,7 +241,7 @@
 .shortcut small {
   margin-top: 4px;
   overflow: hidden;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;

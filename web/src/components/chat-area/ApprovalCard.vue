@@ -87,7 +87,7 @@ header {
   font-size: var(--text-sm);
 }
 header span {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 pre {
   max-height: 180px;

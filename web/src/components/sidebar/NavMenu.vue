@@ -40,7 +40,7 @@ const dataItems = [
 .group-label {
   margin: 0;
   padding: 0 10px 4px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.055em;

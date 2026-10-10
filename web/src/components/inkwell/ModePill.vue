@@ -35,7 +35,7 @@ button {
   min-width: 28px;
   padding-inline: 6px;
   height: 24px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   background: var(--transparent);
   font-size: var(--text-sm);
 }

@@ -58,7 +58,7 @@ button[aria-selected='true'] {
   background: var(--accent-selected);
 }
 small {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 span {
@@ -68,7 +68,7 @@ span {
 }
 p {
   margin: 10px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-sm);
 }
 </style>

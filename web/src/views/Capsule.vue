@@ -92,7 +92,7 @@ input::placeholder {
 button {
   border: 0;
   background: var(--transparent);
-  color: var(--ink-3);
+  color: var(--ink-2);
   padding: 8px;
   -webkit-app-region: no-drag;
 }

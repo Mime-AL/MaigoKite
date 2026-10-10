@@ -90,14 +90,14 @@ onMounted(() => {
   line-height: var(--leading-tight);
 }
 .summary-grid small {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 .loading-card {
   display: grid;
   min-height: 110px;
   place-items: center;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 .error-banner {
   margin: 0;

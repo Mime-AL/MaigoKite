@@ -127,7 +127,7 @@ const activeTab = ref<'files' | 'changes'>('files')
 }
 .explorer-header p {
   margin: 0 0 2px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.07em;
@@ -154,7 +154,7 @@ const activeTab = ref<'files' | 'changes'>('files')
   height: 27px;
   border: 0;
   border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   background: var(--transparent);
   cursor: pointer;
   font-size: var(--text-xs);
@@ -197,7 +197,7 @@ const activeTab = ref<'files' | 'changes'>('files')
 .empty-files p {
   max-width: 190px;
   margin: 5px 0 0;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
 }
@@ -210,7 +210,7 @@ footer {
   gap: 7px;
   padding: 0 15px;
   border-top: 1px solid var(--border-color);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 footer i {

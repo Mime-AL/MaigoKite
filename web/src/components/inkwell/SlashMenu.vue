@@ -54,6 +54,6 @@ button[aria-selected='true'] {
 code {
   width: 90px;
   font-family: var(--font-mono);
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 </style>

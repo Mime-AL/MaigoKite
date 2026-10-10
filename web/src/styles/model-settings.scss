@@ -14,7 +14,7 @@
 }
 .panel-heading p {
   margin: 0 0 4px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 .panel-heading h2 {
@@ -40,7 +40,7 @@
   gap: 12px;
 }
 .service-count {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   white-space: nowrap;
 }
@@ -96,7 +96,7 @@
   font-weight: var(--weight-semibold);
 }
 .profile-copy small {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -109,7 +109,7 @@
   font-style: normal;
 }
 .credential-state {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 .credential-state.missing {
@@ -132,13 +132,13 @@
   text-align: center;
 }
 .empty-icon {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .empty-profile h3 {
   font-size: var(--text-md);
 }
 .empty-profile p {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-sm);
 }
 .provider-picker {
@@ -157,14 +157,14 @@
   font-size: var(--text-lg);
 }
 .picker-heading p {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-sm);
 }
 .provider-search {
   position: relative;
   display: flex;
   align-items: center;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .provider-search > svg {
   position: absolute;
@@ -177,7 +177,7 @@
   font-size: var(--text-sm);
 }
 .provider-empty {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-sm);
   padding-block: 16px;
 }
@@ -218,11 +218,11 @@
   font-weight: var(--weight-medium);
 }
 .provider-choice small {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 .provider-choice > i {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-style: normal;
 }
 @media (max-width: 720px) {
