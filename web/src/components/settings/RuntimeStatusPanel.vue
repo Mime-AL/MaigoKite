@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, watch } from 'vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import { useSettingsStore } from '@/stores/settings'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const settings = useSettingsStore()
+const workspace = useWorkspaceStore()
 const status = computed(() => settings.runtimeStatus)
 
-onMounted(() => {
-  void settings.loadRuntimeStatus()
-})
+watch(() => workspace.selectedId, (id) => void settings.loadRuntimeStatus(id), { immediate: true })
 </script>
 
 <template>
@@ -19,7 +19,12 @@ onMounted(() => {
         <h2>工作区与运行状态</h2>
         <p>查看当前工作区位置和应用服务状态。</p>
       </div>
-      <button class="refresh-button" type="button" :disabled="settings.runtimeLoading" @click="settings.loadRuntimeStatus">
+      <button
+        class="refresh-button"
+        type="button"
+        :disabled="settings.runtimeLoading"
+        @click="settings.loadRuntimeStatus(workspace.selectedId)"
+      >
         <IconSymbol name="refresh" :size="14" />{{ settings.runtimeLoading ? '刷新中…' : '刷新' }}
       </button>
     </header>
@@ -37,12 +42,16 @@ onMounted(() => {
       <div class="service-grid">
         <article>
           <span class="service-icon"><IconSymbol name="globe" :size="17" /></span>
-          <div><strong>应用服务</strong><small>{{ status.gateway.version || '版本未知' }}</small></div>
+          <div>
+            <strong>应用服务</strong><small>{{ status.gateway.version || '版本未知' }}</small>
+          </div>
           <span class="service-state ready"><i />运行中</span>
         </article>
         <article>
           <span class="service-icon core"><IconSymbol name="brain" :size="17" /></span>
-          <div><strong>智能服务</strong><small>{{ status.agentCore.version || '版本未知' }}</small></div>
+          <div>
+            <strong>智能服务</strong><small>{{ status.agentCore.version || '版本未知' }}</small>
+          </div>
           <span class="service-state" :class="status.agentCore.status === 'serving' ? 'ready' : 'unavailable'">
             <i />{{ status.agentCore.status === 'serving' ? '运行中' : '不可用' }}
           </span>
@@ -58,36 +67,5 @@ onMounted(() => {
 </template>
 
 <style scoped lang="scss">
-.runtime-settings { overflow: hidden; }
-.runtime-heading { display: flex; align-items: center; gap: 13px; padding: 20px 22px; border-bottom: 1px solid var(--border-color); }
-.runtime-heading > div { min-width: 0; flex: 1; }
-.runtime-heading h2 { margin: 0; font-size: 16px; letter-spacing: -0.025em; }
-.runtime-heading p { margin: 4px 0 0; color: var(--text-secondary); font-size: 10.5px; }
-.section-icon, .service-icon { display: grid; flex: none; place-items: center; color: var(--primary-color); background: var(--primary-soft); }
-.section-icon { width: 43px; height: 43px; border-radius: 13px; }
-.refresh-button { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid var(--border-color); border-radius: 10px; color: var(--text-secondary); background: var(--surface-muted); cursor: pointer; font-size: 10px; }
-.refresh-button:disabled { cursor: default; opacity: .55; }
-.runtime-error, .runtime-loading { display: flex; min-height: 120px; align-items: center; justify-content: center; gap: 8px; padding: 24px; color: var(--text-secondary); font-size: 11px; }
-.runtime-error { color: var(--danger); }
-.workspace-block { padding: 18px 22px; border-bottom: 1px solid var(--border-color); }
-.block-label { display: block; margin-bottom: 8px; color: var(--text-tertiary); font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.workspace-block code { display: block; overflow: hidden; padding: 11px 12px; border: 1px solid var(--border-color); border-radius: 10px; color: var(--text-primary); background: var(--surface-muted); font-family: var(--font-mono); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
-.service-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 16px 22px; }
-.service-grid article { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 13px; border: 1px solid var(--border-color); border-radius: 13px; background: var(--surface-muted); }
-.service-icon { width: 34px; height: 34px; border-radius: 10px; }
-.service-icon.core { color: #8a63d2; background: rgba(138, 99, 210, .13); }
-.service-grid article > div { min-width: 0; display: flex; flex: 1; flex-direction: column; }
-.service-grid strong { font-size: 11px; }
-.service-grid small { margin-top: 3px; color: var(--text-tertiary); font-family: var(--font-mono); font-size: 8.5px; }
-.service-state { display: inline-flex; align-items: center; gap: 5px; color: var(--text-tertiary); font-size: 9px; font-weight: 650; }
-.service-state i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.service-state.ready { color: var(--success); }
-.service-state.unavailable { color: var(--danger); }
-.runtime-settings footer { display: flex; align-items: flex-start; gap: 7px; padding: 13px 22px; color: var(--text-tertiary); background: var(--surface-muted); font-size: 9.5px; line-height: 1.45; }
-.runtime-settings footer.pending { color: var(--warning); background: var(--warning-soft); }
-@media (max-width: 760px) {
-  .service-grid { grid-template-columns: 1fr; }
-  .runtime-heading { align-items: flex-start; flex-wrap: wrap; }
-  .refresh-button { margin-left: 56px; }
-}
+@use '@/styles/runtime-status';
 </style>

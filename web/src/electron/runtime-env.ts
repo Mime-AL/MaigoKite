@@ -18,7 +18,7 @@ const RUNTIME_ENV_ALLOWLIST = [
   'NO_PROXY',
   'SSL_CERT_FILE',
   'REQUESTS_CA_BUNDLE',
-  'NANAMI_WORKSPACE_ROOT',
+  'MAIGOKITE_WORKSPACE_ROOT',
 ] as const
 
 /** Build the minimal host environment needed by the local runtime and OS keychain. */

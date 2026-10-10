@@ -1,61 +1,262 @@
-import { app, BrowserWindow, ipcMain, Menu, shell, Tray } from 'electron'
+import { app, BrowserWindow, globalShortcut, Menu, screen, shell, Tray } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createRuntimeEnvironment } from './runtime-env'
+import { registerIPC } from './ipc'
+import { registeredWorkspaceRoot } from './workspace'
+import { appearanceValue } from './contracts'
+import { trayImage } from './tray-icons'
+import type { Appearance } from '../stores/ui'
+import type { PulseState } from '../api/events'
+app.setName('MaigoKite')
 
-let mainWindow: BrowserWindow | null = null
-let tray: Tray | null = null
+let mainWindow: BrowserWindow | null = null,
+  capsuleWindow: BrowserWindow | null = null,
+  tray: Tray | null = null
+let quitting = false,
+  appearance: Appearance | null = null,
+  shortcut = ''
 const children: ChildProcess[] = []
-
+const indexPath = path.resolve(__dirname, '../dist/index.html')
 export function secureWebPreferences() {
-  return { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true }
+  return {
+    preload: path.join(__dirname, 'preload.cjs'),
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    webSecurity: true,
+  }
 }
-
-function projectRoot() { return process.env.NANAMI_PROJECT_ROOT || path.resolve(app.getAppPath(), '..') }
-function startProcess(command: string, args: string[], cwd: string, workspaceRoot: string) {
+function projectRoot() {
+  return process.env.MAIGOKITE_PROJECT_ROOT || path.resolve(app.getAppPath(), '..')
+}
+function workspaceRoot() {
+  return process.env.MAIGOKITE_WORKSPACE_ROOT || (app.isPackaged ? process.cwd() : projectRoot())
+}
+function startProcess(command: string, args: string[], cwd: string) {
   const env = createRuntimeEnvironment()
-  env.NANAMI_WORKSPACE_ROOT = workspaceRoot
+  env.MAIGOKITE_WORKSPACE_ROOT = workspaceRoot()
   const child = spawn(command, args, { cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'], env })
-  child.on('error', () => mainWindow?.webContents.send('runtime:error', `${command} failed to start`))
+  child.stdout?.on('data', () => undefined)
+  child.stderr?.on('data', () => undefined)
+  child.on('error', () =>
+    mainWindow?.webContents.send('runtime:error', command + ' failed to start'),
+  )
   children.push(child)
 }
 function startRuntime() {
-  if (process.env.NANAMI_EXTERNAL_RUNTIME === '1') return
+  if (process.env.MAIGOKITE_EXTERNAL_RUNTIME === '1' || process.env.VITE_MOCK === '1') return
   const root = projectRoot()
-  const workspaceRoot = process.env.NANAMI_WORKSPACE_ROOT || (app.isPackaged ? process.cwd() : root)
   if (app.isPackaged) {
-    startProcess(path.join(process.resourcesPath, 'bin', 'agent-core'), ['run'], process.resourcesPath, workspaceRoot)
-    startProcess(path.join(process.resourcesPath, 'bin', 'gateway'), [], process.resourcesPath, workspaceRoot)
+    startProcess(
+      path.join(process.resourcesPath, 'bin', 'agent-core'),
+      ['run'],
+      process.resourcesPath,
+    )
+    startProcess(path.join(process.resourcesPath, 'bin', 'gateway'), [], process.resourcesPath)
   } else {
     const projectPython = path.join(root, '.venv', 'bin', 'python')
-    const python = process.env.NANAMI_PYTHON || (existsSync(projectPython) ? projectPython : 'python3')
-    startProcess(python, [path.join(root, 'python', 'main.py'), 'run', '--config', path.join(root, 'config', 'config.dev.yaml'), '--port', '8081'], root, workspaceRoot)
-    startProcess('go', ['run', './cmd/gateway'], path.join(root, 'gateway'), workspaceRoot)
+    const python =
+      process.env.MAIGOKITE_PYTHON || (existsSync(projectPython) ? projectPython : 'python3')
+    startProcess(
+      python,
+      [
+        path.join(root, 'python', 'main.py'),
+        'run',
+        '--config',
+        path.join(root, 'config', 'config.dev.yaml'),
+        '--port',
+        '8081',
+      ],
+      root,
+    )
+    startProcess('go', ['run', './cmd/gateway'], path.join(root, 'gateway'))
   }
 }
-function stopRuntime() { for (const child of children.splice(0)) if (!child.killed) child.kill('SIGTERM') }
-
+function stopRuntime() {
+  for (const child of children.splice(0)) if (!child.killed) child.kill('SIGTERM')
+}
 export function isAllowedNavigation(target: string, development: boolean) {
   try {
     const url = new URL(target)
-    if (url.protocol === 'file:') return true
-    return development && url.protocol === 'http:' && url.hostname === 'localhost' && url.port === '5173'
+    if (url.protocol === 'file:') return path.resolve(fileURLToPath(url)) === indexPath
+    return development && url.origin === 'http://localhost:5173'
   } catch {
     return false
   }
 }
-
-export function createWindow() {
-  const window = new BrowserWindow({ width: 1400, height: 900, minWidth: 800, minHeight: 600, titleBarStyle: 'hiddenInset', webPreferences: secureWebPreferences() })
-  window.webContents.setWindowOpenHandler(({ url }) => { if (url.startsWith('https://')) void shell.openExternal(url); return { action: 'deny' } })
-  window.webContents.on('will-navigate', (event, url) => { if (!isAllowedNavigation(url, !app.isPackaged)) event.preventDefault() })
-  if (!app.isPackaged) void window.loadURL('http://localhost:5173'); else void window.loadFile(path.join(__dirname, '../dist/index.html'))
-  window.on('closed', () => { mainWindow = null }); mainWindow = window; return window
+function secureNavigation(window: BrowserWindow) {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      if (['https:', 'http:'].includes(new URL(url).protocol)) void shell.openExternal(url)
+    } catch {
+      /* Invalid links are ignored. */
+    }
+    return { action: 'deny' }
+  })
+  window.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedNavigation(url, !app.isPackaged)) event.preventDefault()
+  })
 }
-function createTray() { tray = new Tray(path.join(app.getAppPath(), 'public', 'favicon.ico')); tray.setToolTip('助手'); tray.setContextMenu(Menu.buildFromTemplate([{ label: '显示窗口', click: () => mainWindow?.show() }, { label: '退出', click: () => app.quit() }])) }
-function registerIPC() { ipcMain.handle('runtime:status', event => ({ platform: process.platform, packaged: app.isPackaged, sender: event.sender.id })) }
-
-app.whenReady().then(() => { startRuntime(); createWindow(); createTray(); registerIPC(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() }) })
-app.on('before-quit', stopRuntime)
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+export function createWindow() {
+  const window = new BrowserWindow({
+    title: 'MaigoKite',
+    width: 1320,
+    height: 860,
+    minWidth: 560,
+    minHeight: 500,
+    frame: false,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    trafficLightPosition: { x: 12, y: 11 },
+    webPreferences: secureWebPreferences(),
+  })
+  secureNavigation(window)
+  if (!app.isPackaged) void window.loadURL('http://localhost:5173')
+  else void window.loadFile(indexPath)
+  window.on('close', (event) => {
+    if (!quitting) {
+      event.preventDefault()
+      window.hide()
+    }
+  })
+  window.on('closed', () => {
+    mainWindow = null
+  })
+  mainWindow = window
+  return window
+}
+function showCapsule() {
+  if (!capsuleWindow) {
+    const window = new BrowserWindow({
+      title: 'MaigoKite · 速记',
+      width: 560,
+      height: 56,
+      frame: false,
+      alwaysOnTop: true,
+      resizable: false,
+      skipTaskbar: true,
+      show: false,
+      webPreferences: secureWebPreferences(),
+    })
+    capsuleWindow = window
+    secureNavigation(window)
+    if (app.isPackaged) void window.loadFile(indexPath, { hash: '/capsule' })
+    else void window.loadURL('http://localhost:5173/capsule')
+    window.once('ready-to-show', () => {
+      window.show()
+      window.focus()
+    })
+    window.on('blur', () => window.hide())
+    window.on('closed', () => {
+      capsuleWindow = null
+    })
+  }
+  const bounds = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  capsuleWindow.setPosition(
+    Math.round(bounds.x + (bounds.width - 560) / 2),
+    Math.round(bounds.y + bounds.height * 0.2),
+  )
+  capsuleWindow.show()
+  capsuleWindow.focus()
+}
+function setShortcut(value: string) {
+  if (shortcut === value) return
+  if (!globalShortcut.register(value, showCapsule))
+    throw new Error('快捷键已被占用，请换一个组合。')
+  if (shortcut) globalShortcut.unregister(shortcut)
+  shortcut = value
+}
+function setAppearance(value: Appearance) {
+  if (appearance && appearance.capsuleShortcut !== value.capsuleShortcut)
+    setShortcut(value.capsuleShortcut)
+  else if (!shortcut) {
+    try {
+      setShortcut(value.capsuleShortcut)
+    } catch {
+      /* A reserved default shortcut must not block theme sync. */
+    }
+  }
+  if (JSON.stringify(value) === JSON.stringify(appearance)) return
+  appearance = value
+  writeFileSync(
+    path.join(app.getPath('userData'), 'inkline-ui.json'),
+    JSON.stringify(value),
+    'utf8',
+  )
+  for (const window of [mainWindow, capsuleWindow])
+    window?.webContents.send('appearance:changed', value)
+}
+function setPulse(state: PulseState) {
+  tray?.setImage(trayImage(state))
+  tray?.setToolTip(
+    'MaigoKite · ' +
+      {
+        idle: '静息',
+        thinking: '思考',
+        acting: '行动',
+        waiting: '等你',
+        error: '出错',
+        offline: '离线',
+      }[state],
+  )
+}
+function createTray() {
+  tray = new Tray(trayImage('idle'))
+  tray.setToolTip('MaigoKite')
+  tray.on('click', () => {
+    mainWindow?.show()
+    mainWindow?.focus()
+  })
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: '显示窗口',
+        click: () => {
+          mainWindow?.show()
+          mainWindow?.focus()
+        },
+      },
+      { label: '速记', click: showCapsule },
+      { type: 'separator' },
+      { label: '退出', click: () => app.quit() },
+    ]),
+  )
+}
+app.whenReady().then(() => {
+  try {
+    const value: unknown = JSON.parse(
+      readFileSync(path.join(app.getPath('userData'), 'inkline-ui.json'), 'utf8'),
+    )
+    if (appearanceValue(value)) appearance = value
+  } catch {
+    /* First launch uses saved renderer appearance. */
+  }
+  registerIPC({
+    main: () => mainWindow,
+    capsule: () => capsuleWindow,
+    allowed: (url) => isAllowedNavigation(url, !app.isPackaged),
+    workspace: (folderId = '') => registeredWorkspaceRoot(folderId),
+    appearance: () => appearance,
+    setAppearance,
+    pulse: setPulse,
+  })
+  startRuntime()
+  createWindow()
+  createTray()
+  try {
+    setShortcut(appearance?.capsuleShortcut || 'Alt+Space')
+  } catch {
+    /* Settings can choose a free shortcut. */
+  }
+  app.on('activate', () => {
+    if (!mainWindow) createWindow()
+    mainWindow?.show()
+  })
+})
+app.on('before-quit', () => {
+  quitting = true
+  globalShortcut.unregisterAll()
+  stopRuntime()
+})

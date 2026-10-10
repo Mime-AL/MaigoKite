@@ -9,7 +9,7 @@ import App from './App.vue'
 import pinia from './stores'
 import router from './router'
 import { setupGuards } from './router/guards'
-import './assets/styles/globals.scss'
+import './styles/base.scss'
 
 const app = createApp(App)
 

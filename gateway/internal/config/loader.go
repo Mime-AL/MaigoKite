@@ -179,7 +179,7 @@ func Load(path string) (*Config, error) {
 func DefaultConfig() *Config {
 	return &Config{
 		App: AppConfig{
-			Name:    "NanamiGopher",
+			Name:    "MaigoKite",
 			Version: "0.1.0",
 			Env:     "development",
 		},
@@ -224,7 +224,7 @@ func (cfg *Config) applyEnvOverrides() {
 	if v := os.Getenv("NG_ENV"); v != "" {
 		cfg.App.Env = v
 	}
-	if v := os.Getenv("NANAMI_WORKSPACE_ROOT"); v != "" {
+	if v := os.Getenv("MAIGOKITE_WORKSPACE_ROOT"); v != "" {
 		cfg.Workspace.Root = v
 	}
 }

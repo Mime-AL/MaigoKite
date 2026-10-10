@@ -1,13 +1,22 @@
-"""Minimal line-delimited JSON-RPC client for explicitly configured stdio MCP servers."""
+"""Product configuration and lifecycle bridge to the official MCP stdio SDK.
+
+The SDK owns JSON-RPC, negotiation, response routing and subprocess cleanup.
+Cancelling a caller stops its local wait, not necessarily the remote side effect;
+never retry a tool call automatically or close a shared session on run cancellation.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
+import math
 import os
-import signal
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from mcp.types import Implementation, PaginatedRequestParams
 
 
 class MCPError(RuntimeError):
@@ -27,128 +36,127 @@ class MCPClient:
             raise ValueError("MCP command must be a single executable")
         if any("\x00" in argument for argument in (args or [])):
             raise ValueError("MCP arguments must not contain NUL bytes")
-        if request_timeout <= 0:
-            raise ValueError("MCP request timeout must be positive")
         if any("\x00" in key or "\x00" in value for key, value in (env or {}).items()):
             raise ValueError("MCP environment must not contain NUL bytes")
+        if not math.isfinite(request_timeout) or request_timeout <= 0:
+            raise ValueError("request_timeout must be finite and positive")
         self.command = command
         self.args = list(args or [])
         self.env = dict(env or {})
         self.cwd = str(Path(cwd).expanduser().resolve()) if cwd is not None else None
         self.request_timeout = request_timeout
-        self._process: asyncio.subprocess.Process | None = None
-        self._next_id = 0
-        self._lock = asyncio.Lock()
+        self._session: ClientSession | None = None
+        self._owner: asyncio.Task[None] | None = None
+        self._stop = asyncio.Event()
+        self._lifecycle_lock = asyncio.Lock()
+        self._failure: Exception | None = None
 
     async def start(self) -> None:
-        if self._process and self._process.returncode is None:
-            return
-        minimal = {
-            key: value
-            for key, value in os.environ.items()
-            if key in {"PATH", "LANG", "LC_ALL", "SYSTEMROOT", "WINDIR"}
-        }
-        minimal.update(self.env)
-        self._process = await asyncio.create_subprocess_exec(
-            self.command,
-            *self.args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            env=minimal,
-            cwd=self.cwd,
-            start_new_session=os.name == "posix",
-            limit=1_048_576,
-        )
+        async with self._lifecycle_lock:
+            if self._owner is not None and not self._owner.done():
+                self._get_session()
+                return
+            self._stop = asyncio.Event()
+            self._failure = None
+            ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+            owner = asyncio.create_task(self._serve(ready), name="maigokite-mcp-session")
+            self._owner = owner
+            try:
+                await ready
+            except BaseException:
+                owner.cancel()
+                await asyncio.shield(asyncio.gather(owner, return_exceptions=True))
+                self._owner = None
+                raise
+
+    async def _serve(self, ready: asyncio.Future[None]) -> None:
+        # AnyIO contexts must be entered/exited in the same task. Core startup and
+        # shutdown need not be that task: this owner only holds SDK contexts, not
+        # a request queue, dispatcher, retry loop, or process supervisor.
         try:
-            result = await self.request(
-                "initialize",
-                {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "NanamiGopher", "version": "0.1.0"},
-                },
+            environment = {
+                key: value for key, value in os.environ.items()
+                if key in {"PATH", "LANG", "LC_ALL", "SYSTEMROOT", "WINDIR"}
+            }
+            environment.update(self.env)
+            parameters = StdioServerParameters(
+                command=self.command, args=self.args, env=environment, cwd=self.cwd,
             )
-            if not isinstance(result, dict) or not result.get("protocolVersion"):
-                raise MCPError("MCP server returned an invalid initialize response")
-            await self.notify("notifications/initialized", {})
-        except BaseException:
-            await self.stop()
-            raise
+            # Preserve the existing no-raw-server-stderr policy (it may contain secrets).
+            with open(os.devnull, "w") as errlog:
+                async with stdio_client(parameters, errlog=errlog) as (read, write):
+                    async with ClientSession(
+                        read, write,
+                        read_timeout_seconds=timedelta(seconds=self.request_timeout),
+                        client_info=Implementation(name="MaigoKite", version="0.1.0"),
+                    ) as session:
+                        await session.initialize()
+                        self._session = session
+                        if not ready.done():
+                            ready.set_result(None)
+                        await self._stop.wait()
+        except Exception as exc:
+            self._failure = exc
+            if not ready.done():
+                ready.set_exception(MCPError("MCP session could not start; check service configuration"))
+        finally:
+            self._session = None
+            if not ready.done():
+                ready.cancel()
 
     async def stop(self) -> None:
-        process = self._process
-        if process is None:
-            return
-        self._process = None
-        if process.returncode is None:
-            if os.name == "posix":
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            else:
-                process.terminate()
-            deadline = asyncio.get_running_loop().time() + 5
-            while process.returncode is None and asyncio.get_running_loop().time() < deadline:
-                await asyncio.sleep(0.02)
-            if process.returncode is None:
-                if os.name == "posix":
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                else:
-                    process.kill()
-                while process.returncode is None:
-                    await asyncio.sleep(0.01)
+        async with self._lifecycle_lock:
+            owner = self._owner
+            if owner is None:
+                return
+            self._stop.set()
+            self._session = None  # Do not admit new calls during shutdown.
+            try:
+                await asyncio.shield(owner)
+            except asyncio.CancelledError:
+                # A cancelled shutdown caller still waits for the SDK to release
+                # the child process before propagating cancellation.
+                await asyncio.shield(owner)
+                raise
+            finally:
+                if owner.done():
+                    self._owner = None
+            if self._failure is not None:
+                raise MCPError("MCP session closed with an error") from self._failure
 
-    async def notify(self, method: str, params: dict[str, Any]) -> None:
-        await self._write({"jsonrpc": "2.0", "method": method, "params": params})
-
-    async def request(self, method: str, params: dict[str, Any] | None = None) -> Any:
-        async with self._lock:
-            self._next_id += 1
-            request_id = self._next_id
-            await self._write(
-                {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}}
-            )
-            process = self._process
-            if process is None or process.stdout is None:
-                raise MCPError("MCP client is not started")
-            while True:
-                try:
-                    line = await asyncio.wait_for(
-                        process.stdout.readline(), self.request_timeout
-                    )
-                except asyncio.TimeoutError as exc:
-                    raise MCPError(f"MCP request timed out: {method}") from exc
-                if not line:
-                    raise MCPError("MCP server closed stdout")
-                try:
-                    message = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if message.get("id") != request_id:
-                    continue
-                if "error" in message:
-                    raise MCPError(str(message["error"]))
-                return message.get("result")
+    def _get_session(self) -> ClientSession:
+        if self._session is None or self._stop.is_set() or self._owner is None or self._owner.done():
+            raise MCPError("MCP session is not available") from self._failure
+        return self._session
 
     async def list_tools(self) -> list[dict[str, Any]]:
-        result = await self.request("tools/list") or {}
-        tools = result.get("tools", []) if isinstance(result, dict) else []
-        if not isinstance(tools, list):
-            raise MCPError("MCP tools/list returned an invalid tool list")
-        return [item for item in tools if isinstance(item, dict)]
+        session = self._get_session()
+        tools: list[dict[str, Any]] = []
+        cursor: str | None = None
+        seen: set[str] = set()
+        try:
+            async with asyncio.timeout(self.request_timeout):
+                for _ in range(100):
+                    page = await session.list_tools(params=PaginatedRequestParams(cursor=cursor))
+                    tools.extend(tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in page.tools)
+                    cursor = page.nextCursor
+                    if not cursor:
+                        return tools
+                    if cursor in seen:
+                        raise MCPError("MCP tools/list repeated its pagination cursor")
+                    seen.add(cursor)
+                raise MCPError("MCP tools/list exceeded the discovery page limit")
+        except MCPError:
+            raise
+        except Exception as exc:
+            raise MCPError("MCP tool discovery failed; check service configuration") from exc
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        return await self.request("tools/call", {"name": name, "arguments": arguments})
-
-    async def _write(self, message: dict[str, Any]) -> None:
-        if not self._process or not self._process.stdin:
-            raise MCPError("MCP client is not started")
-        self._process.stdin.write(
-            json.dumps(message, separators=(",", ":")).encode() + b"\n"
-        )
-        await self._process.stdin.drain()
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        session = self._get_session()
+        try:
+            result = await session.call_tool(name, arguments)
+            return result.model_dump(mode="json", by_alias=True, exclude_none=True)
+        except Exception as exc:
+            # CancelledError deliberately propagates. SDK request IDs and readers
+            # remain private; MaigoKite must not recreate the wire cancellation protocol.
+            raise MCPError("MCP tool request failed; remote execution outcome may be unknown") from exc

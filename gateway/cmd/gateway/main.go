@@ -1,4 +1,4 @@
-// Package main is the entry point for the NanamiGopher API Gateway.
+// Package main is the entry point for the MaigoKite API Gateway.
 // It initializes configuration and the gRPC client to Agent Core,
 // and starts the HTTP server with graceful shutdown support.
 package main
@@ -13,22 +13,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nanamigopher/nanamigopher/gateway/internal/api"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/config"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/observability"
+	"maigokite/gateway/internal/api"
+	"maigokite/gateway/internal/config"
+	agentgrpc "maigokite/gateway/internal/grpc"
+	"maigokite/gateway/internal/observability"
 )
 
 func main() {
 	// 1. Load configuration
-	cfg, err := config.Load(os.Getenv("NANAMI_CONFIG"))
+	cfg, err := config.Load(os.Getenv("MAIGOKITE_CONFIG"))
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	// 2. Initialize observability
 	obs := observability.NewConsoleObserver(cfg.App.Name)
-	obs.Log("INFO", "Starting NanamiGopher Gateway")
+	obs.Log("INFO", "Starting MaigoKite Gateway")
 
 	// 3. Connect to the Python-owned Agent Core.
 	dialCtx, dialCancel := context.WithTimeout(context.Background(), time.Duration(cfg.GRPC.Timeout)*time.Second)

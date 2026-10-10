@@ -28,7 +28,22 @@ const dataItems = [
 </template>
 
 <style scoped lang="scss">
-.nav-menu { display: flex; flex-direction: column; gap: 11px; }
-.nav-group { display: grid; gap: 2px; }
-.group-label { margin: 0; padding: 0 10px 4px; color: var(--text-tertiary); font-size: 10px; font-weight: 700; letter-spacing: 0.055em; text-transform: uppercase; }
+.nav-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.nav-group {
+  display: grid;
+  gap: 2px;
+}
+.group-label {
+  margin: 0;
+  padding: 0 10px 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
 </style>

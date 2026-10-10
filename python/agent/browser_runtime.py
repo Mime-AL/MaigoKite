@@ -118,14 +118,17 @@ class BrowserRuntime:
         await page.wait_for_timeout(250)
         return await self.snapshot(session_id)
 
-    async def screenshot(self, session_id: str, path: str) -> dict[str, Any]:
+    async def screenshot(
+        self, session_id: str, path: str, *, workspace_root: str | Path | None = None
+    ) -> dict[str, Any]:
         page = self._require_page(session_id)
+        root = Path(workspace_root).expanduser().resolve() if workspace_root is not None else self.workspace_root
         target = Path(path).expanduser()
         if not target.is_absolute():
-            target = self.workspace_root / target
+            target = root / target
         target = target.resolve()
         try:
-            target.relative_to(self.workspace_root)
+            target.relative_to(root)
         except ValueError as exc:
             raise ValueError("browser screenshot path is outside the workspace") from exc
         target.parent.mkdir(parents=True, exist_ok=True)

@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
+	agentgrpc "maigokite/gateway/internal/grpc"
 )
 
 // PreferenceHandler exposes non-secret, per-user interface preferences.

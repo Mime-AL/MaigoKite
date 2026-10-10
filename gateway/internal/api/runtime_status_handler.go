@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/config"
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
+	"maigokite/gateway/internal/config"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 )
 
 type agentHealthReader interface {
@@ -46,7 +46,7 @@ type RuntimeStatusHandler struct {
 
 func newRuntimeStatusHandler(cfg *config.Config, workspace *WorkspaceHandler, client agentHealthReader) *RuntimeStatusHandler {
 	rootSource := "configuration"
-	if strings.TrimSpace(os.Getenv("NANAMI_WORKSPACE_ROOT")) != "" {
+	if strings.TrimSpace(os.Getenv("MAIGOKITE_WORKSPACE_ROOT")) != "" {
 		rootSource = "environment"
 	}
 	return &RuntimeStatusHandler{
@@ -73,8 +73,8 @@ func (h *RuntimeStatusHandler) Get(c *gin.Context) {
 		AgentCore:       core,
 		Restart: restartPolicy{
 			Pending:     false,
-			RequiredFor: []string{"Workspace 根目录", "MCP Server 启动配置", "Gateway / Agent Core 端口"},
-			HotApplied:  []string{"Chat 模型与默认模型", "联网工具凭证", "权限模式", "界面称呼"},
+			RequiredFor: []string{"启动配置的默认根目录", "MCP Server 启动配置", "Gateway / Agent Core 端口"},
+			HotApplied:  []string{"文件夹工作区选择", "Chat 模型与默认模型", "联网工具凭证", "权限模式", "界面称呼"},
 			Note:        "当前设置页没有待重启更改；外部 YAML 或环境变量修改由下次启动加载。",
 		},
 	})

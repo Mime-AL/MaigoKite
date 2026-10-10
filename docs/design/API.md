@@ -1,4 +1,4 @@
-# NanamiGopher API 设计
+# MaigoKite API 设计
 
 > **状态**：当前有效
 > **架构版本**：v1
@@ -41,6 +41,15 @@ deadline
 
 当前版本没有独立的 `/me`、工作区 CRUD 或成员管理 REST。所有已注册资源都位于 `/workspaces/{workspace_id}` 下，受本地访问中间件与智能体核心成员关系检查共同约束。网关当前固定映射到 `local-user`，这不构成远程设备认证。团队身份、工作区 CRUD 与成员管理已移出当前路线，不在本文保留未注册接口草案。
 
+文件夹工作区位于既有个人数据范围内，不增加租户或身份系统：
+
+```text
+GET  /workspaces/{workspace_id}/folders
+POST /workspaces/{workspace_id}/folders
+```
+
+POST 仅所有者可用，接受 `root_path` 与可选 `name`，由 Core 校验并登记规范化的实际目录，同目录重复添加返回已有记录。GET 返回 `id / name / root_path`，空 ID 表示启动配置的默认目录。模型、凭证、个人记忆仍以 `workspace_id` 为范围，不以 `folder_id` 隔离。
+
 手机访问为规划中，范围以 [手机远程访问](RemoteAccess.md) 为准。配对设备关联同一个个人主体；首版复用会话、任务、审批和 UI Event DTO，仅开放明确列出的远程资源。配对、会话和撤销的具体契约在实施时补充，本文不将它们列成已存在的端点。
 
 ### 3.2 会话与消息
@@ -57,20 +66,29 @@ POST   /workspaces/{workspace_id}/conversations/{conversation_id}/messages
 
 发送消息返回已创建的 `task_id`；增量结果通过事件流提供。
 
+会话包含 `folder_id / archived`；创建可指定 `folder_id`，PATCH 可更新 `title / folder_id / archived`。既有会话迁移后仍使用默认目录且未归档。前端按文件夹与归档状态显示列表；直接进入会话时切换到其归属目录。归档会话拒绝发送消息；未结束的任务禁止移动、归档、删除（409）。DELETE 清理产品任务、消息及 LangGraph checkpoint，不删除工作区文件，保留安全审计。
+
+`files / files/content / changes / changes/diff / runtime-status` 支持可选 `folder_id` 查询参数，Gateway 通过 Core 解析已登记目录，客户端不能直接传任意根目录。Runtime 权限校验与工具上下文使用会话所属目录，不变更共享全局根目录；MCP 进程启动目录和技能加载目录不因切换而变化。
+
 ### 3.3 任务、工具调用与审批
 
 ```text
 GET  /workspaces/{workspace_id}/tasks?conversation_id={conversation_id}
 GET  /workspaces/{workspace_id}/tasks/{task_id}
+GET  /workspaces/{workspace_id}/tasks/{task_id}/inspection
 POST /workspaces/{workspace_id}/tasks/{task_id}/cancel
 GET  /workspaces/{workspace_id}/conversations/{conversation_id}/events/history?after={sequence}
 GET  /workspaces/{workspace_id}/approvals
+GET  /workspaces/{workspace_id}/approvals/{approval_id}
 POST /workspaces/{workspace_id}/approvals/{approval_id}/decision
 ```
 
-任务重试和工具调用独立查询尚未注册。取消操作请求停止任务，并关闭仍待处理的审批；实际停止确认和清理顺序取决于当前执行路径，见 [智能体运行时设计](AgentRuntime.md)。第三方 MCP 调用能否立即被传输方式中止，仍有限制。
+任务重试和单条工具调用独立查询尚未注册；任务级工具详情由 `inspection` 提供（见 3.8）。取消操作请求停止任务，并关闭仍待处理的审批；实际停止确认和清理顺序取决于当前执行路径，见 [智能体运行时设计](AgentRuntime.md)。第三方 MCP 调用能否立即被传输方式中止，仍有限制。
 
 审批由智能体核心创建，外部 API 不提供任意创建审批请求的入口。审批决定必须包含目标审批 ID、decision 和审批版本。服务端从已保存的规范化工具调用读取参数，同时验证版本与过期时间；客户端不能在决定时替换参数。
+
+决定请求支持 `{"decision":"deny","version":1,"note":"请只读取文件，不要修改"}`。
+`note` 可选，最多 2000 字符；与决定、版本推进、审计在同一事务中保存。GET 单条审批可查询已结束的决定，返回 `note / decided_at`，不再只能查询 pending 列表。一次性 `allow / deny` 语义不变，不新增会话级授权。
 
 ### 3.4 用户记忆与数据摘要
 
@@ -142,6 +160,10 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 
 阶段 1 另提供 `GET/PATCH /workspaces/{workspace_id}/permissions` 管理三档默认执行模式：`read_only / workspace / full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`response_mode` 和 `permission_mode`。服务端验证模型属于当前工作区；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
 
+权限设置请求与响应仅包含 `default_mode`。REST 写入拒绝未知字段（包括旧的 `tool_levels / grants`），不再静默接受无效设置。内部 Proto 的旧 `tool_levels` 字段号 2 和名称均保留为 reserved，Gateway/Core 需一起更新；旧产品库无需删表，旧风险配置不生效，下一次保存只写默认档位。
+
+审批 `deny` 不读取模型凭证、不创建/调用模型，结束当前任务并关闭其剩余待审批操作；仍验证主体、任务状态、参数 hash、版本及过期时间并保存审计。`allow` 保持凭证准备和原生 HITL 恢复路径。这不新增会话级永久授权，也不改变三档自动执行范围。
+
 `preferences` 是当前主体在工作区中的用户级偏好。阶段 1 支持 `assistant_name`（1–32 个字符），用于界面称呼；只修改当前个人主体的显示偏好，不改变工作区名称。
 
 `runtime-status` 是工作区所有者可见的只读投影，返回规范化工作区根目录及来源、网关/智能体核心状态和版本、即时生效项与需重启项。它不修改部署配置，也不声称能够检测运行期间手工编辑的外部 YAML。
@@ -157,10 +179,46 @@ GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 
 这些接口是受工作区根目录约束的只读投影，拒绝绝对路径、`..` 穿越和逃逸根目录的符号链接。预览限制为 512 KiB，变更列表最多 200 项。差异在用户选中文件后懒加载，限制为 256 KiB；响应同时返回截断状态。`changes` 在非 Git 工作区返回 `git: false`，不执行写入或暂存操作。
 
+### 3.8 GUI 交互与执行检查接口（2026-10-10）
+
+本节记录本批后端实现，**不表示已通过运行验收或前端已接线**。本批不修改前端，不运行测试、类型检查、lint 或构建，不切换默认 Runtime。
+
+以下路径均以 `/api/v1/workspaces/{workspace_id}` 为前缀，沿用现有工作区访问校验：
+
+| 方法与路径 | 用途与响应 |
+|---|---|
+| `GET /capabilities` | `{capabilities: {...}}`：当前 Core Runtime 支持的交互能力；缺失键按不支持处理 |
+| `GET /tasks/{task_id}/inspection` | `task / tool_calls / approvals / projection / last_sequence`，供任务与工具详情抽屉使用 |
+| `GET /questions?conversation_id=...` | `{questions: [...]}`，仍等待回答的问题 |
+| `POST /questions/{question_id}/answer` | `{"answer":"用户选择或自由输入","version":1}`；接受后返回 202 |
+| `GET /tasks/{task_id}/inputs` | `{inputs: [...]}`，该任务的插话及消费状态 |
+| `POST /tasks/{task_id}/inputs` | `{"content":"先不要修改，改为说明方案"}`；必须带 `Idempotency-Key`，返回 202 与 input 记录 |
+| `GET /jobs?conversation_id=...` | `{jobs: [...]}`，真实命令进程与已保存的结束结果，最多 100 条命令调用范围内的记录 |
+| `POST /jobs/{job_id}/stop` | 终止本 Core 持有的进程句柄并等待退出，返回 204；不是取消整个 Agent 任务 |
+
+**能力边界。** `approval_note / approval_detail / task_inspection / file_change_events / process_list / process_stop` 为本批支持项。
+`structured_questions / task_input / structured_plan / context_estimate` 仅在 `agent.runtime: langgraph` 时为 true；legacy 路径不增加第二套 HITL/插话状态机，插话提交返回 501。这些标志表示后端能力，工具仍可能被工作区配置停用。
+`model_context_percentage / session_approval / turn_rollback / automatic_memory_events` 当前为 false。回合回滚不在本批需求内；会话授权留待权限简化，不创建临时 Grant 体系。
+
+**任务详情。** `tool_calls` 返回工具名、参数、结果、状态和时间；不暴露 checkpoint、运行时对象或 `continuation_json`。
+`projection` 包含 `plan / context / changes / summary / questions / truncated`；问题包含 `options` 数组和已保存回答。快照在同一 Repository 锁内读取。最多 50 条工具调用、50 条审批和最近 100 条相关事件；工具结果、审批、文件差异与问题另外共用约 900 KB 的输出预算，过大条目省略并标记 `truncated`。`last_sequence` 是该任务的事件水位，不是整个会话所有任务的完整快照水位。截断时应补读既有事件历史，不能将省略的内容判为不存在。
+
+**结构化提问。** LangGraph 路径注册 `ask_user_question(title, options)`，选项为 `{label, recommended}`，也允许自由输入。使用原生 `interrupt / Command(resume=...)`，Repository 只保存产品问题、回答和审计。`question.requested` 携带 `question_id / tool_call_id / title / options / version`；`question.answered` 携带 `question_id / answer / version`。等待期间沿用已有任务状态 `waiting_approval`，UI 必须按问题事件/记录区分提问与权限审批，不能把提问渲染成“允许/拒绝”。回答验证工作区、主体、版本及 checkpoint；重复或过期回答返回 409。回答与审计、可见用户历史同事务保存，实际恢复仍看 checkpoint。进程重启恢复未在本批运行验证。
+
+**插话。** 仅接受当前活跃的普通模型任务，不接受 `/tool` 或正在等待交互的任务。content 最多 10000 字符，每任务最多 20 条未消费输入；幂等键最多 128 字节，同键不同内容返回 409。`task.input.queued` 是接收回执；下一模型步骤在原生 middleware 中追加 `HumanMessage`，checkpoint 同步落盘后，再通过 `task.input.consumed` 确认进入模型输入，并保存可见用户消息。`consumed` 不保证 Provider 成功生成回答。尚未开始的旧工具提议会收到未执行结果，让模型读取新输入后重新判断；不抢停已经开始的工具或模型流。若当前回合直接结束而没有下一模型步骤，查询状态为 `not_consumed`，不自动新建回合或重发。客户端按 input ID 合并状态，不能因迟到的 queued 回执把 consumed 状态改回 queued。
+
+**计划与上下文。** 计划直接复用 LangChain `TodoListMiddleware / write_todos`；`plan.updated.items` 是 `{content, status}` 数组，status 为 `pending / in_progress / completed`，只作用于当前任务，不是工作区 TODO。`context.updated` 提供 `estimated_input_tokens / input_budget_tokens / measurement: "estimate"`；`model_context_window / context_percent` 为 null，绝不把产品输入预算冒充模型的实际上下文容量。模型真实计费计数继续通过既有 `model.usage` 提供。
+
+**文件变更。** `file_write / file_edit` 成功后发出任务归属的 `file.changed`：`path / tool_call_id / diff / diff_truncated / added / removed / before_hash / after_hash`。Diff 是单次工具操作前后的证据，不是整个回合净变化，不应将同文件多次修改的行数相加冒充净变化。前后内容各最多读取 256 KB，差异文本最多 64000 字符；二进制、无法读取或行数过多时 `diff_truncated: true`，无法计算的行数/hash 为 null。命令、MCP 或外部程序修改文件不在此事件覆盖内，仍使用现有工作区 Git Diff。发生写入后、事件提交前的崩溃可能缺少该投影；重放已满足内容的写入不会伪造原始 before image。本批不提供文件回滚快照。
+
+**进程。** job ID 使用真实命令的 tool_call ID，只允许停止当前 Core 持有且属于该工作区的句柄，客户端不能提交任意 PID。日志通过 GET 轮询，不是新增日志 WebSocket 协议；`log_tail` 为 stdout/stderr 各约 4000 的尾部片段。POSIX 使用不移动子进程文件偏移的 `pread` 读取；无 `pread` 的平台 `live_logs_available: false`，只提供已有完成输出。仍沿用现有执行超时、进程组终止及平台限制；这不是 detached background scheduler，不保证跨 Core 重启接管进程。
+
+权限拒绝、版本冲突、任务已结束等情况不会以空列表/假成功代替真实写入结果。前端后续需接入这些端点及新的事件映射；Mock 演示通过不等于真实接口已联调通过。
+
 ## 4. 命令语义
 
 - 当前审批决定使用版本号防止重复决定和丢失更新。
-- 通用 `Idempotency-Key`、ETag、任务重试动作仍是规划中，客户端当前不得假设已经支持。
+- `Idempotency-Key` 本批仅用于任务插话；通用幂等写入、ETag、任务重试动作仍是规划中。
 - 取消、审批和重试使用显式动作，不伪装成普通字段 PATCH。
 
 ## 5. gRPC 服务
@@ -219,6 +277,13 @@ subagent.completed
 subagent.failed
 approval.requested
 approval.decided
+question.requested
+question.answered
+task.input.queued
+task.input.consumed
+plan.updated
+context.updated
+file.changed
 ```
 
 `message.*` 只承载用户可见的最终回答。模型主动输出的简短过程说明使用 `reasoning.*`，工具与子智能体生命周期分别使用 `tool.*` 和 `subagent.*`；三者均通过 `task_id` 关联任务，不写入消息资源。系统不传输模型隐藏思维链。

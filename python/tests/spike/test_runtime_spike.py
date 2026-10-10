@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from agent.models.runtime import ChatModelSettings
 from agent.runtime_spike import (
-    NanamiRuntimeAdapter,
+    MaigoKiteRuntimeAdapter,
     ProductToolSpec,
     SpikeRunRequest,
     build_chat_model,
@@ -70,7 +70,7 @@ class RuleToolModel(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "nanami-rule-tool-model"
+        return "maigokite-rule-tool-model"
 
 
 class EchoModel(BaseChatModel):
@@ -90,7 +90,7 @@ class EchoModel(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "nanami-echo-model"
+        return "maigokite-echo-model"
 
 
 class SlowStreamModel(BaseChatModel):
@@ -115,7 +115,7 @@ class SlowStreamModel(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "nanami-slow-stream-model"
+        return "maigokite-slow-stream-model"
 
 
 class ErrorModel(BaseChatModel):
@@ -133,7 +133,7 @@ class ErrorModel(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "nanami-error-model"
+        return "maigokite-error-model"
 
 
 class StubProductTool(BaseTool):
@@ -189,7 +189,7 @@ async def test_read_tool_loop_and_stable_ui_events(tmp_path: Path) -> None:
         tool_args={"path": "input.txt"},
         final_text="I read the file.",
     )
-    async with NanamiRuntimeAdapter(model=model, **adapter_paths(tmp_path)) as adapter:
+    async with MaigoKiteRuntimeAdapter(model=model, **adapter_paths(tmp_path)) as adapter:
         handle = await adapter.start("read the input file")
         events = await handle.collect()
         await handle.wait()
@@ -236,7 +236,7 @@ async def test_tool_schema_validation_is_owned_by_langchain(tmp_path: Path) -> N
         tool_args={},
         final_text="The tool input was invalid.",
     )
-    async with NanamiRuntimeAdapter(model=model, **adapter_paths(tmp_path)) as adapter:
+    async with MaigoKiteRuntimeAdapter(model=model, **adapter_paths(tmp_path)) as adapter:
         handle = await adapter.start("call file_read without its required path")
         events = await handle.collect()
         await handle.wait()
@@ -256,7 +256,7 @@ async def test_approval_survives_restart_and_executes_side_effect_once(
         tool_name="file_write",
         tool_args={"path": "approved.txt", "content": "written once"},
     )
-    adapter = NanamiRuntimeAdapter(model=model, **adapter_paths(tmp_path))
+    adapter = MaigoKiteRuntimeAdapter(model=model, **adapter_paths(tmp_path))
     await adapter.open()
     first = await adapter.start("write the approved file")
     first_events = await first.collect()
@@ -273,7 +273,7 @@ async def test_approval_survives_restart_and_executes_side_effect_once(
     assert not (tmp_path / "approved.txt").exists()
     await adapter.close()
 
-    restarted = NanamiRuntimeAdapter(
+    restarted = MaigoKiteRuntimeAdapter(
         model=RuleToolModel(
             tool_name="file_write",
             tool_args={"path": "approved.txt", "content": "written once"},
@@ -316,7 +316,7 @@ async def test_rejected_approval_never_executes_tool(tmp_path: Path) -> None:
         tool_args={"path": "rejected.txt", "content": "must not exist"},
         final_text="The write was rejected.",
     )
-    async with NanamiRuntimeAdapter(model=model, **adapter_paths(tmp_path)) as adapter:
+    async with MaigoKiteRuntimeAdapter(model=model, **adapter_paths(tmp_path)) as adapter:
         initial = await adapter.start("try to write")
         await initial.collect()
         await initial.wait()
@@ -341,7 +341,7 @@ async def test_rejected_approval_never_executes_tool(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_model_stream_cancellation_stops_tokens(tmp_path: Path) -> None:
     model = SlowStreamModel()
-    async with NanamiRuntimeAdapter(model=model, **adapter_paths(tmp_path)) as adapter:
+    async with MaigoKiteRuntimeAdapter(model=model, **adapter_paths(tmp_path)) as adapter:
         handle = await adapter.start("stream forever")
         iterator = handle.events().__aiter__()
         seen = []
@@ -383,7 +383,7 @@ async def test_async_tool_cancellation_propagates_cleanup(tmp_path: Path) -> Non
     )
     spec = ProductToolSpec(StubProductTool("sleep"), runtime_tool)
     model = RuleToolModel(tool_name="sleep", tool_args={"value": "x"})
-    async with NanamiRuntimeAdapter(
+    async with MaigoKiteRuntimeAdapter(
         model=model,
         tools=[spec],
         **adapter_paths(tmp_path),
@@ -412,7 +412,7 @@ async def test_async_tool_cancellation_propagates_cleanup(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_provider_error_maps_to_task_failed(tmp_path: Path) -> None:
-    async with NanamiRuntimeAdapter(
+    async with MaigoKiteRuntimeAdapter(
         model=ErrorModel(),
         **adapter_paths(tmp_path),
     ) as adapter:
@@ -451,7 +451,7 @@ async def test_crash_after_approval_before_effect_replays_tool_once(
         tool_name="file_write",
         tool_args={"path": "after-approval.txt", "content": "once"},
     )
-    adapter = NanamiRuntimeAdapter(
+    adapter = MaigoKiteRuntimeAdapter(
         model=model,
         tools=[ProductToolSpec(FileWriteTool(), crashing_tool)],
         **adapter_paths(tmp_path),
@@ -475,7 +475,7 @@ async def test_crash_after_approval_before_effect_replays_tool_once(
     await adapter.close()
 
     write_tool = FileWriteTool()
-    restarted = NanamiRuntimeAdapter(
+    restarted = MaigoKiteRuntimeAdapter(
         model=RuleToolModel(
             tool_name="file_write",
             tool_args={"path": "after-approval.txt", "content": "once"},
@@ -521,7 +521,7 @@ async def test_side_effect_can_replay_after_crash_before_tool_result_checkpoint(
         tool_name="file_write",
         tool_args={"path": "effect-count.txt", "content": "ignored"},
     )
-    adapter = NanamiRuntimeAdapter(
+    adapter = MaigoKiteRuntimeAdapter(
         model=model,
         tools=[crashing_spec],
         **adapter_paths(tmp_path),
@@ -561,7 +561,7 @@ async def test_side_effect_can_replay_after_crash_before_tool_result_checkpoint(
         description="Recover the write.",
         args_schema=FileWriteParams,
     )
-    restarted = NanamiRuntimeAdapter(
+    restarted = MaigoKiteRuntimeAdapter(
         model=RuleToolModel(
             tool_name="file_write",
             tool_args={"path": "effect-count.txt", "content": "ignored"},
@@ -605,7 +605,7 @@ async def test_file_write_reconciles_matching_content_after_result_checkpoint_cr
         tool_name="file_write",
         tool_args={"path": "reconciled.txt", "content": "stable content"},
     )
-    adapter = NanamiRuntimeAdapter(
+    adapter = MaigoKiteRuntimeAdapter(
         model=model,
         tools=[ProductToolSpec(FileWriteTool(), crashing_tool)],
         **adapter_paths(tmp_path),
@@ -646,7 +646,7 @@ async def test_file_write_reconciles_matching_content_after_result_checkpoint_cr
         description="Fail the test if reconciliation does not short-circuit.",
         args_schema=FileWriteParams,
     )
-    restarted = NanamiRuntimeAdapter(
+    restarted = MaigoKiteRuntimeAdapter(
         model=RuleToolModel(
             tool_name="file_write",
             tool_args={"path": "reconciled.txt", "content": "stable content"},
@@ -671,7 +671,7 @@ async def test_async_sqlite_checkpoint_handles_small_desktop_concurrency(
 ) -> None:
     paths = adapter_paths(tmp_path)
     start = time.perf_counter()
-    async with NanamiRuntimeAdapter(model=EchoModel(), **paths) as adapter:
+    async with MaigoKiteRuntimeAdapter(model=EchoModel(), **paths) as adapter:
         handles = await asyncio.gather(
             *(adapter.start(f"request {index}") for index in range(12))
         )

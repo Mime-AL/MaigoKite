@@ -20,18 +20,14 @@ const activityGroupByTask = computed(
 )
 
 function messageTaskId(message: ChatMessage): string {
-  return message.role === 'assistant' && message.id.startsWith('stream-')
-    ? message.id.slice('stream-'.length)
-    : ''
+  return message.role === 'assistant' && message.id.startsWith('stream-') ? message.id.slice('stream-'.length) : ''
 }
 
 function activityGroupForMessage(message: ChatMessage): AgentActivityGroup | undefined {
   return activityGroupByTask.value.get(messageTaskId(message))
 }
 
-const anchoredTaskIds = computed(
-  () => new Set(sessionStore.activeMessages.map(messageTaskId).filter(Boolean)),
-)
+const anchoredTaskIds = computed(() => new Set(sessionStore.activeMessages.map(messageTaskId).filter(Boolean)))
 const unanchoredActivityGroups = computed(() =>
   sessionStore.activeActivityGroups.filter((group) => !anchoredTaskIds.value.has(group.task_id)),
 )
@@ -100,12 +96,7 @@ const suggestions = [
       <h2>准备好了，从哪里开始？</h2>
       <p class="welcome-copy">描述你的目标，我会结合当前对话上下文回答。</p>
       <div class="suggestions">
-        <button
-          v-for="item in suggestions"
-          :key="item.title"
-          type="button"
-          @click="emit('suggest', item.prompt)"
-        >
+        <button v-for="item in suggestions" :key="item.title" type="button" @click="emit('suggest', item.prompt)">
           <IconSymbol :name="item.icon" :size="17" />
           <span>{{ item.title }}</span>
           <IconSymbol name="chevron" :size="14" />
@@ -115,10 +106,7 @@ const suggestions = [
 
     <div v-else class="messages-inner">
       <template v-for="message in sessionStore.activeMessages" :key="message.id">
-        <AgentActivityPanel
-          v-if="activityGroupForMessage(message)"
-          :group="activityGroupForMessage(message)!"
-        />
+        <AgentActivityPanel v-if="activityGroupForMessage(message)" :group="activityGroupForMessage(message)!" />
         <UserMessage
           v-if="message.role === 'user'"
           :content="message.content"
@@ -132,16 +120,8 @@ const suggestions = [
           :is-streaming="message.streaming"
         />
       </template>
-      <AgentActivityPanel
-        v-for="group in unanchoredActivityGroups"
-        :key="group.task_id"
-        :group="group"
-      />
-      <ApprovalCard
-        v-for="approval in sessionStore.activeApprovals"
-        :key="approval.id"
-        :approval="approval"
-      />
+      <AgentActivityPanel v-for="group in unanchoredActivityGroups" :key="group.task_id" :group="group" />
+      <ApprovalCard v-for="approval in sessionStore.activeApprovals" :key="approval.id" :approval="approval" />
     </div>
   </div>
 </template>
@@ -175,34 +155,32 @@ const suggestions = [
   height: 64px;
   margin-bottom: 18px;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.48);
-  border-radius: 21px;
-  color: #fff;
-  background: linear-gradient(145deg, #4b91ff, #8a69e8 72%, #c66ccf);
-  box-shadow:
-    0 18px 42px rgba(92, 102, 219, 0.24),
-    inset 0 1px rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--paper-3);
+  border-radius: var(--radius-lg);
+  color: var(--on-accent);
+  background: var(--paper-2);
+  box-shadow: var(--shadow-card);
 }
 .welcome-eyebrow {
   margin: 0 0 7px;
   color: var(--primary-color);
-  font-size: 10px;
-  font-weight: 750;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
 .welcome-state h2 {
   margin: 0;
   font-size: clamp(25px, 4vw, 34px);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.04em;
 }
 .welcome-copy {
   max-width: 450px;
   margin: 10px 0 24px;
   color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
 }
 .suggestions {
   display: grid;
@@ -217,17 +195,17 @@ const suggestions = [
   gap: 11px;
   padding: 0 14px;
   border: 1px solid var(--border-color);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   color: var(--text-secondary);
   background: var(--surface);
-  box-shadow: 0 3px 12px rgba(35, 43, 56, 0.04);
+  box-shadow: var(--shadow-card);
   cursor: pointer;
   text-align: left;
   transition:
-    color 150ms ease,
-    background 150ms ease,
-    transform 150ms ease,
-    box-shadow 150ms ease;
+    color var(--motion-pulse) var(--ease),
+    background var(--motion-pulse) var(--ease),
+    transform var(--motion-pulse) var(--ease),
+    box-shadow var(--motion-pulse) var(--ease);
 }
 .suggestions button:hover {
   color: var(--text-primary);
@@ -237,7 +215,7 @@ const suggestions = [
 }
 .suggestions button span {
   flex: 1;
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
 }
 </style>

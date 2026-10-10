@@ -14,7 +14,7 @@ type ConsoleObserver struct {
 // NewConsoleObserver creates a console observer for logging and tracing.
 func NewConsoleObserver(prefix string) ConsoleObserver {
 	if prefix == "" {
-		prefix = "NanamiGopher"
+		prefix = "MaigoKite"
 	}
 	return ConsoleObserver{prefix: prefix}
 }

@@ -9,13 +9,15 @@
 | --- | --- |
 | 根 `make build` / `scripts/build.sh all` | 聚合 Go、Python 包与 Web 编译 |
 | `scripts/build.sh go` | 当前固定 Linux/amd64、CGO=0 的网关到 `dist/`；不是多平台发布 |
-| `scripts/build.sh python` | wheel/sdist，不等于带解释器和依赖的智能体可执行运行时 |
+| `scripts/build.sh python` | 从根 Python 项目生成 wheel/sdist，不等于带解释器和依赖的智能体可执行运行时 |
 | `web/ npm run build` | Vue 静态资源与 Electron 主进程/预加载层编译 |
 | `web/ npm run electron:build` | electron-builder 入口；不证明已包含正确的 Go/Python/Chromium 资源 |
 
 Electron packaged 分支期待 `resources/bin/agent-core` 和 `resources/bin/gateway`，当前源码构建产物尚未证明满足该路径和跨平台执行要求。不能把开发机已有 Go/Python、依赖或浏览器当作用户安装环境。
 
 开发安装与命令仅在 [开发指南](../development/DevelopmentGuide.md) 维护。当前没有已核验远程 CI workflow，本文检查项不是 CI 已实施清单。
+
+Python 构建与安装统一读取根 `pyproject.toml`，依赖锁定使用根 `uv.lock`；不再从 `python/` 选择另一套分发包。第一批轻量化仅修改入口并更新锁文件，没有执行构建或安装包验收，也没有补齐 runtime bundling。
 
 ## 2. 个人桌面发布闭环
 

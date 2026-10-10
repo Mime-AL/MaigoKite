@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
+	agentgrpc "maigokite/gateway/internal/grpc"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 )
 
 type ToolSettingsHandler struct{ client *agentgrpc.AgentClient }

@@ -1,252 +1,285 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
-import IconSymbol from '@/components/common/IconSymbol.vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import type { PermissionMode, ResponseMode } from '@/api/client'
-
-withDefaults(
+import { useUIStore } from '@/stores/ui'
+import { useMentions } from '@/composables/useMentions'
+import ModePill from '@/components/inkwell/ModePill.vue'
+import InkMeter from '@/components/inkwell/InkMeter.vue'
+import MentionMenu, { type Mention } from '@/components/inkwell/MentionMenu.vue'
+import SlashMenu, { type SlashCommand } from '@/components/inkwell/SlashMenu.vue'
+import IconSymbol from '@/components/common/IconSymbol.vue'
+const props = withDefaults(
   defineProps<{
     sessionId: string
     assistantName?: string
     isSending?: boolean
+    isSubmitting?: boolean
+    isStopping?: boolean
     modelId?: string
     modelOptions?: Array<{ id: string; name: string; model: string }>
     responseMode?: ResponseMode
     permissionMode?: PermissionMode
+    lastMessage?: string
+    contextPct?: number | null
   }>(),
   {
     assistantName: '助手',
     isSending: false,
+    isSubmitting: false,
+    isStopping: false,
     modelId: '',
     modelOptions: () => [],
     responseMode: 'balanced',
     permissionMode: 'workspace',
+    lastMessage: '',
+    contextPct: null,
   },
 )
 const emit = defineEmits<{
   (event: 'send', content: string): void
   (event: 'cancel'): void
-  (event: 'model-change', modelId: string): void
-  (event: 'response-mode-change', mode: ResponseMode): void
-  (event: 'permission-mode-change', mode: PermissionMode): void
+  (event: 'model-change', value: string): void
+  (event: 'response-mode-change', value: ResponseMode): void
+  (event: 'permission-mode-change', value: PermissionMode): void
 }>()
-const inputValue = ref('')
-const textarea = ref<HTMLTextAreaElement | null>(null)
-
-function handleSend() {
+const inputValue = ref(''),
+  textarea = ref<HTMLTextAreaElement | null>(null),
+  selected = ref(0),
+  menuDismissed = ref(false)
+const mode = ref<'ask' | 'plan' | 'auto'>(props.permissionMode === 'read_only' ? 'ask' : 'auto')
+const ui = useUIStore(),
+  router = useRouter(),
+  mentions = useMentions(inputValue)
+const commands: SlashCommand[] = [
+  { id: 'new', label: '新页' },
+  { id: 'memory', label: '它记得' },
+  { id: 'settings', label: '设置' },
+  { id: 'files', label: '工作区文件' },
+  { id: 'changes', label: '查看变更' },
+  { id: 'plan', label: '查看计划' },
+  { id: 'stop', label: '中断任务' },
+]
+const slashItems = computed(() =>
+  inputValue.value.startsWith('/') && !inputValue.value.includes(' ')
+    ? commands.filter((c) => c.id.includes(inputValue.value.slice(1)))
+    : [],
+)
+const menuLength = computed(() =>
+  mentions.query.value !== undefined ? mentions.items.value.length : slashItems.value.length,
+)
+watch(inputValue, async () => {
+  menuDismissed.value = false
+  selected.value = 0
+  await nextTick()
+  if (textarea.value) {
+    textarea.value.style.height = 'auto'
+    const lineHeight = Number.parseFloat(getComputedStyle(textarea.value).lineHeight) || 26
+    textarea.value.style.height = Math.min(textarea.value.scrollHeight, lineHeight * 10) + 'px'
+  }
+})
+watch(
+  () => props.permissionMode,
+  (value) => {
+    if (mode.value !== 'plan' || value !== 'read_only')
+      mode.value = value === 'read_only' ? 'ask' : 'auto'
+  },
+)
+watch(
+  () => props.sessionId,
+  () => {
+    inputValue.value = ''
+  },
+)
+function chooseMode(value: 'ask' | 'plan' | 'auto') {
+  mode.value = value
+  emit('permission-mode-change', value === 'auto' ? 'workspace' : 'read_only')
+}
+function send() {
   const content = inputValue.value.trim()
-  if (!content) return
-  emit('send', content)
+  if (!content || !props.modelOptions.length || props.isSubmitting) return
+  emit('send', mode.value === 'plan' ? '请先分析并列出计划，暂不执行修改。\n\n' + content : content)
   inputValue.value = ''
 }
-
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
-  event.preventDefault()
-  handleSend()
+function chooseMention(item: Mention) {
+  mentions.select(item)
+  void nextTick(() => textarea.value?.focus())
 }
-
-watch(inputValue, async () => {
-  await nextTick()
-  if (!textarea.value) return
-  textarea.value.style.height = 'auto'
-  textarea.value.style.height = `${Math.min(textarea.value.scrollHeight, 160)}px`
+function reference() {
+  inputValue.value += ' @'
+  textarea.value?.focus()
+}
+defineExpose({
+  restoreDraft(content: string) {
+    const draft =
+      mode.value === 'plan'
+        ? content.replace(/^请先分析并列出计划，暂不执行修改。\n\n/, '')
+        : content
+    inputValue.value = inputValue.value ? `${inputValue.value}\n\n${draft}` : draft
+    void nextTick(() => textarea.value?.focus())
+  },
 })
+function command(item: SlashCommand) {
+  inputValue.value = ''
+  if (item.id === 'new') void router.push('/chat')
+  else if (['memory', 'settings'].includes(item.id)) void router.push('/' + item.id)
+  else if (item.id === 'stop') emit('cancel')
+  else ui.openDrawer(item.id as 'files' | 'changes' | 'plan')
+}
+function handleKeydown(event: KeyboardEvent) {
+  if (event.isComposing) return
+  if (
+    event.key === 'Escape' &&
+    !menuDismissed.value &&
+    (mentions.query.value !== undefined || slashItems.value.length)
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+    menuDismissed.value = true
+    return
+  }
+  if (
+    event.key === 'Escape' &&
+    !ui.drawerOpen &&
+    !ui.inboxOpen &&
+    !ui.commandOpen &&
+    !ui.shortcutsOpen
+  ) {
+    event.stopPropagation()
+    emit('cancel')
+    return
+  }
+  if (!menuDismissed.value && menuLength.value && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+    event.preventDefault()
+    selected.value =
+      (selected.value + (event.key === 'ArrowDown' ? 1 : -1) + menuLength.value) % menuLength.value
+    return
+  }
+  if (event.key === 'ArrowUp' && !inputValue.value) {
+    event.preventDefault()
+    inputValue.value = props.lastMessage
+    return
+  }
+  if (event.key !== 'Enter' || event.shiftKey) return
+  event.preventDefault()
+  if (
+    !menuDismissed.value &&
+    mentions.query.value !== undefined &&
+    mentions.items.value[selected.value]
+  )
+    chooseMention(mentions.items.value[selected.value])
+  else if (!menuDismissed.value && slashItems.value[selected.value])
+    command(slashItems.value[selected.value])
+  else send()
+}
 </script>
-
 <template>
   <div class="composer-wrap">
-    <div class="composer" :class="{ active: inputValue }" :aria-busy="isSending">
+    <div class="composer" :aria-busy="isSending || isSubmitting">
+      <MentionMenu
+        v-if="!menuDismissed && mentions.query.value !== undefined"
+        :items="mentions.items.value"
+        :selected="selected"
+        :loading="mentions.loading.value"
+        @select="chooseMention"
+      />
+      <SlashMenu
+        v-else-if="!menuDismissed && slashItems.length"
+        :items="slashItems"
+        :selected="selected"
+        @select="command"
+      />
+      <textarea
+        ref="textarea"
+        v-model="inputValue"
+        :placeholder="'问问 ' + assistantName + '…'"
+        :disabled="!modelOptions.length"
+        rows="1"
+        aria-label="消息内容"
+        @keydown="handleKeydown"
+      />
       <div class="composer-controls">
-        <label>
-          <IconSymbol name="brain" :size="13" />
-          <select
-            :value="modelId"
-            :disabled="isSending || !modelOptions.length"
-            aria-label="当前对话模型"
-            @change="emit('model-change', ($event.target as HTMLSelectElement).value)"
-          >
-            <option v-if="!modelOptions.length" value="">未配置模型</option>
-            <option v-for="option in modelOptions" :key="option.id" :value="option.id">
-              {{ option.name }} · {{ option.model }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <IconSymbol name="shield" :size="13" />
-          <select
-            :value="permissionMode"
-            :disabled="isSending"
-            aria-label="执行权限"
-            @change="
-              emit(
-                'permission-mode-change',
-                ($event.target as HTMLSelectElement).value as PermissionMode,
-              )
-            "
-          >
-            <option value="read_only">只读</option>
-            <option value="workspace">工作区</option>
-            <option value="full_access">完全访问</option>
-          </select>
-        </label>
-        <label>
-          <IconSymbol name="sparkles" :size="13" />
-          <select
-            :value="responseMode"
-            :disabled="isSending"
-            aria-label="响应速度"
-            @change="
-              emit(
-                'response-mode-change',
-                ($event.target as HTMLSelectElement).value as ResponseMode,
-              )
-            "
-          >
-            <option value="fast">快速</option>
-            <option value="balanced">均衡</option>
-            <option value="thorough">深度</option>
-          </select>
-        </label>
-      </div>
-      <div class="input-row">
-        <textarea
-          ref="textarea"
-          v-model="inputValue"
-          :placeholder="`问问 ${assistantName}…`"
-          rows="1"
-          :disabled="isSending || !modelOptions.length"
-          aria-label="消息内容"
-          @keydown="handleKeydown"
-        />
+        <button class="reference-button" aria-label="引用文件、会话或记忆" @click="reference">
+          ＠
+        </button>
+        <ModePill :model-value="mode" :disabled="isSending || isSubmitting" @update:model-value="chooseMode" />
+        <div class="control-spacer" />
+        <InkMeter :value="contextPct" />
+        <select
+          :value="modelId"
+          :disabled="isSending || isSubmitting || !modelOptions.length"
+          aria-label="当前对话模型"
+          @change="emit('model-change', ($event.target as HTMLSelectElement).value)"
+        >
+          <option v-if="!modelOptions.length" value="">未配置模型</option>
+          <option v-for="item in modelOptions" :key="item.id" :value="item.id">
+            {{ item.name }}
+          </option>
+        </select>
+        <select
+          :value="responseMode"
+          :disabled="isSending || isSubmitting"
+          aria-label="响应速度"
+          @change="
+            emit('response-mode-change', ($event.target as HTMLSelectElement).value as ResponseMode)
+          "
+        >
+          <option value="fast">快速</option>
+          <option value="balanced">均衡</option>
+          <option value="thorough">深度</option>
+        </select>
+        <select
+          :value="permissionMode"
+          :disabled="isSending || isSubmitting"
+          aria-label="执行权限"
+          @change="
+            emit(
+              'permission-mode-change',
+              ($event.target as HTMLSelectElement).value as PermissionMode,
+            )
+          "
+        >
+          <option value="read_only">只读</option>
+          <option value="workspace">工作区</option>
+          <option value="full_access">完全访问</option>
+        </select>
+        <button
+          v-if="isSending"
+          class="icon-button"
+          :disabled="isStopping"
+          :aria-busy="isStopping || undefined"
+          :aria-label="isStopping ? '正在请求停止' : '停止任务'"
+          @click="emit('cancel')"
+        >
+          <IconSymbol v-if="!isStopping" name="stop" :size="15" />
+        </button>
         <button
           class="send-button"
-          type="button"
-          :disabled="!isSending && (!inputValue.trim() || !modelOptions.length)"
-          :aria-label="isSending ? '停止任务' : '发送消息'"
-          @click="isSending ? emit('cancel') : handleSend()"
+          :disabled="isSubmitting || !inputValue.trim() || !modelOptions.length"
+          :aria-busy="isSubmitting || undefined"
+          :aria-label="isSubmitting ? '正在发送消息' : isSending ? '排队发送' : '发送消息'"
+          @click="send"
         >
-          <IconSymbol v-if="isSending" name="stop" :size="17" :stroke-width="2" />
-          <IconSymbol v-else name="send" :size="17" :stroke-width="2" />
+          <IconSymbol v-if="!isSubmitting" name="send" :size="15" />
         </button>
       </div>
     </div>
-    <p>Enter 发送 · Shift + Enter 换行</p>
+    <p class="composer-help">
+      {{
+        isStopping
+          ? '正在请求停止，等待服务确认…'
+          : isSubmitting
+            ? '正在发送，草稿会保留…'
+          : isSending
+            ? '可继续写，当前回合成功后发送 · Esc 中断'
+            : 'Enter 发送 · Shift + Enter 换行'
+      }}
+    </p>
+    <router-link v-if="!modelOptions.length" class="configure-link" to="/settings?tab=models"
+      >先连接一个模型</router-link
+    >
   </div>
 </template>
-
 <style scoped lang="scss">
-.composer-wrap {
-  flex: none;
-  padding: 8px clamp(20px, 4vw, 48px) 18px;
-  background: linear-gradient(180deg, transparent, var(--surface-solid) 24%);
-}
-.composer {
-  display: flex;
-  width: min(760px, 100%);
-  min-height: 76px;
-  flex-direction: column;
-  gap: 5px;
-  margin: 0 auto;
-  padding: 7px 9px 9px 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: 19px;
-  background: var(--surface-solid);
-  box-shadow:
-    0 10px 34px rgba(32, 42, 58, 0.11),
-    inset 0 1px rgba(255, 255, 255, 0.5);
-  transition:
-    border 160ms ease,
-    box-shadow 160ms ease;
-}
-.composer:focus-within {
-  border-color: rgba(0, 113, 227, 0.38);
-  box-shadow:
-    0 12px 36px rgba(32, 42, 58, 0.12),
-    0 0 0 4px var(--focus-ring);
-}
-.composer-controls {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.composer-controls label {
-  display: flex;
-  max-width: 45%;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
-  border-radius: 7px;
-  color: var(--text-tertiary);
-  background: var(--surface-muted);
-}
-.composer-controls select {
-  min-width: 0;
-  max-width: 220px;
-  border: 0;
-  outline: 0;
-  color: var(--text-secondary);
-  background: transparent;
-  font-size: 9.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.composer-controls select:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-.input-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-}
-textarea {
-  min-height: 34px;
-  max-height: 160px;
-  flex: 1;
-  padding: 7px 0 5px;
-  overflow-y: auto;
-  resize: none;
-  border: 0;
-  outline: none;
-  color: var(--text-primary);
-  background: transparent;
-  font-size: 13px;
-  line-height: 1.5;
-}
-textarea::placeholder {
-  color: var(--text-tertiary);
-}
-.send-button {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: none;
-  place-items: center;
-  border: 0;
-  border-radius: 12px;
-  color: #fff;
-  background: var(--primary-color);
-  box-shadow: 0 5px 12px rgba(0, 113, 227, 0.23);
-  cursor: pointer;
-  transition:
-    transform 150ms ease,
-    opacity 150ms ease;
-}
-.send-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-.send-button:active:not(:disabled) {
-  transform: scale(0.95);
-}
-.send-button:disabled {
-  color: var(--text-tertiary);
-  background: var(--surface-strong);
-  box-shadow: none;
-}
-.composer-wrap > p {
-  margin: 7px auto 0;
-  color: var(--text-tertiary);
-  font-size: 9px;
-  text-align: center;
-}
+@use '@/styles/input-box';
 </style>

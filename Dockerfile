@@ -6,7 +6,7 @@ COPY gateway/go.mod gateway/go.sum ./
 RUN go mod download
 
 COPY gateway/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/nanamigopher-api ./cmd/gateway
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/maigokite-api ./cmd/gateway
 
 FROM python:3.12-slim AS python-builder
 
@@ -41,7 +41,7 @@ FROM alpine:3.20
 RUN apk add --no-cache nginx openssl
 
 # Copy Go binary
-COPY --from=go-builder /out/nanamigopher-api /usr/local/bin/nanamigopher-api
+COPY --from=go-builder /out/maigokite-api /usr/local/bin/maigokite-api
 
 # Copy Python wheel (for runtime if needed)
 COPY --from=python-builder /build/dist/*.whl /tmp/

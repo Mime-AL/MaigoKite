@@ -1,4 +1,4 @@
-# NanamiGopher Production Environment Configuration
+# MaigoKite Production Environment Configuration
 # This file overrides config.yaml for production.
 
 app:
@@ -15,7 +15,7 @@ models:
     timeout_seconds: 60
 
 storage:
-  sqlite_path: "~/.nanamigopher/data/agent.db"
+  sqlite_path: "~/.maigokite/data/agent.db"
 
 workspace:
   root: "."
@@ -28,7 +28,7 @@ browser:
 skills:
   scan_directories:
     - "./skills/"
-    - "~/.nanamigopher/skills/"
+    - "~/.maigokite/skills/"
 
 permissions:
   default_mode: "workspace"

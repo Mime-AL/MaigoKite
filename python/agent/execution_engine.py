@@ -37,11 +37,11 @@ class ExecutionEngine:
             )
             raise PermissionError(decision.reason)
         clean=self.input_filter.sanitize_arguments(self.registry.validator.sanitize(tool_name,arguments))
-        configured_risks=context.metadata.get("tool_risk_levels",{})
-        configured_risk=configured_risks.get(tool_name) if isinstance(configured_risks,dict) else None
-        tool_risk=getattr(tool,"risk_level",None)
-        risk_override=configured_risk if configured_risk is not None else tool_risk
-        decision=self.policy.evaluate(
+        # Same trusted tool metadata as the LangGraph path. Workspace settings
+        # and request metadata cannot supply a second permission matrix.
+        risk_override=getattr(tool,"risk_level",None)
+        policy=self.policy.for_workspace(context.metadata.get("workspace_root",self.policy.workspace_root))
+        decision=policy.evaluate(
             tool_name,clean,bool(context.metadata.get("approved")),risk_override,
             str(context.metadata.get("permission_mode") or self.policy.mode),
         )

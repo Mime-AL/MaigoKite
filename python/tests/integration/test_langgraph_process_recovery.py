@@ -99,13 +99,13 @@ async def _start_core(
     environment.update(
         {
             "PYTHONPATH": str(python_root),
-            "NANAMI_AGENT_RUNTIME": "langgraph",
-            "NANAMI_DB_PATH": str(tmp_path / "product.sqlite"),
-            "NANAMI_WORKSPACE_ROOT": str(tmp_path),
-            "NANAMI_PERMISSION_MODE": "read_only",
-            "NANAMI_MODEL_PROVIDER": "openai_compatible",
-            "NANAMI_MODEL_NAME": "process-recovery",
-            "NANAMI_MODEL_BASE_URL": model_base_url,
+            "MAIGOKITE_AGENT_RUNTIME": "langgraph",
+            "MAIGOKITE_DB_PATH": str(tmp_path / "product.sqlite"),
+            "MAIGOKITE_WORKSPACE_ROOT": str(tmp_path),
+            "MAIGOKITE_PERMISSION_MODE": "read_only",
+            "MAIGOKITE_MODEL_PROVIDER": "openai_compatible",
+            "MAIGOKITE_MODEL_NAME": "process-recovery",
+            "MAIGOKITE_MODEL_BASE_URL": model_base_url,
             "NO_PROXY": "127.0.0.1,localhost",
         }
     )

@@ -9,11 +9,12 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 // 布局常量
+const storagePrefix = import.meta.env.VITE_MOCK === '1' ? 'demo_' : ''
 const LAYOUT_KEYS = {
-  SIDEBAR_COLLAPSED: 'layout_sidebar_collapsed',
-  SIDEBAR_WIDTH: 'layout_sidebar_width',
-  FILE_EXPLORER_COLLAPSED: 'layout_explorer_collapsed',
-  FILE_EXPLORER_WIDTH: 'layout_explorer_width'
+  SIDEBAR_COLLAPSED: storagePrefix + 'layout_sidebar_collapsed',
+  SIDEBAR_WIDTH: storagePrefix + 'layout_sidebar_width',
+  FILE_EXPLORER_COLLAPSED: storagePrefix + 'layout_explorer_collapsed',
+  FILE_EXPLORER_WIDTH: storagePrefix + 'layout_explorer_width',
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 240
@@ -36,13 +37,15 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 export const useLayoutStore = defineStore('layout', () => {
   const sidebarCollapsed = ref(loadFromStorage(LAYOUT_KEYS.SIDEBAR_COLLAPSED, false))
   const sidebarWidth = ref(
-    sidebarCollapsed.value ? MIN_SIDEBAR_WIDTH : loadFromStorage(LAYOUT_KEYS.SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH)
+    sidebarCollapsed.value
+      ? MIN_SIDEBAR_WIDTH
+      : loadFromStorage(LAYOUT_KEYS.SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH),
   )
   const fileExplorerCollapsed = ref(loadFromStorage(LAYOUT_KEYS.FILE_EXPLORER_COLLAPSED, false))
   const fileExplorerWidth = ref(
     fileExplorerCollapsed.value
       ? MIN_EXPLORER_WIDTH
-      : loadFromStorage(LAYOUT_KEYS.FILE_EXPLORER_WIDTH, DEFAULT_EXPLORER_WIDTH)
+      : loadFromStorage(LAYOUT_KEYS.FILE_EXPLORER_WIDTH, DEFAULT_EXPLORER_WIDTH),
   )
 
   /** 仅在交互完成后持久化，避免拖拽期间同步阻塞每一帧。 */
@@ -50,7 +53,10 @@ export const useLayoutStore = defineStore('layout', () => {
     try {
       localStorage.setItem(LAYOUT_KEYS.SIDEBAR_COLLAPSED, JSON.stringify(sidebarCollapsed.value))
       localStorage.setItem(LAYOUT_KEYS.SIDEBAR_WIDTH, JSON.stringify(sidebarWidth.value))
-      localStorage.setItem(LAYOUT_KEYS.FILE_EXPLORER_COLLAPSED, JSON.stringify(fileExplorerCollapsed.value))
+      localStorage.setItem(
+        LAYOUT_KEYS.FILE_EXPLORER_COLLAPSED,
+        JSON.stringify(fileExplorerCollapsed.value),
+      )
       localStorage.setItem(LAYOUT_KEYS.FILE_EXPLORER_WIDTH, JSON.stringify(fileExplorerWidth.value))
     } catch {
       // 禁用本地存储时布局仍在当前会话内可用。

@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/nanamigopher/nanamigopher/gateway/internal/config"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/observability"
+	"maigokite/gateway/internal/config"
+	"maigokite/gateway/internal/observability"
 )
 
 func TestNewRouterRegistersDistinctModelActionRoutes(t *testing.T) {

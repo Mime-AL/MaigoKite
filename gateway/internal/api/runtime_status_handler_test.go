@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/config"
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
+	"maigokite/gateway/internal/config"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 )
 
 type fakeAgentHealth struct {

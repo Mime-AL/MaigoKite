@@ -17,7 +17,20 @@ defineProps<{ steps?: Array<{ id: string; title: string; status: 'todo' | 'runni
 </template>
 
 <style scoped lang="scss">
-.step-list { display: grid; gap: 5px; }
-.step-item { display: flex; min-height: 34px; align-items: center; gap: 9px; color: var(--text-secondary); font-size: 11px; }
-.step-item.running { color: var(--text-primary); font-weight: 600; }
+.step-list {
+  display: grid;
+  gap: 5px;
+}
+.step-item {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+.step-item.running {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
 </style>

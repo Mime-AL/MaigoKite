@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/credentialstore"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
-	ws "github.com/nanamigopher/nanamigopher/gateway/internal/websocket"
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
+	"maigokite/gateway/internal/credentialstore"
+	agentgrpc "maigokite/gateway/internal/grpc"
+	ws "maigokite/gateway/internal/websocket"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 	"net/http"
 )
 
@@ -37,44 +37,9 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		attachments = append(attachments, &agentv1.Attachment{Type: a.Type, Path: a.Path, Url: a.URL})
 	}
 	conversationID := c.Param("conversationID")
-	conversation, err := h.client.GetConversation(c.Request.Context(), &agentv1.ConversationRequest{
-		WorkspaceId: c.Param("workspaceID"), ConversationId: conversationID,
-	})
-	if err != nil {
+	if err := prepareExecutionCredentials(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), conversationID); err != nil {
 		grpcError(c, err)
 		return
-	}
-	catalog, err := h.client.ListChatModels(c.Request.Context(), c.Param("workspaceID"))
-	if err != nil {
-		grpcError(c, err)
-		return
-	}
-	selectedID := conversation.ModelId
-	if selectedID == "" {
-		selectedID = catalog.DefaultModelId
-	}
-	for _, settings := range catalog.Models {
-		if settings.Id != selectedID {
-			continue
-		}
-		apiKey, keyErr := h.mgr.GetModelProfileKeyForWorkspace(c.Param("workspaceID"), settings.Id)
-		if keyErr != nil && settings.Id == "model_default" {
-			apiKey, _ = h.mgr.GetModelKeyForWorkspace(c.Param("workspaceID"), settings.Provider)
-		}
-		if err := h.client.SetChatModelProfileCredential(c.Request.Context(), c.Param("workspaceID"), settings.Id, settings.Provider, apiKey); err != nil {
-			grpcError(c, err)
-			return
-		}
-		break
-	}
-	// Agent Core keeps secrets in memory only. Re-sync search credentials before
-	// every task so a Core restart does not silently fall back to another provider.
-	for _, service := range []string{"tavily", "google"} {
-		apiKey, _ := h.mgr.GetSearchKeyForWorkspace(c.Param("workspaceID"), service)
-		if err := h.client.SetToolCredential(c.Request.Context(), c.Param("workspaceID"), service, apiKey); err != nil {
-			grpcError(c, err)
-			return
-		}
 	}
 	// The HTTP request only starts the durable task. Its gRPC stream deliberately
 	// outlives the request and ends on completion, explicit cancellation, or process shutdown.

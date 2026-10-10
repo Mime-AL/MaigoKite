@@ -7,7 +7,12 @@ const props = withDefaults(defineProps<{ title: string; defaultExpanded?: boolea
   icon: 'activity',
 })
 const isExpanded = ref(props.defaultExpanded)
-watch(() => props.defaultExpanded, value => { isExpanded.value = value })
+watch(
+  () => props.defaultExpanded,
+  (value) => {
+    isExpanded.value = value
+  },
+)
 </script>
 
 <template>
@@ -22,11 +27,51 @@ watch(() => props.defaultExpanded, value => { isExpanded.value = value })
 </template>
 
 <style scoped lang="scss">
-.collapse-card { width: min(760px, calc(100% - 40px)); margin: 10px auto 0; overflow: hidden; border: 1px solid var(--border-color); border-radius: 14px; background: var(--surface-muted); }
-.card-header { display: flex; width: 100%; height: 42px; align-items: center; gap: 9px; padding: 0 12px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 11px; font-weight: 650; text-align: left; }
-.card-header:hover { color: var(--text-primary); background: var(--surface-strong); }
-.title-icon { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 8px; color: var(--primary-color); background: var(--primary-soft); }
-.chevron { margin-left: auto; transition: transform 160ms ease; }
-.chevron.expanded { transform: rotate(90deg); }
-.card-body { padding: 10px 13px 13px; border-top: 1px solid var(--border-color); }
+.collapse-card {
+  width: min(760px, calc(100% - 40px));
+  margin: 10px auto 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-muted);
+}
+.card-header {
+  display: flex;
+  width: 100%;
+  height: 42px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 0;
+  background: var(--transparent);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-align: left;
+}
+.card-header:hover {
+  color: var(--text-primary);
+  background: var(--surface-strong);
+}
+.title-icon {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--primary-color);
+  background: var(--primary-soft);
+}
+.chevron {
+  margin-left: auto;
+  transition: transform var(--motion-pulse) var(--ease);
+}
+.chevron.expanded {
+  transform: rotate(90deg);
+}
+.card-body {
+  padding: 10px 13px 13px;
+  border-top: 1px solid var(--border-color);
+}
 </style>

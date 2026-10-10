@@ -95,7 +95,7 @@ clean:
 	@echo "Done."
 
 help:
-	@echo "NanamiGopher Makefile targets:"
+	@echo "MaigoKite Makefile targets:"
 	@echo "  setup         Initialize project (install deps, create dirs)"
 	@echo "  dev           Start development servers (Go + Python + Vue)"
 	@echo "  build         Build all components"

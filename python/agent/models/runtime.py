@@ -10,9 +10,10 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 
 from agent.config_manager import ConfigManager
-from agent.models.chat_adapter import ChatAdapter, normalize_openai_compatible_base_url
+from agent.models.native_model import build_chat_model, close_chat_models, normalize_openai_compatible_base_url
 from agent.models.chat_provider import ChatMessage, IChatProvider
 from agent.repository import SQLiteRepository
 
@@ -106,7 +107,7 @@ class ChatModelRuntime:
         self,
         config: ConfigManager,
         repository: SQLiteRepository,
-        provider_factory: ProviderFactory = ChatAdapter,
+        provider_factory: ProviderFactory | None = None,
     ) -> None:
         self._config = config
         self._repository = repository
@@ -114,6 +115,8 @@ class ChatModelRuntime:
         self._credentials: dict[tuple[str, str], str] = {}
         self._providers: dict[tuple[str, str], tuple[ChatModelSettings, IChatProvider]] = {}
         self._retired_providers: list[IChatProvider] = []
+        self._native_models: dict[tuple[str, str], tuple[ChatModelSettings, BaseChatModel]] = {}
+        self._retired_models: list[BaseChatModel] = []
 
     def _defaults(self) -> ChatModelSettings:
         raw = self._config.get("models.chat", {})
@@ -248,18 +251,25 @@ class ChatModelRuntime:
         for key in keys:
             cached = self._providers.pop(key)
             self._retired_providers.append(cached[1])
+        for key in list(self._native_models):
+            if key[0] == workspace_id and (not model_id or key[1] == model_id):
+                self._retired_models.append(self._native_models.pop(key)[1])
 
     async def close(self) -> None:
         providers = [item[1] for item in self._providers.values()] + self._retired_providers
         self._providers.clear()
         self._retired_providers = []
+        models = [item[1] for item in self._native_models.values()] + self._retired_models
+        self._native_models.clear()
+        self._retired_models = []
         for provider in providers:
             close = getattr(provider, "aclose", None)
             if close is not None:
                 await close()
+        await close_chat_models(models)
         self._credentials.clear()
 
-    def _build_provider(self, settings: ChatModelSettings, api_key: str = "") -> IChatProvider:
+    def _model_options(self, settings: ChatModelSettings, api_key: str = "") -> dict[str, Any]:
         settings.validate()
         base_url = normalize_openai_compatible_base_url(
             settings.provider, settings.base_url
@@ -277,7 +287,7 @@ class ChatModelRuntime:
             key = ""
         if settings.requires_api_key and not key:
             raise RuntimeError(f"provider '{settings.provider}' requires an API key")
-        return self._provider_factory(
+        return dict(
             provider=settings.provider,
             model=settings.model,
             api_key=key,
@@ -287,16 +297,29 @@ class ChatModelRuntime:
             timeout=settings.timeout_seconds,
         )
 
+    def _build_provider(self, settings: ChatModelSettings, api_key: str = "") -> IChatProvider:
+        # Only the legacy entry imports its protocol wrapper.
+        factory = self._provider_factory
+        if factory is None:
+            from agent.models.chat_adapter import ChatAdapter
+            factory = ChatAdapter
+        return factory(**self._model_options(settings, api_key))
+
+    def _profile_key(self, workspace_id: str, settings: ChatModelSettings) -> str:
+        key = self._credentials.get((workspace_id, settings.id), "")
+        if not key and settings.id in {"", "model_default"}:
+            key = self._credentials.get((workspace_id, settings.provider), "")
+        return key
+
     async def get_provider(self, workspace_id: str, model_id: str = "") -> IChatProvider:
         settings = await self.get_profile(workspace_id, model_id)
         cache_key = (workspace_id, settings.id or settings.provider)
         cached = self._providers.get(cache_key)
         if cached and cached[0] == settings:
             return cached[1]
-        api_key = self._credentials.get((workspace_id, settings.id), "")
-        if not api_key and settings.id in {"", "model_default"}:
-            api_key = self._credentials.get((workspace_id, settings.provider), "")
-        provider = self._build_provider(settings, api_key)
+        provider = self._build_provider(settings, self._profile_key(workspace_id, settings))
+        if cached:
+            self._retired_providers.append(cached[1])
         self._providers[cache_key] = (settings, provider)
         return provider
 
@@ -305,10 +328,15 @@ class ChatModelRuntime:
     ) -> tuple[str, BaseChatModel]:
         """Return the Core-owned native model used by the LangGraph runtime."""
         settings = await self.get_profile(workspace_id, model_id)
-        provider = await self.get_provider(workspace_id, settings.id)
-        model = getattr(provider, "langchain_model", None)
-        if not isinstance(model, BaseChatModel):
-            raise RuntimeError("configured provider does not expose a LangChain chat model")
+        cache_key = (workspace_id, settings.id)
+        cached = self._native_models.get(cache_key)
+        if cached and cached[0] == settings:
+            model = cached[1]
+        else:
+            model = build_chat_model(**self._model_options(settings, self._profile_key(workspace_id, settings)))
+            if cached:
+                self._retired_models.append(cached[1])
+            self._native_models[cache_key] = (settings, model)
         # Credential replacement retires the old provider even when settings are
         # identical. Do not reuse a compiled graph holding that obsolete client.
         return f"{workspace_id}:{settings.id}:{hash(settings)}:{id(model)}", model
@@ -318,6 +346,15 @@ class ChatModelRuntime:
         settings: ChatModelSettings,
         api_key: str = "",
     ) -> str:
+        if self._provider_factory is None:
+            options = self._model_options(replace(settings, temperature=0, max_tokens=min(settings.max_tokens, 8)), api_key)
+            model = build_chat_model(**options)
+            try:
+                native_response = await model.ainvoke([HumanMessage(content="Reply with OK.")])
+                return str(native_response.text)
+            finally:
+                await close_chat_models([model])
+        # Preserve explicitly injected legacy providers during the migration.
         provider = self._build_provider(settings, api_key)
         try:
             response = await provider.chat(

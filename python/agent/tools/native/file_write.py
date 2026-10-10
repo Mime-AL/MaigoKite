@@ -9,6 +9,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
+from agent.tools.native.file_change import file_change, read_before_write
 
 
 class FileWriteParams(BaseModel):
@@ -96,6 +97,7 @@ class FileWriteTool(BaseTool):
         self, context: ExecutionContext, arguments: dict[str, Any]
     ) -> ToolResult:
         """Execute the file write operation and return a summary."""
+        before = read_before_write(str(arguments["path"]))
         result = _file_write_impl(**arguments)
         write_path = result.get("path", arguments.get("path", ""))
         created = result.get("created_dirs", [])
@@ -110,5 +112,8 @@ class FileWriteTool(BaseTool):
             },
             summary="; ".join(parts),
             raw="",
-            metadata={"tool": "file_write", "type": "file"},
+            metadata={"tool": "file_write", "type": "file", "file_change": file_change(
+                str(write_path), before, str(arguments.get("encoding", "utf-8")),
+                str(context.metadata.get("workspace_root") or ""),
+            )},
         )

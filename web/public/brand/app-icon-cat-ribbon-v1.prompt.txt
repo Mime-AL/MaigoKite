@@ -1,0 +1,18 @@
+MaigoKite app icon — cat and ribbon, candidate v1
+Status: 暂定方案，用户于 2026-10-10 选定；尚未替换 favicon、安装包或系统托盘图标。
+Asset: app-icon-cat-ribbon-v1.png
+Original output: 1254 × 1254 PNG, RGBA; original generated pixels preserved.
+Generation: built-in image_gen, transparent_background=true.
+References: original character illustration supplied in the conversation, plus four earlier image appearances included to reach that reference. The previous designs were explicitly excluded in the prompt.
+
+Final generation prompt:
+
+Use case: style-transfer / logo-brand.
+Task: Create ONE beautifully designed application icon based DIRECTLY on the ORIGINAL CHARACTER REFERENCE among the supplied images. The correct reference is the detailed illustration of a silver-lavender-haired cat-eared character, head resting on hand, with black headphones around the neck, a black ribbon and a small blue-eyed BLACK CAT HAIR CLIP. The subsequent human portrait icons and silver origami logo are rejected drafts; do not copy them.
+
+The essential design insight: the small black cat emblem ALREADY PRESENT on her hair clip and headphone ear cup is the app's brand mark. Visually study that little cat accessory in the original reference and faithfully reinterpret IT as the icon. Preserve its compact rounded charcoal-black head, two small pointed ears, electric-blue vertical eyes, tiny blue cat mouth, and restrained blue edge accents. This is the existing character's signature accessory made into a designed app badge, not a human portrait and not an unrelated geometric logo.
+
+Composition: square 1024x1024 app icon. A pearl-lavender rounded-square tile provides a calm luminous background inspired by her silver-purple hair. Center an elegantly simplified charcoal BLACK CAT EMBLEM, approximately 50–55% of tile width, with ample breathing room. Behind the lower side of the cat badge, integrate a small folded black/navy ribbon with only TWO restrained broad tails, echoing the character's actual hair ribbon. The badge and ribbon should read as ONE coherent custom silhouette, not separate stickers. The cat badge is the clear main focal point. Blue eyes and one slim blue ribbon fold are the only saturated accents.
+Rendering: exquisite clean app-icon craftsmanship, graphic simplicity with shallow enamel-like depth. A few large smooth shapes, very restrained satin highlights on the charcoal surfaces, crisp edges, a subtle pearl-to-lilac background gradient. Keep eyes and mouth as simple blue luminous marks like the reference's cat accessory; no realistic irises, no human anatomy. Elegant optical balance, beautiful curves, identifiable at small desktop icon sizes. The overall feeling is quietly playful, technological and personal, matching the original character through an actual recognizable accessory and its palette.
+Keep the mark compact. Rounded square fills the canvas, with genuine transparency only outside the tile corners.
+Do not draw a girl, face portrait, hair, torso, human eyes, headphones as a whole, or a giant cropped cat head. No origami kite, abstract M logo, generic robot, game crest, stars, orbit rings, decorative lightning, lettering, watermark, display mockup, surrounding surface, or comparison sheet. Do not add pink blush or glossy lips. No heavy 3D bevels, no toy figurine. Output a single polished APPLICATION ICON anchored unmistakably to the black-cat-and-ribbon accessory in the user's original reference.

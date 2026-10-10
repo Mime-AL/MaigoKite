@@ -19,45 +19,56 @@ import (
 const _ = grpc.SupportPackageIsVersion8
 
 const (
-	AgentService_ProcessMessage_FullMethodName               = "/nanamigopher.agent.v1.AgentService/ProcessMessage"
-	AgentService_CreateConversation_FullMethodName           = "/nanamigopher.agent.v1.AgentService/CreateConversation"
-	AgentService_GetConversation_FullMethodName              = "/nanamigopher.agent.v1.AgentService/GetConversation"
-	AgentService_ListConversations_FullMethodName            = "/nanamigopher.agent.v1.AgentService/ListConversations"
-	AgentService_DeleteConversation_FullMethodName           = "/nanamigopher.agent.v1.AgentService/DeleteConversation"
-	AgentService_UpdateConversationPermission_FullMethodName = "/nanamigopher.agent.v1.AgentService/UpdateConversationPermission"
-	AgentService_UpdateConversationSettings_FullMethodName   = "/nanamigopher.agent.v1.AgentService/UpdateConversationSettings"
-	AgentService_ListMessages_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/ListMessages"
-	AgentService_GetTask_FullMethodName                      = "/nanamigopher.agent.v1.AgentService/GetTask"
-	AgentService_ListTasks_FullMethodName                    = "/nanamigopher.agent.v1.AgentService/ListTasks"
-	AgentService_CancelTask_FullMethodName                   = "/nanamigopher.agent.v1.AgentService/CancelTask"
-	AgentService_ListTaskEvents_FullMethodName               = "/nanamigopher.agent.v1.AgentService/ListTaskEvents"
-	AgentService_ListApprovals_FullMethodName                = "/nanamigopher.agent.v1.AgentService/ListApprovals"
-	AgentService_DecideApproval_FullMethodName               = "/nanamigopher.agent.v1.AgentService/DecideApproval"
-	AgentService_CheckWorkspaceAccess_FullMethodName         = "/nanamigopher.agent.v1.AgentService/CheckWorkspaceAccess"
-	AgentService_ListAuditEvents_FullMethodName              = "/nanamigopher.agent.v1.AgentService/ListAuditEvents"
-	AgentService_RecordAuditEvent_FullMethodName             = "/nanamigopher.agent.v1.AgentService/RecordAuditEvent"
-	AgentService_GetChatModelSettings_FullMethodName         = "/nanamigopher.agent.v1.AgentService/GetChatModelSettings"
-	AgentService_UpdateChatModelSettings_FullMethodName      = "/nanamigopher.agent.v1.AgentService/UpdateChatModelSettings"
-	AgentService_ListChatModels_FullMethodName               = "/nanamigopher.agent.v1.AgentService/ListChatModels"
-	AgentService_UpsertChatModel_FullMethodName              = "/nanamigopher.agent.v1.AgentService/UpsertChatModel"
-	AgentService_DeleteChatModel_FullMethodName              = "/nanamigopher.agent.v1.AgentService/DeleteChatModel"
-	AgentService_SetDefaultChatModel_FullMethodName          = "/nanamigopher.agent.v1.AgentService/SetDefaultChatModel"
-	AgentService_ValidateChatModel_FullMethodName            = "/nanamigopher.agent.v1.AgentService/ValidateChatModel"
-	AgentService_SetChatModelCredential_FullMethodName       = "/nanamigopher.agent.v1.AgentService/SetChatModelCredential"
-	AgentService_SetToolCredential_FullMethodName            = "/nanamigopher.agent.v1.AgentService/SetToolCredential"
-	AgentService_GetUserPreferences_FullMethodName           = "/nanamigopher.agent.v1.AgentService/GetUserPreferences"
-	AgentService_UpdateUserPreferences_FullMethodName        = "/nanamigopher.agent.v1.AgentService/UpdateUserPreferences"
-	AgentService_GetPermissionSettings_FullMethodName        = "/nanamigopher.agent.v1.AgentService/GetPermissionSettings"
-	AgentService_UpdatePermissionSettings_FullMethodName     = "/nanamigopher.agent.v1.AgentService/UpdatePermissionSettings"
-	AgentService_GetToolSettings_FullMethodName              = "/nanamigopher.agent.v1.AgentService/GetToolSettings"
-	AgentService_UpdateToolSettings_FullMethodName           = "/nanamigopher.agent.v1.AgentService/UpdateToolSettings"
-	AgentService_ListMemories_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/ListMemories"
-	AgentService_UpsertMemory_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/UpsertMemory"
-	AgentService_DeleteMemory_FullMethodName                 = "/nanamigopher.agent.v1.AgentService/DeleteMemory"
-	AgentService_GetWorkspaceDataSummary_FullMethodName      = "/nanamigopher.agent.v1.AgentService/GetWorkspaceDataSummary"
-	AgentService_ListMCPServers_FullMethodName               = "/nanamigopher.agent.v1.AgentService/ListMCPServers"
-	AgentService_ListSkills_FullMethodName                   = "/nanamigopher.agent.v1.AgentService/ListSkills"
-	AgentService_Health_FullMethodName                       = "/nanamigopher.agent.v1.AgentService/Health"
+	AgentService_ProcessMessage_FullMethodName               = "/maigokite.agent.v1.AgentService/ProcessMessage"
+	AgentService_CreateConversation_FullMethodName           = "/maigokite.agent.v1.AgentService/CreateConversation"
+	AgentService_GetConversation_FullMethodName              = "/maigokite.agent.v1.AgentService/GetConversation"
+	AgentService_ListConversations_FullMethodName            = "/maigokite.agent.v1.AgentService/ListConversations"
+	AgentService_DeleteConversation_FullMethodName           = "/maigokite.agent.v1.AgentService/DeleteConversation"
+	AgentService_UpdateConversationPermission_FullMethodName = "/maigokite.agent.v1.AgentService/UpdateConversationPermission"
+	AgentService_UpdateConversationSettings_FullMethodName   = "/maigokite.agent.v1.AgentService/UpdateConversationSettings"
+	AgentService_ListWorkspaceFolders_FullMethodName         = "/maigokite.agent.v1.AgentService/ListWorkspaceFolders"
+	AgentService_CreateWorkspaceFolder_FullMethodName        = "/maigokite.agent.v1.AgentService/CreateWorkspaceFolder"
+	AgentService_GetWorkspaceFolder_FullMethodName           = "/maigokite.agent.v1.AgentService/GetWorkspaceFolder"
+	AgentService_ListMessages_FullMethodName                 = "/maigokite.agent.v1.AgentService/ListMessages"
+	AgentService_GetTask_FullMethodName                      = "/maigokite.agent.v1.AgentService/GetTask"
+	AgentService_ListTasks_FullMethodName                    = "/maigokite.agent.v1.AgentService/ListTasks"
+	AgentService_CancelTask_FullMethodName                   = "/maigokite.agent.v1.AgentService/CancelTask"
+	AgentService_ListTaskEvents_FullMethodName               = "/maigokite.agent.v1.AgentService/ListTaskEvents"
+	AgentService_ListApprovals_FullMethodName                = "/maigokite.agent.v1.AgentService/ListApprovals"
+	AgentService_GetApproval_FullMethodName                  = "/maigokite.agent.v1.AgentService/GetApproval"
+	AgentService_GetTaskInspection_FullMethodName            = "/maigokite.agent.v1.AgentService/GetTaskInspection"
+	AgentService_ListQuestions_FullMethodName                = "/maigokite.agent.v1.AgentService/ListQuestions"
+	AgentService_AnswerQuestion_FullMethodName               = "/maigokite.agent.v1.AgentService/AnswerQuestion"
+	AgentService_SubmitTaskInput_FullMethodName              = "/maigokite.agent.v1.AgentService/SubmitTaskInput"
+	AgentService_ListTaskInputs_FullMethodName               = "/maigokite.agent.v1.AgentService/ListTaskInputs"
+	AgentService_ListJobs_FullMethodName                     = "/maigokite.agent.v1.AgentService/ListJobs"
+	AgentService_StopJob_FullMethodName                      = "/maigokite.agent.v1.AgentService/StopJob"
+	AgentService_DecideApproval_FullMethodName               = "/maigokite.agent.v1.AgentService/DecideApproval"
+	AgentService_CheckWorkspaceAccess_FullMethodName         = "/maigokite.agent.v1.AgentService/CheckWorkspaceAccess"
+	AgentService_ListAuditEvents_FullMethodName              = "/maigokite.agent.v1.AgentService/ListAuditEvents"
+	AgentService_RecordAuditEvent_FullMethodName             = "/maigokite.agent.v1.AgentService/RecordAuditEvent"
+	AgentService_GetChatModelSettings_FullMethodName         = "/maigokite.agent.v1.AgentService/GetChatModelSettings"
+	AgentService_UpdateChatModelSettings_FullMethodName      = "/maigokite.agent.v1.AgentService/UpdateChatModelSettings"
+	AgentService_ListChatModels_FullMethodName               = "/maigokite.agent.v1.AgentService/ListChatModels"
+	AgentService_UpsertChatModel_FullMethodName              = "/maigokite.agent.v1.AgentService/UpsertChatModel"
+	AgentService_DeleteChatModel_FullMethodName              = "/maigokite.agent.v1.AgentService/DeleteChatModel"
+	AgentService_SetDefaultChatModel_FullMethodName          = "/maigokite.agent.v1.AgentService/SetDefaultChatModel"
+	AgentService_ValidateChatModel_FullMethodName            = "/maigokite.agent.v1.AgentService/ValidateChatModel"
+	AgentService_SetChatModelCredential_FullMethodName       = "/maigokite.agent.v1.AgentService/SetChatModelCredential"
+	AgentService_SetToolCredential_FullMethodName            = "/maigokite.agent.v1.AgentService/SetToolCredential"
+	AgentService_GetUserPreferences_FullMethodName           = "/maigokite.agent.v1.AgentService/GetUserPreferences"
+	AgentService_UpdateUserPreferences_FullMethodName        = "/maigokite.agent.v1.AgentService/UpdateUserPreferences"
+	AgentService_GetPermissionSettings_FullMethodName        = "/maigokite.agent.v1.AgentService/GetPermissionSettings"
+	AgentService_UpdatePermissionSettings_FullMethodName     = "/maigokite.agent.v1.AgentService/UpdatePermissionSettings"
+	AgentService_GetToolSettings_FullMethodName              = "/maigokite.agent.v1.AgentService/GetToolSettings"
+	AgentService_UpdateToolSettings_FullMethodName           = "/maigokite.agent.v1.AgentService/UpdateToolSettings"
+	AgentService_ListMemories_FullMethodName                 = "/maigokite.agent.v1.AgentService/ListMemories"
+	AgentService_UpsertMemory_FullMethodName                 = "/maigokite.agent.v1.AgentService/UpsertMemory"
+	AgentService_DeleteMemory_FullMethodName                 = "/maigokite.agent.v1.AgentService/DeleteMemory"
+	AgentService_GetWorkspaceDataSummary_FullMethodName      = "/maigokite.agent.v1.AgentService/GetWorkspaceDataSummary"
+	AgentService_ListMCPServers_FullMethodName               = "/maigokite.agent.v1.AgentService/ListMCPServers"
+	AgentService_ListSkills_FullMethodName                   = "/maigokite.agent.v1.AgentService/ListSkills"
+	AgentService_Health_FullMethodName                       = "/maigokite.agent.v1.AgentService/Health"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -71,12 +82,23 @@ type AgentServiceClient interface {
 	DeleteConversation(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*Empty, error)
 	UpdateConversationPermission(ctx context.Context, in *ConversationPermissionRequest, opts ...grpc.CallOption) (*Conversation, error)
 	UpdateConversationSettings(ctx context.Context, in *ConversationSettingsRequest, opts ...grpc.CallOption) (*Conversation, error)
+	ListWorkspaceFolders(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*WorkspaceFolderList, error)
+	CreateWorkspaceFolder(ctx context.Context, in *WorkspaceFolderRequest, opts ...grpc.CallOption) (*WorkspaceFolder, error)
+	GetWorkspaceFolder(ctx context.Context, in *WorkspaceFolderRequest, opts ...grpc.CallOption) (*WorkspaceFolder, error)
 	ListMessages(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*MessageList, error)
 	GetTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*Task, error)
 	ListTasks(ctx context.Context, in *TaskListRequest, opts ...grpc.CallOption) (*TaskList, error)
 	CancelTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*Task, error)
 	ListTaskEvents(ctx context.Context, in *TaskEventListRequest, opts ...grpc.CallOption) (*TaskEventList, error)
 	ListApprovals(ctx context.Context, in *ApprovalListRequest, opts ...grpc.CallOption) (*ApprovalList, error)
+	GetApproval(ctx context.Context, in *ApprovalRequest, opts ...grpc.CallOption) (*Approval, error)
+	GetTaskInspection(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskInspection, error)
+	ListQuestions(ctx context.Context, in *ApprovalListRequest, opts ...grpc.CallOption) (*QuestionList, error)
+	AnswerQuestion(ctx context.Context, in *QuestionAnswerRequest, opts ...grpc.CallOption) (AgentService_AnswerQuestionClient, error)
+	SubmitTaskInput(ctx context.Context, in *TaskInputRequest, opts ...grpc.CallOption) (*TaskInput, error)
+	ListTaskInputs(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskInputList, error)
+	ListJobs(ctx context.Context, in *TaskListRequest, opts ...grpc.CallOption) (*JobList, error)
+	StopJob(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (*Empty, error)
 	DecideApproval(ctx context.Context, in *ApprovalDecisionRequest, opts ...grpc.CallOption) (AgentService_DecideApprovalClient, error)
 	CheckWorkspaceAccess(ctx context.Context, in *WorkspaceAccessRequest, opts ...grpc.CallOption) (*WorkspaceAccessResponse, error)
 	ListAuditEvents(ctx context.Context, in *ListConversationsRequest, opts ...grpc.CallOption) (*AuditEventList, error)
@@ -206,6 +228,36 @@ func (c *agentServiceClient) UpdateConversationSettings(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *agentServiceClient) ListWorkspaceFolders(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*WorkspaceFolderList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WorkspaceFolderList)
+	err := c.cc.Invoke(ctx, AgentService_ListWorkspaceFolders_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) CreateWorkspaceFolder(ctx context.Context, in *WorkspaceFolderRequest, opts ...grpc.CallOption) (*WorkspaceFolder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WorkspaceFolder)
+	err := c.cc.Invoke(ctx, AgentService_CreateWorkspaceFolder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) GetWorkspaceFolder(ctx context.Context, in *WorkspaceFolderRequest, opts ...grpc.CallOption) (*WorkspaceFolder, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WorkspaceFolder)
+	err := c.cc.Invoke(ctx, AgentService_GetWorkspaceFolder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) ListMessages(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*MessageList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MessageList)
@@ -266,9 +318,112 @@ func (c *agentServiceClient) ListApprovals(ctx context.Context, in *ApprovalList
 	return out, nil
 }
 
+func (c *agentServiceClient) GetApproval(ctx context.Context, in *ApprovalRequest, opts ...grpc.CallOption) (*Approval, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Approval)
+	err := c.cc.Invoke(ctx, AgentService_GetApproval_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) GetTaskInspection(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskInspection, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TaskInspection)
+	err := c.cc.Invoke(ctx, AgentService_GetTaskInspection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ListQuestions(ctx context.Context, in *ApprovalListRequest, opts ...grpc.CallOption) (*QuestionList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuestionList)
+	err := c.cc.Invoke(ctx, AgentService_ListQuestions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) AnswerQuestion(ctx context.Context, in *QuestionAnswerRequest, opts ...grpc.CallOption) (AgentService_AnswerQuestionClient, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[1], AgentService_AnswerQuestion_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &agentServiceAnswerQuestionClient{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type AgentService_AnswerQuestionClient interface {
+	Recv() (*AgentEvent, error)
+	grpc.ClientStream
+}
+
+type agentServiceAnswerQuestionClient struct {
+	grpc.ClientStream
+}
+
+func (x *agentServiceAnswerQuestionClient) Recv() (*AgentEvent, error) {
+	m := new(AgentEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *agentServiceClient) SubmitTaskInput(ctx context.Context, in *TaskInputRequest, opts ...grpc.CallOption) (*TaskInput, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TaskInput)
+	err := c.cc.Invoke(ctx, AgentService_SubmitTaskInput_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ListTaskInputs(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskInputList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TaskInputList)
+	err := c.cc.Invoke(ctx, AgentService_ListTaskInputs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ListJobs(ctx context.Context, in *TaskListRequest, opts ...grpc.CallOption) (*JobList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(JobList)
+	err := c.cc.Invoke(ctx, AgentService_ListJobs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) StopJob(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, AgentService_StopJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) DecideApproval(ctx context.Context, in *ApprovalDecisionRequest, opts ...grpc.CallOption) (AgentService_DecideApprovalClient, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[1], AgentService_DecideApproval_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[2], AgentService_DecideApproval_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -560,12 +715,23 @@ type AgentServiceServer interface {
 	DeleteConversation(context.Context, *ConversationRequest) (*Empty, error)
 	UpdateConversationPermission(context.Context, *ConversationPermissionRequest) (*Conversation, error)
 	UpdateConversationSettings(context.Context, *ConversationSettingsRequest) (*Conversation, error)
+	ListWorkspaceFolders(context.Context, *WorkspaceRequest) (*WorkspaceFolderList, error)
+	CreateWorkspaceFolder(context.Context, *WorkspaceFolderRequest) (*WorkspaceFolder, error)
+	GetWorkspaceFolder(context.Context, *WorkspaceFolderRequest) (*WorkspaceFolder, error)
 	ListMessages(context.Context, *ConversationRequest) (*MessageList, error)
 	GetTask(context.Context, *TaskRequest) (*Task, error)
 	ListTasks(context.Context, *TaskListRequest) (*TaskList, error)
 	CancelTask(context.Context, *TaskRequest) (*Task, error)
 	ListTaskEvents(context.Context, *TaskEventListRequest) (*TaskEventList, error)
 	ListApprovals(context.Context, *ApprovalListRequest) (*ApprovalList, error)
+	GetApproval(context.Context, *ApprovalRequest) (*Approval, error)
+	GetTaskInspection(context.Context, *TaskRequest) (*TaskInspection, error)
+	ListQuestions(context.Context, *ApprovalListRequest) (*QuestionList, error)
+	AnswerQuestion(*QuestionAnswerRequest, AgentService_AnswerQuestionServer) error
+	SubmitTaskInput(context.Context, *TaskInputRequest) (*TaskInput, error)
+	ListTaskInputs(context.Context, *TaskRequest) (*TaskInputList, error)
+	ListJobs(context.Context, *TaskListRequest) (*JobList, error)
+	StopJob(context.Context, *JobRequest) (*Empty, error)
 	DecideApproval(*ApprovalDecisionRequest, AgentService_DecideApprovalServer) error
 	CheckWorkspaceAccess(context.Context, *WorkspaceAccessRequest) (*WorkspaceAccessResponse, error)
 	ListAuditEvents(context.Context, *ListConversationsRequest) (*AuditEventList, error)
@@ -620,6 +786,15 @@ func (UnimplementedAgentServiceServer) UpdateConversationPermission(context.Cont
 func (UnimplementedAgentServiceServer) UpdateConversationSettings(context.Context, *ConversationSettingsRequest) (*Conversation, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateConversationSettings not implemented")
 }
+func (UnimplementedAgentServiceServer) ListWorkspaceFolders(context.Context, *WorkspaceRequest) (*WorkspaceFolderList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListWorkspaceFolders not implemented")
+}
+func (UnimplementedAgentServiceServer) CreateWorkspaceFolder(context.Context, *WorkspaceFolderRequest) (*WorkspaceFolder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateWorkspaceFolder not implemented")
+}
+func (UnimplementedAgentServiceServer) GetWorkspaceFolder(context.Context, *WorkspaceFolderRequest) (*WorkspaceFolder, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkspaceFolder not implemented")
+}
 func (UnimplementedAgentServiceServer) ListMessages(context.Context, *ConversationRequest) (*MessageList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListMessages not implemented")
 }
@@ -637,6 +812,30 @@ func (UnimplementedAgentServiceServer) ListTaskEvents(context.Context, *TaskEven
 }
 func (UnimplementedAgentServiceServer) ListApprovals(context.Context, *ApprovalListRequest) (*ApprovalList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListApprovals not implemented")
+}
+func (UnimplementedAgentServiceServer) GetApproval(context.Context, *ApprovalRequest) (*Approval, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetApproval not implemented")
+}
+func (UnimplementedAgentServiceServer) GetTaskInspection(context.Context, *TaskRequest) (*TaskInspection, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTaskInspection not implemented")
+}
+func (UnimplementedAgentServiceServer) ListQuestions(context.Context, *ApprovalListRequest) (*QuestionList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListQuestions not implemented")
+}
+func (UnimplementedAgentServiceServer) AnswerQuestion(*QuestionAnswerRequest, AgentService_AnswerQuestionServer) error {
+	return status.Errorf(codes.Unimplemented, "method AnswerQuestion not implemented")
+}
+func (UnimplementedAgentServiceServer) SubmitTaskInput(context.Context, *TaskInputRequest) (*TaskInput, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitTaskInput not implemented")
+}
+func (UnimplementedAgentServiceServer) ListTaskInputs(context.Context, *TaskRequest) (*TaskInputList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTaskInputs not implemented")
+}
+func (UnimplementedAgentServiceServer) ListJobs(context.Context, *TaskListRequest) (*JobList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListJobs not implemented")
+}
+func (UnimplementedAgentServiceServer) StopJob(context.Context, *JobRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopJob not implemented")
 }
 func (UnimplementedAgentServiceServer) DecideApproval(*ApprovalDecisionRequest, AgentService_DecideApprovalServer) error {
 	return status.Errorf(codes.Unimplemented, "method DecideApproval not implemented")
@@ -858,6 +1057,60 @@ func _AgentService_UpdateConversationSettings_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_ListWorkspaceFolders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListWorkspaceFolders(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListWorkspaceFolders_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListWorkspaceFolders(ctx, req.(*WorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_CreateWorkspaceFolder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceFolderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).CreateWorkspaceFolder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_CreateWorkspaceFolder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).CreateWorkspaceFolder(ctx, req.(*WorkspaceFolderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_GetWorkspaceFolder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceFolderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetWorkspaceFolder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetWorkspaceFolder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetWorkspaceFolder(ctx, req.(*WorkspaceFolderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_ListMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ConversationRequest)
 	if err := dec(in); err != nil {
@@ -962,6 +1215,153 @@ func _AgentService_ListApprovals_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServiceServer).ListApprovals(ctx, req.(*ApprovalListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_GetApproval_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApprovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetApproval(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetApproval_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetApproval(ctx, req.(*ApprovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_GetTaskInspection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetTaskInspection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetTaskInspection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetTaskInspection(ctx, req.(*TaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ListQuestions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApprovalListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListQuestions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListQuestions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListQuestions(ctx, req.(*ApprovalListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_AnswerQuestion_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(QuestionAnswerRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentServiceServer).AnswerQuestion(m, &agentServiceAnswerQuestionServer{ServerStream: stream})
+}
+
+type AgentService_AnswerQuestionServer interface {
+	Send(*AgentEvent) error
+	grpc.ServerStream
+}
+
+type agentServiceAnswerQuestionServer struct {
+	grpc.ServerStream
+}
+
+func (x *agentServiceAnswerQuestionServer) Send(m *AgentEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _AgentService_SubmitTaskInput_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskInputRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).SubmitTaskInput(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_SubmitTaskInput_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).SubmitTaskInput(ctx, req.(*TaskInputRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ListTaskInputs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListTaskInputs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListTaskInputs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListTaskInputs(ctx, req.(*TaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ListJobs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListJobs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListJobs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListJobs(ctx, req.(*TaskListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_StopJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).StopJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_StopJob_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).StopJob(ctx, req.(*JobRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1441,7 +1841,7 @@ func _AgentService_Health_Handler(srv interface{}, ctx context.Context, dec func
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AgentService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "nanamigopher.agent.v1.AgentService",
+	ServiceName: "maigokite.agent.v1.AgentService",
 	HandlerType: (*AgentServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -1469,6 +1869,18 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AgentService_UpdateConversationSettings_Handler,
 		},
 		{
+			MethodName: "ListWorkspaceFolders",
+			Handler:    _AgentService_ListWorkspaceFolders_Handler,
+		},
+		{
+			MethodName: "CreateWorkspaceFolder",
+			Handler:    _AgentService_CreateWorkspaceFolder_Handler,
+		},
+		{
+			MethodName: "GetWorkspaceFolder",
+			Handler:    _AgentService_GetWorkspaceFolder_Handler,
+		},
+		{
 			MethodName: "ListMessages",
 			Handler:    _AgentService_ListMessages_Handler,
 		},
@@ -1491,6 +1903,34 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListApprovals",
 			Handler:    _AgentService_ListApprovals_Handler,
+		},
+		{
+			MethodName: "GetApproval",
+			Handler:    _AgentService_GetApproval_Handler,
+		},
+		{
+			MethodName: "GetTaskInspection",
+			Handler:    _AgentService_GetTaskInspection_Handler,
+		},
+		{
+			MethodName: "ListQuestions",
+			Handler:    _AgentService_ListQuestions_Handler,
+		},
+		{
+			MethodName: "SubmitTaskInput",
+			Handler:    _AgentService_SubmitTaskInput_Handler,
+		},
+		{
+			MethodName: "ListTaskInputs",
+			Handler:    _AgentService_ListTaskInputs_Handler,
+		},
+		{
+			MethodName: "ListJobs",
+			Handler:    _AgentService_ListJobs_Handler,
+		},
+		{
+			MethodName: "StopJob",
+			Handler:    _AgentService_StopJob_Handler,
 		},
 		{
 			MethodName: "CheckWorkspaceAccess",
@@ -1597,6 +2037,11 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ProcessMessage",
 			Handler:       _AgentService_ProcessMessage_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "AnswerQuestion",
+			Handler:       _AgentService_AnswerQuestion_Handler,
 			ServerStreams: true,
 		},
 		{

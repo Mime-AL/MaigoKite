@@ -1,0 +1,194 @@
+:root {
+  --text-code-inline: 0.9em;
+  --paper: #faf8f4;
+  --paper-2: #f2efe9;
+  --paper-3: #e9e5dd;
+  --rule: #ddd8ce;
+  --ink: #1f1e1c;
+  --ink-2: #6b6760;
+  --ink-3: #a39e94;
+  --on-accent: #fff;
+  --accent: #2f6f6a;
+  --stone: #2f6f6a;
+  --seal: #b5442e;
+  --ok: #4c7a3f;
+  --wait: #b07a1f;
+  --accent-blue: #405f88;
+  --accent-green: #52745b;
+  --accent-earth: #976b43;
+  --accent-lotus: #886a85;
+  --accent-black: #454340;
+  --font-sans: 'Inter', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 20px;
+  --text-greeting: 32px;
+  --leading-body: 26px;
+  --leading-small: 20px;
+  --leading-tight: 1.4;
+  --leading-normal: 1.65;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --radius-none: 0;
+  --radius-pill: 999px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 14px;
+  --radius-round: 50%;
+  --ease: cubic-bezier(0.2, 0.7, 0.1, 1);
+  --duration: 180ms;
+  --duration-slow: 220ms;
+  --motion-fast: 140ms;
+  --motion-press: 65ms;
+  --motion-spin: 800ms;
+  --press-offset: 0 1px;
+  --press-scale: 0.96;
+  --motion-pulse: 1800ms;
+  --motion-grow: 900ms;
+  --shadow-float: 0 8px 32px rgb(0 0 0 / 0.1);
+  --shadow-card: none;
+  --shadow-window: none;
+  --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.8' filter='url(%23n)'/%3E%3C/svg%3E");
+  --noise-opacity: 0.025;
+  --transparent: transparent;
+  --backdrop: rgb(0 0 0 / 0.15);
+  --titlebar-height: 36px;
+  --sidebar-width: 240px;
+  --drawer-width: 380px;
+  --rail-width: 48px;
+  --content-width: 720px;
+  --capsule-width: 560px;
+  --capsule-height: 56px;
+  --blur: blur(12px);
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  --paper: #121314;
+  --paper-2: #1a1b1d;
+  --paper-3: #232427;
+  --rule: #2e3033;
+  --ink: #e8e6e1;
+  --ink-2: #9a978f;
+  --ink-3: #5f5d58;
+  --on-accent: #121314;
+  --accent: #5fa59d;
+  --stone: #5fa59d;
+  --seal: #d0644d;
+  --ok: #7fb06e;
+  --wait: #d7a548;
+  --accent-blue: #89a6c6;
+  --accent-green: #87ac90;
+  --accent-earth: #c29a71;
+  --accent-lotus: #b398b0;
+  --accent-black: #b9b6af;
+  --shadow-float: 0 8px 32px rgb(0 0 0 / 0.35);
+  color-scheme: dark;
+}
+:root[data-accent='blue'] {
+  --accent: var(--accent-blue);
+}
+:root[data-accent='green'] {
+  --accent: var(--accent-green);
+}
+:root[data-accent='earth'] {
+  --accent: var(--accent-earth);
+}
+:root[data-accent='lotus'] {
+  --accent: var(--accent-lotus);
+}
+:root[data-accent='ink'] {
+  --accent: var(--accent-black);
+}
+:root {
+  --accent-soft: color-mix(in srgb, var(--accent) 9%, var(--paper));
+  --seal-soft: color-mix(in srgb, var(--seal) 8%, var(--paper));
+  --wait-soft: color-mix(in srgb, var(--wait) 8%, var(--paper));
+  --focus-ring: color-mix(in srgb, var(--accent) 25%, var(--transparent));
+  --control-hover: color-mix(in srgb, var(--ink) 7%, var(--paper-2));
+  --control-pressed: color-mix(in srgb, var(--ink) 13%, var(--paper-2));
+  --control-border-hover: color-mix(in srgb, var(--ink) 30%, var(--rule));
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, var(--ink));
+  --accent-pressed: color-mix(in srgb, var(--accent) 76%, var(--ink));
+  --accent-selected: color-mix(in srgb, var(--accent) 15%, var(--paper));
+  --seal-hover: color-mix(in srgb, var(--seal) 14%, var(--paper));
+  --seal-pressed: color-mix(in srgb, var(--seal) 22%, var(--paper));
+  --control-transition:
+    background-color var(--motion-fast) var(--ease),
+    border-color var(--motion-fast) var(--ease),
+    color var(--motion-fast) var(--ease),
+    translate var(--motion-fast) var(--ease),
+    scale var(--motion-fast) var(--ease);
+  /* Existing settings and workspace components share the Inkline palette. */
+  --canvas: var(--paper);
+  --canvas-deep: var(--paper);
+  --surface: var(--paper-2);
+  --surface-solid: var(--paper);
+  --surface-muted: var(--paper-2);
+  --surface-strong: var(--paper-3);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-2);
+  --text-tertiary: var(--ink-3);
+  --primary-color: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --primary-soft: var(--accent-soft);
+  --success: var(--ink-2);
+  --success-soft: var(--paper-2);
+  --warning: var(--wait);
+  --warning-soft: var(--wait-soft);
+  --danger: var(--ink-2);
+  --danger-soft: var(--paper-2);
+  --border-color: var(--rule);
+  --border-strong: var(--rule);
+}
+@keyframes ink-grow {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes ink-breathe {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+@keyframes ink-act {
+  50% {
+    transform: translateX(2px) scaleX(1.35);
+  }
+}
+@keyframes ink-wait {
+  25% {
+    transform: rotate(5deg);
+  }
+  75% {
+    transform: rotate(-5deg);
+  }
+}
+@keyframes ink-load {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(200%);
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes status-pulse {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+}

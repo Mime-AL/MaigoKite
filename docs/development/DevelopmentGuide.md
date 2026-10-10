@@ -14,13 +14,21 @@
 | `config/`、`scripts/` | 运行配置、开发/构建/测试脚本 |
 | `docs/` | 按 [文档索引](../README.md) 分配权威范围 |
 
-`go.work` 引用 gateway 模块。目录存在不证明模块已接入；工作流等骨架不视为可用能力。不复制类型、策略或协议建立“局部真相”。
+`go.work` 引用 gateway 模块。目录存在不证明模块已接入；本批移除未接线的工作流/HITL、子智能体和 Recovery 空骨架，不取消这些能力需求，归属见 [智能体运行时设计](../design/AgentRuntime.md#7-技能子任务与工作流边界)。不复制类型、策略或协议建立“局部真相”。
 
 ## 2. 初始化
 
-Go 最低版本见 `gateway/go.mod`；Python 两份项目清单当前均要求 3.11+；Node/npm 版本与依赖以 `web/package.json` 和锁文件为准。安装行为不同，不能假设根与 python 子项目的依赖完全一致。
+Go 最低版本见 `gateway/go.mod`；Python 要求 3.11+；Node/npm 版本与依赖以 `web/package.json` 和锁文件为准。Python 依赖唯一声明为根 `pyproject.toml`，解析结果为根 `uv.lock`；`python/` 仅为源码目录，不再独立安装或维护 requirements 清单。
 
-以下从仓库根目录执行，使用根项目清单和同一个虚拟环境：
+推荐从仓库根目录执行，按锁文件安装到根 `.venv`：
+
+```bash
+uv sync --locked --extra dev
+```
+
+`dev` 包含质量工具、测试 HTTP 服务和协议生成器；不需要它们的运行环境使用 `uv sync --locked --no-dev`，不要添加 `--all-extras`。`vectorstores` 仅供尚未接入聊天的实验适配器，不是已交付的知识库功能，默认不安装。修改依赖后由维护者运行 `uv lock` 更新锁文件；锁定成功不代表运行或发布验收通过。
+
+没有 uv 时可从同一清单安装，但 pip 路径不保证使用 uv 锁定版本：
 
 ```bash
 python3 -m venv .venv
@@ -40,7 +48,7 @@ cd web
 npm ci
 ```
 
-`make setup` 是已有快捷脚本，但其 uv/Poetry 分支在 `python/` 安装，可能不对应根 `.venv`；不要仅凭脚本成功假设 `make dev` 使用了该解释器。需要时通过 `NANAMI_PYTHON` 指定。不要向全局解释器强行安装。
+`make setup` 聚合以上安装步骤；uv 和 pip 分支均使用根项目及根 `.venv`，不再选择 Poetry/子项目，也不默认安装向量库或 Docker SDK。不要向全局解释器强行安装。若主动覆盖 `UV_PROJECT_ENVIRONMENT`，须同时用 `MAIGOKITE_PYTHON` 指定启动解释器；否则保持默认根环境。
 
 ## 3. 启动
 
@@ -50,7 +58,7 @@ npm ci
 make dev
 ```
 
-脚本启动网关、Python gRPC 核心服务和 Vite；优先使用根 `.venv`，否则使用 `NANAMI_PYTHON` 或 python3。当前开发脚本 Vite 监听 `0.0.0.0:5173`，仅用于受信开发网络，不可当作受认证远程访问入口。
+脚本启动网关、Python gRPC 核心服务和 Vite；优先使用根 `.venv`，否则使用 `MAIGOKITE_PYTHON` 或 python3。当前开发脚本 Vite 监听 `0.0.0.0:5173`，仅用于受信开发网络，不可当作受认证远程访问入口。
 
 Electron 开发模式在 `web/` 执行：
 
@@ -58,7 +66,7 @@ Electron 开发模式在 `web/` 执行：
 npm run electron:dev
 ```
 
-不要同时运行两个会启动同一网关/核心服务的进程监督器。已有外部运行时联调时可用 `NANAMI_EXTERNAL_RUNTIME=1` 避免 Electron 再启动子进程。
+不要同时运行两个会启动同一网关/核心服务的进程监督器。已有外部运行时联调时可用 `MAIGOKITE_EXTERNAL_RUNTIME=1` 避免 Electron 再启动子进程。
 
 配置、生效范围和凭证管理见 [配置指南](../user-guide/Configuration.md)。LangGraph 临时迁移开关 只见 [运行时迁移说明](RuntimeMigration.md)。
 
@@ -73,6 +81,8 @@ npm run electron:dev
 | `make build` | 当前 Go、Python 分发包和 Vue/Electron 编译，不是完整桌面发布 |
 
 Python 质量检查可从根执行 `.venv/bin/ruff check python/` 和 `.venv/bin/mypy python/agent`；报告实际检查范围和失败，不用“工具缺失”掩盖检查失败。现有 `make lint` 会将部分非零退出降为“跳过”，不能单独作为发布绿灯。构建的平台限制和安装包门禁见构建与发布指南。
+
+Go 模块路径为 `maigokite/gateway`，当前不绑定任何 Git 托管地址；`go.mod`、内部导入和 proto 的 `go_package` 使用同一前缀。
 
 Proto 改动须重新生成 Go/Python 绑定并做契约回归，生成文件不得手改。Go 绑定使用 `make -C gateway proto`（需要 protoc 与对应 Go 插件），Python 绑定使用 `.venv/bin/python python/scripts/generate_proto.py`；两者读取根 `proto/agent.proto`。契约说明见 [API 设计](../design/API.md#5-grpc-服务)。新增持久字段须验证空库与旧库升级。
 

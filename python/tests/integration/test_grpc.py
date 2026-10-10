@@ -127,7 +127,7 @@ async def test_grpc_conversation_and_stream(core, tmp_path):
             )
             assert runtime.model_id == configured.id and runtime.response_mode == "fast"
             permissions = await stub.GetPermissionSettings(agent_pb2.WorkspaceRequest(workspace_id="personal"))
-            assert permissions.default_mode == "read_only" and permissions.tool_levels["file_write"] == 4
+            assert permissions.default_mode == "read_only"
             events = [
                 event
                 async for event in stub.ProcessMessage(

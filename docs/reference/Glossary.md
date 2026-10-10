@@ -17,7 +17,7 @@
 | Checkpoint | LangGraph 执行状态，新路径恢复的事实来源；不同于业务库 |
 | 产品投影 | messages/task_events 等用户查询视图，不驱动另一个执行状态机 |
 | 任务事件 / sequence | 持久活动事件与会话内顺序；WebSocket 只是增量通道 |
-| 审批 / HITL | Nanami 保存审批安全事实；LangGraph interrupt/恢复控制新路径暂停执行 |
+| 审批 / HITL | MaigoKite 保存审批安全事实；LangGraph interrupt/恢复控制新路径暂停执行 |
 | AccessPolicy / ToolPolicy | 网关资源访问检查 / Python 工具最终决策；二者都需通过 |
 | Risk level / permission mode | 内部风险 L1–L5 / 用户三个模式，不能混为用户角色；矩阵见 [工具权限](../agent-capabilities/security/tool-permission.md) |
 | hard-deny | 用户批准和 full_access 都不可覆盖的禁止规则 |
@@ -37,4 +37,4 @@
 | PROTOCOL / LIVE / UNVERIFIED | 本地协议验收 / 真实服务验收 / 未运行；不能互相替代 |
 | 阶段 | 历史工程阶段编号，不是产品界面或实时完成度标签 |
 
-删除泛用模式、未接线接口和“Claude Code 生态派生产品”等旧术语；NanamiGopher 不因参考外部实现就成为其分支或插件。
+删除泛用模式、未接线接口和“Claude Code 生态派生产品”等旧术语；MaigoKite 不因参考外部实现就成为其分支或插件。

@@ -1,9 +1,29 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { renderAssistantMarkdown } from '@/utils/markdown'
 
-const props = defineProps<{ content: string }>()
-const renderedContent = computed(() => renderAssistantMarkdown(props.content))
+const props = withDefaults(defineProps<{ content: string; isStreaming?: boolean }>(), { isStreaming: false })
+const displayed = ref(props.content)
+let timer: ReturnType<typeof setTimeout> | undefined
+// Keep Markdown parsing out of the per-frame token path. Final text flushes now.
+watch(
+  () => [props.content, props.isStreaming],
+  () => {
+    if (!props.isStreaming) {
+      if (timer) clearTimeout(timer)
+      timer = undefined
+      displayed.value = props.content
+    } else if (!timer)
+      timer = setTimeout(() => {
+        timer = undefined
+        displayed.value = props.content
+      }, 100)
+  },
+)
+const renderedContent = computed(() => renderAssistantMarkdown(displayed.value))
+onBeforeUnmount(() => {
+  if (timer) clearTimeout(timer)
+})
 </script>
 
 <template>
@@ -14,8 +34,8 @@ const renderedContent = computed(() => renderAssistantMarkdown(props.content))
 <style scoped lang="scss">
 .markdown-content {
   color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.68;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
   overflow-wrap: anywhere;
 }
 
@@ -34,20 +54,20 @@ const renderedContent = computed(() => renderAssistantMarkdown(props.content))
 .markdown-content :deep(h4) {
   margin: 20px 0 9px;
   color: var(--text-primary);
-  line-height: 1.35;
+  line-height: var(--leading-tight);
   letter-spacing: -0.018em;
 }
 .markdown-content :deep(h1) {
-  font-size: 21px;
+  font-size: var(--text-lg);
 }
 .markdown-content :deep(h2) {
-  font-size: 18px;
+  font-size: var(--text-lg);
 }
 .markdown-content :deep(h3) {
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 .markdown-content :deep(h4) {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .markdown-content :deep(ul),
 .markdown-content :deep(ol) {
@@ -79,11 +99,11 @@ const renderedContent = computed(() => renderAssistantMarkdown(props.content))
 }
 .markdown-content :deep(code) {
   padding: 2px 5px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   background: var(--surface-strong);
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: var(--text-code-inline);
 }
 .markdown-content :deep(pre) {
   max-width: 100%;
@@ -91,15 +111,15 @@ const renderedContent = computed(() => renderAssistantMarkdown(props.content))
   padding: 12px 14px;
   overflow: auto;
   border: 1px solid var(--border-color);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--surface-muted);
 }
 .markdown-content :deep(pre code) {
   padding: 0;
-  border-radius: 0;
-  background: transparent;
-  font-size: 11px;
-  line-height: 1.6;
+  border-radius: var(--radius-none);
+  background: var(--transparent);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
   white-space: pre;
 }
 .markdown-content :deep(table) {
@@ -117,7 +137,7 @@ const renderedContent = computed(() => renderAssistantMarkdown(props.content))
 }
 .markdown-content :deep(th) {
   background: var(--surface-muted);
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
 }
 .markdown-content :deep(hr) {
   margin: 18px 0;

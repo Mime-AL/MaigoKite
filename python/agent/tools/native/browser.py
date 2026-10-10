@@ -68,7 +68,11 @@ class BrowserTool(BaseTool):
                     self._required(arguments, "key"),
                 )
             elif action == "screenshot":
-                result = await self.runtime.screenshot(session_id, self._required(arguments, "path"))
+                result = await self.runtime.screenshot(
+                    session_id,
+                    self._required(arguments, "path"),
+                    workspace_root=context.metadata.get("workspace_root"),
+                )
             elif action == "close":
                 result = await self.runtime.close_session(self._required(arguments, "session_id"))
             else:

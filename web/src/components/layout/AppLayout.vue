@@ -1,116 +1,75 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useLayoutStore } from '@/stores/layout'
+import { onMounted, onUnmounted } from 'vue'
+import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
-import { useLayout } from '@/composables/useLayout'
+import { useUIStore } from '@/stores/ui'
+import { useInboxStore } from '@/stores/inbox'
+import { useShortcuts } from '@/composables/useShortcuts'
+import { useDesktopBridge } from '@/composables/useDesktopBridge'
+import TitleBar from '@/components/shell/TitleBar.vue'
+import Drawer from '@/components/shell/Drawer.vue'
+import InboxPopover from '@/components/interact/InboxPopover.vue'
+import CommandPalette from '@/components/common/CommandPalette.vue'
 import Sidebar from './Sidebar.vue'
-import MainContent from './MainContent.vue'
-import FileExplorer from './FileExplorer.vue'
-
-const layoutStore = useLayoutStore()
-const settingsStore = useSettingsStore()
-const { isDragging, startDrag } = useLayout()
-
-onMounted(() => { void settingsStore.loadPreferences() })
+const session = useSessionStore(),
+  settings = useSettingsStore(),
+  ui = useUIStore(),
+  inbox = useInboxStore()
+useShortcuts()
+useDesktopBridge()
+onMounted(() => {
+  void session.loadSessions()
+  void settings.loadPreferences()
+  if (!settings.loaded) void settings.loadSettings()
+  inbox.start()
+  if (window.innerWidth < 720 && !ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
+})
+onUnmounted(() => {
+  inbox.stop()
+  session.disconnect()
+})
 </script>
-
 <template>
-  <div class="desktop-stage">
-    <div class="app-layout" :class="{ dragging: isDragging }">
-      <aside
-        class="sidebar-container"
-        :style="{ width: layoutStore.sidebarCollapsed ? '64px' : `${layoutStore.sidebarWidth}px` }"
-      >
-        <Sidebar />
-      </aside>
-
-      <button
-        class="divider divider-left"
-        type="button"
-        aria-label="调整侧边栏宽度"
-        @mousedown="startDrag('left', $event.clientX, layoutStore.sidebarWidth)"
-      />
-
-      <section class="main-content-container">
-        <MainContent />
-      </section>
-
-      <button
-        class="divider divider-right"
-        type="button"
-        aria-label="调整文件栏宽度"
-        @mousedown="startDrag('right', $event.clientX, layoutStore.fileExplorerWidth)"
-      />
-
-      <aside
-        class="file-explorer-container"
-        :style="{ width: layoutStore.fileExplorerCollapsed ? '48px' : `${layoutStore.fileExplorerWidth}px` }"
-      >
-        <FileExplorer />
-      </aside>
+  <div class="app-layout">
+    <TitleBar />
+    <div class="app-body">
+      <div v-if="!ui.layout.sidebarCollapsed" class="sidebar-shade" @click="ui.layout.toggleSidebar()" />
+      <Sidebar />
+      <main class="main-content"><router-view /></main>
+      <Drawer />
     </div>
+    <InboxPopover /><CommandPalette />
   </div>
 </template>
-
 <style scoped lang="scss">
-.desktop-stage {
-  width: 100vw;
-  height: 100vh;
-  padding: 12px;
-}
-
 .app-layout {
   display: flex;
-  width: 100%;
-  height: 100%;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  border-radius: 22px;
-  background: var(--surface);
-  box-shadow: var(--shadow-window);
-
-  &.dragging { cursor: col-resize; user-select: none; }
-  &.dragging .sidebar-container { transition: none; }
+  background: var(--paper);
 }
-
-.sidebar-container {
-  flex: none;
-  min-width: 0;
-  overflow: hidden;
-  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.main-content-container {
-  min-width: 0;
+.app-body {
+  display: flex;
+  min-height: 0;
   flex: 1;
-  overflow: hidden;
-  background: var(--surface-solid);
 }
-
-.file-explorer-container { flex: none; min-width: 0; overflow: hidden; transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1); }
-
-.divider {
-  position: relative;
-  z-index: 4;
-  width: 1px;
-  flex: 0 0 1px;
-  padding: 0;
-  border: 0;
-  background: var(--border-color);
-  cursor: col-resize;
-
-  &::after {
-    position: absolute;
-    inset: 0 -4px;
-    content: '';
+.main-content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.sidebar-shade {
+  display: none;
+}
+@media (max-width: 720px) {
+  .sidebar-shade {
+    display: block;
+    position: fixed;
+    inset: var(--titlebar-height) 0 0;
+    background: var(--backdrop);
+    z-index: 29;
   }
-
-  &:hover { background: var(--primary-color); }
-}
-
-@media (max-width: 760px) {
-  .desktop-stage { padding: 0; }
-  .app-layout { border: 0; border-radius: 0; }
-  .file-explorer-container,.divider-right { display: none; }
 }
 </style>

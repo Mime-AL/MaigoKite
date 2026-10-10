@@ -1,63 +1,295 @@
-# NanamiGopher
+# MaigoKite
 
-本地优先、用户可控的个人通用智能体，为选定的个人工作流组合浏览器、文件和外部工具。不是团队平台，也不限定为编码助手。
+一个本地优先的个人 Agent。
 
-## 当前能力与边界
+它可以在你的工作区里读写文件、查资料、操作网页，也可以通过 MCP 接入其他工具。你可以选择自己使用的模型，并决定 Agent 能访问什么、哪些操作需要确认。
 
-- Go 网关 + Python 核心服务 + Vue/Electron；SQLite 保存产品数据。
-- 多个模型配置、默认模型与会话选择，支持 OpenAI、Anthropic、Ollama 和 OpenAI-compatible。
-- 工作区文件预览/Git 差异，受控内置/MCP 工具、Playwright 浏览器与本地声明式技能。
-- 权限模式、逐次审批、任务活动和持久事件；停止/重启恢复能力有具体运行时和工具限制。
-- 默认仍是 legacy；create_agent + LangGraph 已接文件、搜索、命令、联网、浏览器、技能和 MCP 工具，仍在临时迁移开关 后，尚未验收。
 
-用户可修改界面助手称呼。记忆当前是显式管理，自动检索/注入、持久工作流/子智能体和手机远程访问尚未交付。完整桌面运行资源打包及 Docker 部署也未完成验收。
+比如你可以让它：
 
-## 从源码运行
+- 阅读一个工作区，整理里面的 Markdown 和资料
+- 搜索公开网页，把结果和来源写回文件
+- 修改本地文件，并在界面里查看 diff
+- 操作网页完成一些需要点击、填写或截图的任务
+- 通过本地 Skill 和 MCP 组合自己的工作流
 
-需要 Go、Python 3.11+、Node/npm，精确版本以模块清单为准。依赖安装与解释器说明见 [开发指南](docs/development/DevelopmentGuide.md)，避免 setup 脚本创建的环境与实际启动环境不一致。
+> 项目仍在开发中。目前推荐从源码运行，Electron 桌面端也处于开发阶段，还没有正式发布的独立安装包。
 
-文件查找和内容搜索需要 ripgrep（`rg`），缺失时工具会提示安装，不使用自写搜索降级。
+## 功能
 
-安装后从根目录启动：
+### 模型
+
+目前支持：
+
+- OpenAI
+- Anthropic
+- Ollama
+- OpenAI-compatible API
+
+可以配置多个模型、设置默认模型，也可以在不同会话中切换。
+
+### 工作区
+
+侧栏可选择或添加文件夹工作区，对话按所选工作区显示。Electron 使用系统文件夹选择器，
+Web 版填写 Gateway/Core 所在设备的绝对路径。会话右侧的 `···` 菜单支持重命名、移动到其他工作区、
+归档/恢复和确认删除；侧栏“归档对话”可查看历史。已有对话保留在默认工作区，不会自动移动。
+
+Agent 可以在指定工作区中：
+
+- 读取文件
+- 写入和编辑文件
+- 搜索文件名和文件内容
+- 预览文件
+- 查看 Git diff
+
+工作区权限和 Agent 的执行权限是分开的，你可以限制它只读，也可以允许它修改文件。
+
+### 浏览器
+
+内置网页相关工具，包括：
+
+- Web 搜索
+- 页面读取
+- Playwright 浏览器操作
+- 点击和填写表单
+- 页面快照
+- 截图
+
+浏览器默认用于公开网页，不会自动继承你浏览器中的登录状态。
+
+### 权限与审批
+
+目前有三种主要权限模式：
+
+- 只读
+- 工作区访问
+- 完全访问
+
+需要审批的操作会先显示给你确认。
+
+界面中也可以查看 Agent 当前调用了哪些工具，并请求停止正在执行的任务。
+
+### Skill 和 MCP
+
+MaigoKite 支持两种扩展方式。
+
+**Skill** 用来告诉 Agent 某类任务应该怎么做。Skill 是本地声明文件，本身不会直接执行其中的代码。
+
+**MCP** 用来接入外部工具。目前支持已经配置好的 stdio MCP Server。
+
+## 运行
+
+### 环境要求
+
+需要：
+
+- Go 1.22+
+- Python 3.11+
+- Node.js / npm
+- Make
+- ripgrep (`rg`)
+
+推荐安装 [uv](https://github.com/astral-sh/uv)。
+
+更完整的环境说明见：
+
+[开发指南](docs/development/DevelopmentGuide.md)
+
+### 启动 Web 开发环境
+
+在仓库根目录：
 
 ```bash
+make setup
 make dev
 ```
 
-也可执行 `bash scripts/dev.sh`。默认开发入口为网关 `localhost:8080`、核心服务 gRPC `localhost:8081`、Vite `localhost:5173`；开发脚本 Vite 绑定所有网卡，不用于未经认证的远程服务。
+然后打开：
 
-Electron 开发入口在 `web/`：
+```text
+http://localhost:5173
+```
+
+默认端口：
+
+```text
+Web      5173
+Gateway  8080
+Core     8081
+```
+
+`make setup` 会安装项目依赖并创建根目录下的 `.venv`。
+
+### 启动 Electron
+
+完成初始化后：
 
 ```bash
+cd web
 npm run electron:dev
 ```
 
-不要同时启动两份网关/核心服务。正式桌面安装包的构建/资源闭环见 [发布指南](docs/deployment/ReleaseGuide.md)，开发启动成功不等于普通用户安装即可运行。
+Electron 开发入口会同时启动 Gateway 和 Python Core，不需要另外执行 `make dev`。
 
-## 首次使用
+### 浏览器工具
 
-在“设置 → 模型”添加实际服务的基础地址/模型 ID，测试连接，保存并选择默认项；会话可选择模型、输出预算档和权限模式。预设只提供协议/地址，模型目录从真实服务读取，不保证所有模型都支持工具调用。
+浏览器工具需要 Chromium。
 
-API 密钥按配置隔离存入 OS 凭证存储，响应不回显；本地模型提供方不借用云端 Key。联网搜索、MCP 与模型凭证分别配置。用户设置、生效与排障见 [配置指南](docs/user-guide/Configuration.md) 和 [安装指南](docs/user-guide/Installation.md)。
+可以安装 Playwright Chromium，也可以在配置中指定：
 
-本地技能只提供按需读取的声明流程，不执行目录代码；受信可执行扩展通过 stdio MCP。格式见 [技能](docs/agent-capabilities/skills/skill-lifecycle.md)。手机 Web/PWA 首版设计见 [手机远程访问](docs/design/RemoteAccess.md)，当前不能直接公开本地端口使用。
+```text
+browser.executable_path
+```
 
-“设置 → 工具”可启停助手可见的内置/已连接 MCP 工具，独立于权限审批；待办和短暂等待默认关闭。
-新聊天路径通过 `NANAMI_AGENT_RUNTIME=langgraph` 显式启用，限制与删除旧路径的条件见
-[运行时迁移说明](docs/development/RuntimeMigration.md)。上述新增接线尚未运行测试，不能据此判断已验收；本次文档中文化不改变该状态。
+开发配置目前使用：
 
-## 开发与文档
+```text
+/usr/bin/google-chrome
+```
 
-- [文档入口](docs/README.md)：按主题定位唯一权威来源。
-- [系统设计](docs/design/SystemDesign.md)、[智能体运行时](docs/design/AgentRuntime.md)：实际边界与待迁移部分。
-- [需求与验收](docs/requirements/RequirementList.md)、[交付路线与状态](docs/project/Roadmap.md)。
-- [测试策略](docs/testing/TestPlan.md)：PROTOCOL 与 LIVE 区分，未运行不算通过。
-- [日志与诊断](docs/ops-security/Observability.md)：当前控制台/审计/事件，不宣称 OTel/Langfuse 已接线。
+如果你的 Chrome / Chromium 在其他位置，需要自行修改配置。
 
-聚合测试入口为 `make test`，构建入口为 `make build`；详细范围、限制和质量命令在开发/发布指南维护。协议源为 `proto/agent.proto`，后端 `gateway/`、核心服务 `python/`、客户端 `web/`；不另维护重复目录树。
+详细配置见：
 
-根目录 `prd.md / project.md` 为历史材料，不作为当前产品范围。
+[配置指南](docs/user-guide/Configuration.md)
 
-## 许可证
+## 第一次使用
 
-MIT，见 [LICENSE](LICENSE)。
+启动后，先到 **设置 → 模型** 添加一个模型服务。
+
+需要填写的内容通常包括：
+
+- API 地址
+- 模型 ID
+- API Key（如果需要）
+
+测试连接后保存，并选择一个默认模型。
+
+然后确认工作区路径和权限模式，就可以直接开始使用。
+
+例如：
+
+```text
+读取 README.md，告诉我这个项目现在主要在做什么。
+```
+
+或者：
+
+```text
+查一下这个项目依赖的几个库最近有什么重要变化，把结果整理到 notes.md。
+```
+
+不同模型对 Tool Calling 的支持情况不同。API 可以正常连接，并不一定意味着这个模型能够完整运行 Agent 工具。
+
+## 数据
+
+MaigoKite 会把会话、任务、审批和运行事件保存在本地 SQLite 中。
+
+模型请求是否离开本机，取决于你配置的模型服务。
+
+例如：
+
+- Ollama 可以完全运行在本机
+- OpenAI / Anthropic 等服务会向对应 API 发送模型请求
+- Web 搜索会访问配置的搜索服务
+- MCP 是否访问网络取决于对应 MCP Server
+
+所以这里的“本地优先”主要指数据、工作区和 Agent 控制权留在你自己的环境里，而不是强制所有组件离线运行。
+
+API Key 使用操作系统凭证存储，普通配置接口不会返回明文密钥。
+
+项目统一使用 **MaigoKite** 标识：数据目录为 `~/.maigokite`，环境变量前缀为
+`MAIGOKITE_`，Python 命令为 `maigokite-agent`，不保留旧名称别名或自动迁移。
+Go 使用本地模块路径 `maigokite/gateway`，不依赖 GitHub 仓库地址。
+项目文件夹可自行改名；历史快照仅保留旧设计，不作为当前配置依据。
+
+## 当前状态
+
+项目还没有进入稳定发布阶段。
+
+目前默认使用 legacy runtime。
+
+新的 LangGraph runtime 可以通过：
+
+```bash
+MAIGOKITE_AGENT_RUNTIME=langgraph
+```
+
+启用。
+
+关于两个 runtime 当前的差异和迁移进度：
+
+[RuntimeMigration.md](docs/development/RuntimeMigration.md)
+
+目前还有一些已知限制：
+
+- 新 UI 和 LangGraph runtime 仍在继续回归测试
+- 任务停止和恢复不是所有情况下都能继续原来的执行位置
+- 远程 MCP 操作不一定能被本地取消立即终止
+- 浏览器会话不能跨 Core 重启恢复
+- Memory 目前主要是手工管理，还没有自动检索并注入会话
+- 子 Agent、持久工作流和手机远程访问还没有完成
+
+当前进度以这里为准：
+
+[Roadmap.md](docs/project/Roadmap.md)
+
+## 项目结构
+
+| 路径 | 内容 |
+| --- | --- |
+| `gateway/` | Go Gateway、REST / WebSocket、gRPC Client |
+| `python/agent/` | Python Core、Agent Runtime、Tools、权限和持久化 |
+| `web/` | Vue 前端、Electron |
+| `proto/agent.proto` | Go / Python 共用的 gRPC 协议 |
+
+## 开发
+
+运行测试：
+
+```bash
+make test
+```
+
+构建：
+
+```bash
+make build
+```
+
+开发环境和项目结构见：
+
+[DevelopmentGuide.md](docs/development/DevelopmentGuide.md)
+
+测试范围见：
+
+[TestPlan.md](docs/testing/TestPlan.md)
+
+桌面构建和发布状态见：
+
+[ReleaseGuide.md](docs/deployment/ReleaseGuide.md)
+
+如果准备提交 Issue 或 PR，尽量附上复现步骤、实际行为、预期行为和必要的脱敏日志。
+
+不要提交 API Key、个人数据、运行数据库或构建产物。
+
+## 文档
+
+- [文档索引](docs/README.md)
+- [Roadmap](docs/project/Roadmap.md)
+- [系统设计](docs/design/SystemDesign.md)
+- [Agent Runtime](docs/design/AgentRuntime.md)
+- [前端设计](docs/design/FrontendDesign.md)
+- [UI 设计](docs/design/agent-ui-design.md)
+- [MCP](docs/agent-capabilities/mcp/mcp-integration.md)
+- [日志与诊断](docs/ops-security/Observability.md)
+
+根目录中的 `prd.md` 和 `project.md` 是早期设计材料，部分内容已经过时。
+
+## License
+
+Copyright (c) 2026 NanamiKite.
+
+Licensed under **GNU General Public License v3.0 only** (`GPL-3.0-only`).
+
+See [LICENSE](LICENSE).

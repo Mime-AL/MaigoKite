@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 )
 
 type fakeTaskClient struct {

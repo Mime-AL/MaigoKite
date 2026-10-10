@@ -30,9 +30,7 @@ watch(
 const filteredModels = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()
   if (!needle) return props.models
-  return props.models.filter((model) =>
-    `${model.id} ${model.name ?? ''}`.toLocaleLowerCase().includes(needle),
-  )
+  return props.models.filter((model) => `${model.id} ${model.name ?? ''}`.toLocaleLowerCase().includes(needle))
 })
 
 function describeModel(model: DiscoveredChatModel): string {
@@ -47,26 +45,14 @@ function describeModel(model: DiscoveredChatModel): string {
 </script>
 
 <template>
-  <div
-    class="catalog-backdrop"
-    data-testid="model-catalog"
-    @click.self="emit('close')"
-    @keydown.esc="emit('close')"
-  >
-    <section
-      class="catalog-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="model-catalog-title"
-    >
+  <div class="catalog-backdrop" data-testid="model-catalog" @click.self="emit('close')" @keydown.esc="emit('close')">
+    <section class="catalog-dialog" role="dialog" aria-modal="true" aria-labelledby="model-catalog-title">
       <header>
         <div>
           <p>Model catalog</p>
           <h3 id="model-catalog-title">选择模型</h3>
         </div>
-        <button type="button" class="icon-button" aria-label="关闭模型目录" @click="emit('close')">
-          ×
-        </button>
+        <button type="button" class="icon-button" aria-label="关闭模型目录" @click="emit('close')">×</button>
       </header>
 
       <div class="catalog-tools">
@@ -84,9 +70,10 @@ function describeModel(model: DiscoveredChatModel): string {
           type="button"
           class="secondary-button refresh-button"
           :disabled="!canRefresh || loading"
+          :aria-busy="loading || undefined"
           @click="emit('refresh')"
         >
-          <IconSymbol name="refresh" :size="14" />
+          <IconSymbol v-if="!loading" name="refresh" :size="14" />
           {{ loading ? '正在获取…' : '重新获取' }}
         </button>
       </div>
@@ -145,224 +132,5 @@ function describeModel(model: DiscoveredChatModel): string {
 </template>
 
 <style scoped lang="scss">
-.catalog-backdrop {
-  position: fixed;
-  z-index: 120;
-  inset: 0;
-  display: grid;
-  padding: 24px;
-  place-items: center;
-  background: rgba(18, 24, 34, 0.42);
-  backdrop-filter: blur(10px);
-}
-
-.catalog-dialog {
-  display: flex;
-  width: min(620px, 100%);
-  max-height: min(720px, calc(100vh - 48px));
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: 20px;
-  background: var(--surface-solid);
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
-}
-
-.catalog-dialog > header,
-.catalog-dialog > footer,
-.catalog-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.catalog-dialog > header {
-  padding: 20px 22px 14px;
-}
-.catalog-dialog > header p {
-  margin: 0 0 3px;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.catalog-dialog > header h3 {
-  margin: 0;
-  font-size: 20px;
-}
-.icon-button {
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 50%;
-  color: var(--text-secondary);
-  background: var(--surface-muted);
-  cursor: pointer;
-  font-size: 22px;
-}
-
-.catalog-tools {
-  padding: 0 22px 14px;
-}
-.search-field {
-  display: flex;
-  min-width: 0;
-  height: 40px;
-  flex: 1;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: 11px;
-  color: var(--text-tertiary);
-  background: var(--surface-muted);
-}
-.search-field:focus-within {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px var(--focus-ring);
-}
-.search-field input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-  color: var(--text-primary);
-  background: transparent;
-  font-size: 13px;
-}
-.refresh-button {
-  display: inline-flex;
-  min-height: 40px;
-  align-items: center;
-  gap: 6px;
-}
-.catalog-message {
-  margin: 0;
-  padding: 9px 22px;
-  color: var(--text-secondary);
-  background: var(--surface-muted);
-  font-size: 12px;
-}
-
-.model-list {
-  min-height: 220px;
-  padding: 6px 12px 12px;
-  overflow-y: auto;
-  border-top: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
-}
-.model-option {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 10px;
-  border: 0;
-  border-radius: 12px;
-  color: var(--text-primary);
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-}
-.model-option:hover {
-  background: var(--surface-muted);
-}
-.model-option.selected {
-  background: var(--primary-soft);
-}
-.radio-mark {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  flex: none;
-  place-items: center;
-  border: 1.5px solid var(--border-strong);
-  border-radius: 50%;
-}
-.model-option.selected .radio-mark {
-  border-color: var(--primary-color);
-}
-.model-option.selected .radio-mark i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--primary-color);
-}
-.model-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 3px;
-}
-.model-copy strong {
-  overflow-wrap: anywhere;
-  font-size: 13px;
-}
-.model-copy code {
-  overflow-wrap: anywhere;
-  color: var(--text-secondary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-}
-.model-copy small {
-  color: var(--text-tertiary);
-  font-size: 11px;
-  line-height: 1.45;
-}
-.model-option > svg {
-  flex: none;
-  color: var(--primary-color);
-}
-.catalog-empty {
-  display: grid;
-  min-height: 220px;
-  place-content: center;
-  justify-items: center;
-  gap: 7px;
-  padding: 30px;
-  color: var(--text-tertiary);
-  text-align: center;
-}
-.catalog-empty strong {
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-.catalog-empty small {
-  max-width: 340px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.catalog-dialog > footer {
-  padding: 14px 18px;
-}
-.catalog-dialog > footer > span {
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-.catalog-dialog > footer > div {
-  display: flex;
-  gap: 8px;
-}
-
-@media (max-width: 560px) {
-  .catalog-backdrop {
-    padding: 10px;
-    place-items: end center;
-  }
-  .catalog-dialog {
-    max-height: calc(100vh - 20px);
-    border-radius: 18px;
-  }
-  .catalog-tools {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .refresh-button {
-    justify-content: center;
-  }
-}
+@use '@/styles/model-catalog';
 </style>

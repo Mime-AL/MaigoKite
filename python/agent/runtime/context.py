@@ -22,6 +22,9 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
     """
 
     async def abefore_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        if getattr(runtime.context, "direct_tool", None) is not None:
+            # Explicit commands never need an LLM call, including summarization.
+            return None
         messages = state["messages"]
         systems = [item for item in messages if isinstance(item, SystemMessage)]
         conversation = [item for item in messages if not isinstance(item, SystemMessage)]
@@ -62,6 +65,15 @@ class ContextBudgetMiddleware(AgentMiddleware):
             messages.insert(0, request.system_message)
         # Historical usage describes the pre-compaction prompt. Scaling this
         # rewritten input by those counters would falsely reject a short summary.
-        if count_tokens_approximately(messages, tools=request.tools) > self.max_tokens:
+        estimated = count_tokens_approximately(messages, tools=request.tools)
+        context = request.runtime.context
+        if getattr(context, "adapter", None) is not None and getattr(context, "direct_tool", None) is None:
+            await context.adapter._emit(context, "context.updated", {
+                "estimated_input_tokens": estimated,
+                "input_budget_tokens": self.max_tokens,
+                "measurement": "estimate", "model_context_window": None,
+                "context_percent": None,
+            })
+        if estimated > self.max_tokens:
             raise ContextBudgetExceeded("保留的请求或工具结果超过上下文输入预算，请缩小读取范围或拆分任务。")
         return await handler(request)

@@ -1,6 +1,6 @@
 """Opt-in live provider acceptance for the isolated runtime spike.
 
-Set NANAMI_SPIKE_LIVE=1 plus the provider-specific model/credential variables.
+Set MAIGOKITE_SPIKE_LIVE=1 plus the provider-specific model/credential variables.
 These tests are deliberately skipped by default so normal tests never spend API
 credits or assume that a local model server is running.
 """
@@ -13,11 +13,11 @@ from pathlib import Path
 import pytest
 
 from agent.models.runtime import ChatModelSettings
-from agent.runtime_spike import NanamiRuntimeAdapter, build_chat_model
+from agent.runtime_spike import MaigoKiteRuntimeAdapter, build_chat_model
 
 
 def _live_profile(provider: str) -> tuple[ChatModelSettings, str]:
-    prefix = f"NANAMI_SPIKE_{provider.upper()}"
+    prefix = f"MAIGOKITE_SPIKE_{provider.upper()}"
     model = os.getenv(f"{prefix}_MODEL", "").strip()
     base_url = os.getenv(f"{prefix}_BASE_URL", "").strip()
     key = os.getenv(f"{prefix}_API_KEY", "").strip()
@@ -60,21 +60,21 @@ async def test_live_provider_runtime_acceptance(
     requires_tool: bool,
     tmp_path: Path,
 ) -> None:
-    if os.getenv("NANAMI_SPIKE_LIVE") != "1":
-        pytest.skip("set NANAMI_SPIKE_LIVE=1 to run paid/local provider acceptance")
+    if os.getenv("MAIGOKITE_SPIKE_LIVE") != "1":
+        pytest.skip("set MAIGOKITE_SPIKE_LIVE=1 to run paid/local provider acceptance")
     profile, key = _live_profile(provider)
     model = build_chat_model(profile, key)
     (tmp_path / "provider-proof.txt").write_text(
-        "NANAMI_PROVIDER_TOOL_OK",
+        "MAIGOKITE_PROVIDER_TOOL_OK",
         encoding="utf-8",
     )
     prompt = (
         "You must call file_read exactly once with path 'provider-proof.txt', "
         "then include the file content in your final answer."
         if requires_tool
-        else "Reply exactly with NANAMI_OLLAMA_OK. Do not call a tool."
+        else "Reply exactly with MAIGOKITE_OLLAMA_OK. Do not call a tool."
     )
-    async with NanamiRuntimeAdapter(
+    async with MaigoKiteRuntimeAdapter(
         model=model,
         workspace_root=tmp_path,
         checkpoint_path=tmp_path / "checkpoints.sqlite",
@@ -93,4 +93,4 @@ async def test_live_provider_runtime_acceptance(
         assert "tool.started" in event_types
         assert "tool.completed" in event_types
         final = next(event for event in events if event.type == "message.completed")
-        assert "NANAMI_PROVIDER_TOOL_OK" in final.payload["content"]
+        assert "MAIGOKITE_PROVIDER_TOOL_OK" in final.payload["content"]

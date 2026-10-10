@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 )
 
 func TestDiscoverAvailableModelsFromOpenAICompatibleEndpoint(t *testing.T) {

@@ -9,6 +9,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
+from agent.tools.native.file_change import file_change, read_before_write
 
 
 class FileEditParams(BaseModel):
@@ -117,6 +118,7 @@ class FileEditTool(BaseTool):
         self, context: ExecutionContext, arguments: dict[str, Any]
     ) -> ToolResult:
         """Execute the surgical edit and report what was changed."""
+        before = read_before_write(str(arguments["path"]))
         result = _file_edit_impl(**arguments)
         edit_path = result.get("path", arguments.get("path", ""))
         count = result.get("replaced_count", 0)
@@ -128,5 +130,8 @@ class FileEditTool(BaseTool):
             },
             summary=f"Replaced {count} occurrence(s) in {edit_path}",
             raw=f"{edit_path}: {count} replacement(s)",
-            metadata={"tool": "file_edit", "type": "edit"},
+            metadata={"tool": "file_edit", "type": "edit", "file_change": file_change(
+                str(edit_path), before, str(arguments.get("encoding", "utf-8")),
+                str(context.metadata.get("workspace_root") or ""),
+            )},
         )

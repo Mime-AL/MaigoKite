@@ -45,8 +45,8 @@ class TaskManager:
         self._tasks: dict[str, AgentTask] = {}
         self._lock = asyncio.Lock()
 
-    async def create_task(self, title: str, description: str, parent_id: str | None = None) -> AgentTask:
-        task = AgentTask(f"task_{uuid.uuid4().hex}", title, description, parent_task_id=parent_id)
+    async def create_task(self, title: str, description: str, parent_id: str | None = None, *, task_id: str = "") -> AgentTask:
+        task = AgentTask(task_id or f"task_{uuid.uuid4().hex}", title, description, parent_task_id=parent_id)
         async with self._lock:
             if parent_id and parent_id not in self._tasks:
                 raise KeyError(f"parent task not found: {parent_id}")

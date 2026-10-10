@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 
 	grpcgo "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -81,6 +81,15 @@ func (c *AgentClient) GetConversation(ctx context.Context, req *agentv1.Conversa
 }
 func (c *AgentClient) ListConversations(ctx context.Context, workspaceID string) (*agentv1.ConversationList, error) {
 	return c.client.ListConversations(ctx, &agentv1.ListConversationsRequest{WorkspaceId: workspaceID})
+}
+func (c *AgentClient) ListWorkspaceFolders(ctx context.Context, workspaceID string) (*agentv1.WorkspaceFolderList, error) {
+	return c.client.ListWorkspaceFolders(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
+}
+func (c *AgentClient) GetWorkspaceFolder(ctx context.Context, workspaceID, folderID string) (*agentv1.WorkspaceFolder, error) {
+	return c.client.GetWorkspaceFolder(ctx, &agentv1.WorkspaceFolderRequest{WorkspaceId: workspaceID, FolderId: folderID})
+}
+func (c *AgentClient) CreateWorkspaceFolder(ctx context.Context, req *agentv1.WorkspaceFolderRequest) (*agentv1.WorkspaceFolder, error) {
+	return c.client.CreateWorkspaceFolder(ctx, req)
 }
 func (c *AgentClient) DeleteConversation(ctx context.Context, req *agentv1.ConversationRequest) error {
 	_, err := c.client.DeleteConversation(ctx, req)
@@ -172,13 +181,54 @@ func (c *AgentClient) ListApprovals(ctx context.Context, workspaceID, conversati
 	return c.client.ListApprovals(ctx, &agentv1.ApprovalListRequest{WorkspaceId: workspaceID, ConversationId: conversationID})
 }
 
+func (c *AgentClient) GetApproval(ctx context.Context, workspaceID, approvalID string) (*agentv1.Approval, error) {
+	return c.client.GetApproval(ctx, &agentv1.ApprovalRequest{WorkspaceId: workspaceID, ApprovalId: approvalID})
+}
+
+func (c *AgentClient) GetTaskInspection(ctx context.Context, workspaceID, taskID string) (*agentv1.TaskInspection, error) {
+	return c.client.GetTaskInspection(ctx, &agentv1.TaskRequest{WorkspaceId: workspaceID, TaskId: taskID})
+}
+
+func (c *AgentClient) ListTaskInputs(ctx context.Context, workspaceID, taskID string) (*agentv1.TaskInputList, error) {
+	return c.client.ListTaskInputs(ctx, &agentv1.TaskRequest{WorkspaceId: workspaceID, TaskId: taskID})
+}
+
+func (c *AgentClient) SubmitTaskInput(ctx context.Context, request *agentv1.TaskInputRequest) (*agentv1.TaskInput, error) {
+	return c.client.SubmitTaskInput(ctx, request)
+}
+
+func (c *AgentClient) ListJobs(ctx context.Context, workspaceID, conversationID string) (*agentv1.JobList, error) {
+	return c.client.ListJobs(ctx, &agentv1.TaskListRequest{WorkspaceId: workspaceID, ConversationId: conversationID})
+}
+
+func (c *AgentClient) StopJob(ctx context.Context, workspaceID, jobID, principalID string) error {
+	_, err := c.client.StopJob(ctx, &agentv1.JobRequest{WorkspaceId: workspaceID, JobId: jobID, PrincipalId: principalID})
+	return err
+}
+
 func (c *AgentClient) DecideApproval(ctx context.Context, request *agentv1.ApprovalDecisionRequest) (<-chan *agentv1.AgentEvent, <-chan error) {
+	return receiveInteraction(ctx, func() (agentEventStream, error) { return c.client.DecideApproval(ctx, request) })
+}
+
+func (c *AgentClient) ListQuestions(ctx context.Context, workspaceID, conversationID string) (*agentv1.QuestionList, error) {
+	return c.client.ListQuestions(ctx, &agentv1.ApprovalListRequest{WorkspaceId: workspaceID, ConversationId: conversationID})
+}
+
+func (c *AgentClient) AnswerQuestion(ctx context.Context, request *agentv1.QuestionAnswerRequest) (<-chan *agentv1.AgentEvent, <-chan error) {
+	return receiveInteraction(ctx, func() (agentEventStream, error) { return c.client.AnswerQuestion(ctx, request) })
+}
+
+type agentEventStream interface {
+	Recv() (*agentv1.AgentEvent, error)
+}
+
+func receiveInteraction(ctx context.Context, open func() (agentEventStream, error)) (<-chan *agentv1.AgentEvent, <-chan error) {
 	events := make(chan *agentv1.AgentEvent, 16)
 	errors := make(chan error, 1)
 	go func() {
 		defer close(events)
 		defer close(errors)
-		stream, err := c.client.DecideApproval(ctx, request)
+		stream, err := open()
 		if err != nil {
 			errors <- err
 			return

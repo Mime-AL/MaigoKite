@@ -1,4 +1,4 @@
-module github.com/nanamigopher/nanamigopher/gateway
+module maigokite/gateway
 
 go 1.22
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 import asyncio
 import json
+import os
 from typing import Any, AsyncIterator
 import grpc
 from agent.grpc_generated import agent_pb2, agent_pb2_grpc
 from agent.models.runtime import ChatModelSettings
+from agent.repository import ConversationBusyError
 
 
 class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
@@ -59,6 +61,8 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             created_at=item["created_at"],
             updated_at=item["updated_at"],
             message_count=int(item.get("message_count", 0)),
+            folder_id=str(item.get("folder_id") or ""),
+            archived=bool(item.get("archived", False)),
         )
 
     @staticmethod
@@ -82,6 +86,8 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             status=item["status"],
             version=int(item["version"]),
             expires_at=item["expires_at"],
+            note=item.get("note", ""),
+            decided_at=item.get("decided_at") or "",
         )
 
     @staticmethod
@@ -117,9 +123,12 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "conversation_id is required")
             return
         try:
-            await self._core.get_conversation(request.workspace_id or "personal", request.conversation_id)
+            conversation = await self._core.get_conversation(request.workspace_id or "personal", request.conversation_id)
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "conversation not found")
+            return
+        if conversation.get("archived"):
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "请先恢复归档对话，再发送消息。")
             return
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
 
@@ -167,6 +176,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 request.model_id,
                 request.permission_mode or None,
                 request.response_mode or "balanced",
+                request.folder_id,
             )
         except (KeyError, ValueError) as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
@@ -192,6 +202,8 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             await self._core.delete_conversation(request.workspace_id or "personal", request.conversation_id)
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "conversation not found")
+        except ConversationBusyError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
         return agent_pb2.Empty()
 
     async def UpdateConversationPermission(self, request, context):
@@ -213,12 +225,39 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 model_id=request.model_id if request.HasField("model_id") else None,
                 response_mode=request.response_mode if request.HasField("response_mode") else None,
                 permission_mode=request.permission_mode if request.HasField("permission_mode") else None,
+                title=request.title if request.HasField("title") else None,
+                folder_id=request.folder_id if request.HasField("folder_id") else None,
+                archived=request.archived if request.HasField("archived") else None,
             )
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "conversation or model not found")
+        except ConversationBusyError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
         except ValueError as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         return self._conversation(item)
+
+    async def ListWorkspaceFolders(self, request, context):
+        folders = await self._core.list_workspace_folders(request.workspace_id or "personal")
+        return agent_pb2.WorkspaceFolderList(folders=[agent_pb2.WorkspaceFolder(**item) for item in folders])
+
+    async def GetWorkspaceFolder(self, request, context):
+        try:
+            item = await self._core.get_workspace_folder(request.workspace_id or "personal", request.folder_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "工作区不存在。")
+        except (ValueError, OSError) as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        return agent_pb2.WorkspaceFolder(**item)
+
+    async def CreateWorkspaceFolder(self, request, context):
+        try:
+            item = await self._core.create_workspace_folder(
+                request.workspace_id or "personal", request.root_path, request.name,
+            )
+        except (ValueError, OSError) as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        return agent_pb2.WorkspaceFolder(**item)
 
     async def ListMessages(self, request, context):
         try:
@@ -279,6 +318,91 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
         )
         return agent_pb2.ApprovalList(approvals=[self._approval(item) for item in items])
 
+    async def GetApproval(self, request, context):
+        try:
+            item = await self._core.repository.get_approval(
+                request.workspace_id or "personal", request.approval_id,
+            )
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "approval not found")
+        return self._approval(item)
+
+    async def GetTaskInspection(self, request, context):
+        try:
+            item = await self._core.repository.inspect_task(
+                request.workspace_id or "personal", request.task_id,
+            )
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "task not found")
+        return agent_pb2.TaskInspection(
+            task=self._task(item["task"]),
+            tool_calls=[agent_pb2.ToolCall(**{key: value if value is not None else ""
+                                            for key, value in row.items()})
+                        for row in item["tool_calls"]],
+            approvals=[self._approval(row) for row in item["approvals"]],
+            projection_json=json.dumps(item["projection"], ensure_ascii=False),
+            last_sequence=item["last_sequence"],
+        )
+
+    async def ListQuestions(self, request, context):
+        items = await self._core.repository.list_questions(
+            request.workspace_id or "personal", request.conversation_id,
+        )
+        return agent_pb2.QuestionList(questions=[agent_pb2.Question(**{
+            key: value for key, value in item.items() if key != "principal_id"
+        }) for item in items])
+
+    async def ListJobs(self, request, context):
+        items = await self._core.list_jobs(request.workspace_id or "personal", request.conversation_id)
+        return agent_pb2.JobList(jobs=[agent_pb2.Job(**item) for item in items])
+
+    async def StopJob(self, request, context):
+        try:
+            await self._core.stop_job(request.workspace_id or "personal", request.job_id,
+                                      request.principal_id or "local-user")
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "process not found")
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+        return agent_pb2.Empty()
+
+    @staticmethod
+    def _task_input(item):
+        return agent_pb2.TaskInput(**{key: item[key] for key in ("id", "task_id", "content", "status", "created_at")})
+
+    async def ListTaskInputs(self, request, context):
+        try:
+            items = await self._core.repository.task_inputs(request.workspace_id or "personal", request.task_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "task not found")
+        return agent_pb2.TaskInputList(inputs=[self._task_input(item) for item in items])
+
+    async def SubmitTaskInput(self, request, context):
+        runtime = self._core._langgraph_runtime
+        if runtime is None:
+            await context.abort(grpc.StatusCode.UNIMPLEMENTED, "steering requires the LangGraph runtime")
+        try:
+            item = await runtime.submit_input(request.workspace_id or "personal", request.task_id,
+                                              request.content, request.idempotency_key)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "task not found")
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+        return self._task_input(item)
+
+    async def AnswerQuestion(self, request, context):
+        workspace_id = request.workspace_id or "personal"
+        try:
+            question = await self._core.repository.get_question(workspace_id, request.question_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "question not found")
+            return
+        operation = self._core.answer_question(
+            workspace_id, request.question_id, request.principal_id or "local-user", request.answer, request.version,
+        )
+        async for event in self._stream_interaction(question, operation, context):
+            yield event
+
     async def DecideApproval(self, request, context) -> AsyncIterator[agent_pb2.AgentEvent]:
         workspace_id = request.workspace_id or "personal"
         try:
@@ -286,6 +410,15 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "approval not found")
             return
+        operation = self._core.decide_approval(
+            workspace_id, request.approval_id, request.principal_id or "local-user",
+            request.decision, int(request.version), request.note,
+        )
+        async for event in self._stream_interaction(pending, operation, context):
+            yield event
+
+    async def _stream_interaction(self, pending, operation, context):
+        """HTTP/gRPC subscription glue; the Core owns execution and persistence."""
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
 
         async def receive(kind: str, payload: dict[str, Any]) -> None:
@@ -296,15 +429,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 await queue.put((kind, payload))
 
         self._event_bus.subscribe("*", receive)
-        task = asyncio.create_task(
-            self._core.decide_approval(
-                workspace_id,
-                request.approval_id,
-                request.principal_id or "local-user",
-                request.decision,
-                int(request.version),
-            )
-        )
+        task = asyncio.create_task(operation)
         self._keep_alive(task)
         try:
             while not task.done() or not queue.empty():
@@ -316,14 +441,11 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             try:
                 await task
             except (ValueError, PermissionError) as exc:
-                yield agent_pb2.AgentEvent(
-                    type="error",
-                    conversation_id=pending["conversation_id"],
-                    task_id=pending["task_id"],
-                    code="APPROVAL_INVALID",
-                    message=str(exc),
-                    payload_json=json.dumps({"message": str(exc)}),
-                )
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+            except NotImplementedError as exc:
+                await context.abort(grpc.StatusCode.UNIMPLEMENTED, str(exc))
+            except KeyError:
+                await context.abort(grpc.StatusCode.NOT_FOUND, "interaction not found")
             except Exception as exc:
                 yield agent_pb2.AgentEvent(
                     type="error",
@@ -338,7 +460,15 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             # Approval continuation also outlives the caller's stream.
 
     async def Health(self, request, context):
-        return agent_pb2.HealthResponse(status="serving", version="0.1.0")
+        native = self._core._langgraph_runtime is not None
+        return agent_pb2.HealthResponse(status="serving", version="0.1.0", capabilities={
+            "approval_note": True, "approval_detail": True, "task_inspection": True,
+            "structured_questions": native, "task_input": native, "structured_plan": native,
+            "file_change_events": True, "context_estimate": native,
+            "model_context_percentage": False, "session_approval": False,
+            "turn_rollback": False, "automatic_memory_events": False,
+            "process_list": True, "process_stop": True, "live_process_logs": hasattr(os, "pread"),
+        })
 
     async def CheckWorkspaceAccess(self, request, context):
         role = await self._core.repository.check_workspace_access(request.workspace_id, request.principal_id)
@@ -468,16 +598,16 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
 
     async def GetPermissionSettings(self, request, context):
         item = await self._core.get_permission_settings(request.workspace_id or "personal")
-        return agent_pb2.PermissionSettings(default_mode=item["default_mode"], tool_levels=item["tool_levels"])
+        return agent_pb2.PermissionSettings(default_mode=item["default_mode"])
 
     async def UpdatePermissionSettings(self, request, context):
         try:
             item = await self._core.update_permission_settings(
-                request.workspace_id or "personal", request.settings.default_mode, dict(request.settings.tool_levels)
+                request.workspace_id or "personal", request.settings.default_mode
             )
         except ValueError as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        return agent_pb2.PermissionSettings(default_mode=item["default_mode"], tool_levels=item["tool_levels"])
+        return agent_pb2.PermissionSettings(default_mode=item["default_mode"])
 
     async def GetToolSettings(self, request, context):
         item = await self._core.get_tool_settings(request.workspace_id or "personal")

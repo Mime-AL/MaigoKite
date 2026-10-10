@@ -1,4 +1,4 @@
-# NanamiGopher Gateway Build
+# MaigoKite Gateway Build
 
 GOCMD=go
 GOBUILD=$(GOCMD) build
@@ -31,8 +31,8 @@ tidy:
 # Generate Go code from proto files
 proto:
 	protoc -I ../proto \
-		--go_out=. --go_opt=module=github.com/nanamigopher/nanamigopher/gateway \
-		--go-grpc_out=. --go-grpc_opt=module=github.com/nanamigopher/nanamigopher/gateway \
+		--go_out=. --go_opt=module=maigokite/gateway \
+		--go-grpc_out=. --go-grpc_opt=module=maigokite/gateway \
 		../proto/agent.proto
 
 # Run tests

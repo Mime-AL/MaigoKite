@@ -2,7 +2,7 @@ import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
-const gatewayTarget = process.env.NANAMI_GATEWAY_PROXY_TARGET || 'http://127.0.0.1:8080'
+const gatewayTarget = process.env.MAIGOKITE_GATEWAY_PROXY_TARGET || 'http://127.0.0.1:8080'
 
 function gatewayProxy() {
   return {
@@ -12,6 +12,7 @@ function gatewayProxy() {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [vue()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   server: {

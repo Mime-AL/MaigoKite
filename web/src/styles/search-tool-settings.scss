@@ -1,0 +1,139 @@
+.tool-settings {
+  overflow: hidden;
+}
+.tool-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--border-color);
+}
+.tool-heading h2 {
+  margin: 0;
+  font-size: var(--text-md);
+  letter-spacing: -0.025em;
+}
+.tool-heading p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+.section-icon {
+  display: grid;
+  width: 43px;
+  height: 43px;
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--paper-3);
+}
+.provider-row {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border-color);
+}
+.provider-summary {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.provider-summary > div {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.provider-summary strong {
+  font-size: var(--text-xs);
+}
+.provider-summary small {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+.provider-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-md);
+  color: var(--on-accent);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+}
+.provider-mark.duck {
+  background: var(--paper-2);
+}
+.provider-mark.tavily {
+  background: var(--paper-2);
+}
+.provider-mark.google {
+  background: var(--paper-2);
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+.status i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-round);
+  background: currentColor;
+}
+.status.ready {
+  color: var(--success);
+}
+.status.missing {
+  color: var(--warning);
+}
+.credential-form {
+  display: flex;
+  gap: 8px;
+  margin: 13px 0 0 45px;
+}
+.credential-form input {
+  min-width: 0;
+  height: 36px;
+  flex: 1;
+  padding: 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  color: var(--text-primary);
+  background: var(--surface-muted);
+  font-size: var(--text-xs);
+}
+.credential-form input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.credential-form button {
+  min-height: 36px;
+  padding: 0 13px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+.plain-button {
+  border: 1px solid var(--border-color);
+  background: var(--transparent);
+  cursor: pointer;
+}
+.plain-button.danger {
+  color: var(--danger);
+}
+@media (max-width: 700px) {
+  .credential-form,
+  .google-form {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .credential-form input {
+    flex-basis: 100%;
+  }
+}

@@ -10,11 +10,30 @@ function iconName() {
 }
 </script>
 
-<template><span class="status-icon" :class="status"><IconSymbol :name="iconName()" :size="14" /></span></template>
+<template>
+  <span class="status-icon" :class="status"><IconSymbol :name="iconName()" :size="14" /></span>
+</template>
 
 <style scoped lang="scss">
-.status-icon { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 7px; color: var(--text-tertiary); background: var(--surface-strong); }
-.status-icon.running { color: var(--primary-color); background: var(--primary-soft); }
-.status-icon.completed { color: var(--success); background: var(--success-soft); }
-.status-icon.failed { color: var(--danger); background: var(--danger-soft); }
+.status-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  background: var(--surface-strong);
+}
+.status-icon.running {
+  color: var(--primary-color);
+  background: var(--primary-soft);
+}
+.status-icon.completed {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.status-icon.failed {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
 </style>

@@ -43,11 +43,12 @@ info "Installing Go dependencies..."
 # --- Install Python dependencies ---
 info "Installing Python dependencies..."
 if command -v uv &>/dev/null; then
-  (cd "$PROJECT_ROOT/python" && uv sync --all-extras)
-elif command -v poetry &>/dev/null; then
-  (cd "$PROJECT_ROOT/python" && poetry install --no-root)
+  (cd "$PROJECT_ROOT" && uv sync --locked --extra dev)
 else
-  (cd "$PROJECT_ROOT/python" && pip install -e ".[dev]")
+  if [ ! -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+    python3 -m venv "$PROJECT_ROOT/.venv"
+  fi
+  (cd "$PROJECT_ROOT" && "$PROJECT_ROOT/.venv/bin/python" -m pip install -e ".[dev]")
 fi
 
 # --- Install Node.js dependencies ---
@@ -60,8 +61,8 @@ fi
 
 # --- Create data directories ---
 info "Creating data directories..."
-DATA_DIR="$HOME/.nanamigopher/data"
-SKILLS_DIR="$HOME/.nanamigopher/skills"
+DATA_DIR="$HOME/.maigokite/data"
+SKILLS_DIR="$HOME/.maigokite/skills"
 mkdir -p "$DATA_DIR" "$SKILLS_DIR"
 
 # --- Copy configuration ---

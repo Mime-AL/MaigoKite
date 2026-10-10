@@ -1,3 +1,5 @@
+import { request, workspacePath } from './http'
+import { mockConnect } from './mock'
 export type PermissionMode = 'read_only' | 'workspace' | 'full_access'
 export type ResponseMode = 'fast' | 'balanced' | 'thorough'
 
@@ -10,9 +12,13 @@ export interface ToolSetting {
   default_enabled: boolean
 }
 
-export interface ToolSettings { tools: ToolSetting[] }
+export interface ToolSettings {
+  tools: ToolSetting[]
+}
 
 export interface Conversation {
+  folder_id?: string
+  archived?: boolean
   id: string
   workspace_id: string
   title: string
@@ -22,6 +28,11 @@ export interface Conversation {
   created_at: string
   updated_at: string
   message_count: number
+}
+export interface WorkspaceFolder {
+  id: string
+  name: string
+  root_path: string
 }
 
 export interface ChatMessage {
@@ -189,7 +200,7 @@ export interface RuntimeServiceStatus {
 export interface WorkspaceRuntimeStatus {
   workspaceId: string
   workspaceRoot: string
-  workspaceSource: 'configuration' | 'environment'
+  workspaceSource: 'configuration' | 'environment' | 'selection'
   environment: string
   gateway: RuntimeServiceStatus
   agentCore: RuntimeServiceStatus
@@ -311,27 +322,9 @@ function chatModelProfileToWire(value: ChatModelProfile): ChatModelWire {
   }
 }
 
-const workspaceId = 'personal'
-const localGateway = location.protocol === 'file:' ? 'http://127.0.0.1:8080' : ''
-const apiBase = import.meta.env.VITE_API_BASE_URL || localGateway
-const path = `/api/v1/workspaces/${workspaceId}`
-
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${url}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  })
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: string | { message?: string }
-    } | null
-    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
-    if (response.status === 404 && !message) {
-      throw new Error('当前应用版本缺少所需功能，请重启应用；若问题仍然存在，请更新或重新安装。')
-    }
-    throw new Error(message || `Request failed (${response.status})`)
-  }
-  return response.status === 204 ? (undefined as T) : response.json()
+const path = workspacePath
+function folderQuery(folderId = '') {
+  return folderId ? `folder_id=${encodeURIComponent(folderId)}` : ''
 }
 
 export const api = {
@@ -343,11 +336,11 @@ export const api = {
     }>('/health')
     return { status: body.status, agentCore: body.agent_core, version: body.version }
   },
-  async getWorkspaceRuntimeStatus(): Promise<WorkspaceRuntimeStatus> {
+  async getWorkspaceRuntimeStatus(folderId = ''): Promise<WorkspaceRuntimeStatus> {
     const body = await request<{
       workspace_id: string
       workspace_root: string
-      workspace_source: 'configuration' | 'environment'
+      workspace_source: 'configuration' | 'environment' | 'selection'
       environment: string
       gateway: RuntimeServiceStatus
       agent_core: RuntimeServiceStatus
@@ -357,7 +350,7 @@ export const api = {
         hot_applied: string[]
         note: string
       }
-    }>(`${path}/runtime-status`)
+    }>(`${path}/runtime-status?${folderQuery(folderId)}`)
     return {
       workspaceId: body.workspace_id,
       workspaceRoot: body.workspace_root,
@@ -396,9 +389,7 @@ export const api = {
     return chatModelFromWire(body.models.chat)
   },
   async listChatModels(): Promise<{ models: ChatModelProfile[]; defaultModelId: string }> {
-    const body = await request<{ models: ChatModelWire[]; default_model_id: string }>(
-      `${path}/models`,
-    )
+    const body = await request<{ models: ChatModelWire[]; default_model_id: string }>(`${path}/models`)
     return {
       models: (body.models || []).map(chatModelProfileFromWire),
       defaultModelId: body.default_model_id || '',
@@ -415,9 +406,7 @@ export const api = {
   deleteChatModel(id: string): Promise<void> {
     return request(`${path}/models/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
-  async setDefaultChatModel(
-    id: string,
-  ): Promise<{ models: ChatModelProfile[]; defaultModelId: string }> {
+  async setDefaultChatModel(id: string): Promise<{ models: ChatModelProfile[]; defaultModelId: string }> {
     const body = await request<{ models: ChatModelWire[]; default_model_id: string }>(
       `${path}/models/${encodeURIComponent(id)}/default`,
       { method: 'POST' },
@@ -445,22 +434,18 @@ export const api = {
     })
   },
   async discoverChatModels(
-    settings: Pick<ChatModelSettings, 'provider' | 'baseUrl'> &
-      Partial<Pick<ChatModelProfile, 'id'>>,
+    settings: Pick<ChatModelSettings, 'provider' | 'baseUrl'> & Partial<Pick<ChatModelProfile, 'id'>>,
     apiKey = '',
   ): Promise<DiscoveredChatModel[]> {
-    const body = await request<{ models: DiscoveredChatModel[] }>(
-      `${path}/models/actions/discover`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          id: settings.id || undefined,
-          provider: settings.provider,
-          base_url: settings.baseUrl,
-          api_key: apiKey || undefined,
-        }),
-      },
-    )
+    const body = await request<{ models: DiscoveredChatModel[] }>(`${path}/models/actions/discover`, {
+      method: 'POST',
+      body: JSON.stringify({
+        id: settings.id || undefined,
+        provider: settings.provider,
+        base_url: settings.baseUrl,
+        api_key: apiKey || undefined,
+      }),
+    })
     return body.models || []
   },
   async listCredentialReferences(): Promise<CredentialStatus[]> {
@@ -484,9 +469,7 @@ export const api = {
     return body.memories || []
   },
   saveMemory(memory: MemoryInput & { id?: string }): Promise<UserMemory> {
-    const url = memory.id
-      ? `${path}/memories/${encodeURIComponent(memory.id)}`
-      : `${path}/memories`
+    const url = memory.id ? `${path}/memories/${encodeURIComponent(memory.id)}` : `${path}/memories`
     return request(url, {
       method: memory.id ? 'PATCH' : 'POST',
       body: JSON.stringify({
@@ -518,9 +501,10 @@ export const api = {
   cancelTask(taskId: string): Promise<AgentTask> {
     return request(`${path}/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
   },
-  async listTaskEvents(conversationId: string, after = 0): Promise<AgentEvent[]> {
+  async listTaskEvents(conversationId: string, after = 0, signal?: AbortSignal): Promise<AgentEvent[]> {
     const body = await request<{ events: AgentEvent[] }>(
       `${path}/conversations/${encodeURIComponent(conversationId)}/events/history?after=${after}`,
+      { signal },
     )
     return body.events || []
   },
@@ -528,11 +512,28 @@ export const api = {
     const body = await request<{ conversations: Conversation[] }>(`${path}/conversations`)
     return body.conversations || []
   },
+  async listWorkspaceFolders(): Promise<WorkspaceFolder[]> {
+    const body = await request<{ folders?: WorkspaceFolder[] }>(`${path}/folders`)
+    return (body.folders || []).map((folder) => ({ ...folder, id: folder.id || '' }))
+  },
+  async createWorkspaceFolder(rootPath: string, name = ''): Promise<WorkspaceFolder> {
+    const folder = await request<WorkspaceFolder>(`${path}/folders`, {
+      method: 'POST', body: JSON.stringify({ root_path: rootPath, name }),
+    })
+    return { ...folder, id: folder.id || '' }
+  },
+  getConversation(id: string): Promise<Conversation> {
+    return request(`${path}/conversations/${encodeURIComponent(id)}`)
+  },
+  deleteConversation(id: string): Promise<void> {
+    return request(`${path}/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
   createConversation(data: {
     title?: string
     permission_mode?: PermissionMode
     model_id?: string
     response_mode?: ResponseMode
+    folder_id?: string
   }): Promise<Conversation> {
     return request(`${path}/conversations`, { method: 'POST', body: JSON.stringify(data) })
   },
@@ -544,7 +545,7 @@ export const api = {
   },
   updateConversationSettings(
     id: string,
-    settings: { permission_mode?: PermissionMode; model_id?: string; response_mode?: ResponseMode },
+    settings: { permission_mode?: PermissionMode; model_id?: string; response_mode?: ResponseMode; title?: string; folder_id?: string; archived?: boolean },
   ): Promise<Conversation> {
     return request(`${path}/conversations/${id}`, {
       method: 'PATCH',
@@ -566,11 +567,7 @@ export const api = {
     const body = await request<{ approvals: Approval[] }>(`${path}/approvals${query}`)
     return body.approvals || []
   },
-  decideApproval(
-    id: string,
-    decision: 'allow' | 'deny',
-    version: number,
-  ): Promise<{ task_id: string }> {
+  decideApproval(id: string, decision: 'allow' | 'deny', version: number): Promise<{ task_id: string }> {
     return request(`${path}/approvals/${encodeURIComponent(id)}/decision`, {
       method: 'POST',
       body: JSON.stringify({ decision, version }),
@@ -592,33 +589,39 @@ export const api = {
     const body = await request<{ events: AuditEvent[] }>(`${path}/audit-events`)
     return body.events || []
   },
-  async listWorkspaceFiles(relativePath = ''): Promise<WorkspaceFileEntry[]> {
+  async listWorkspaceFiles(relativePath = '', folderId = ''): Promise<WorkspaceFileEntry[]> {
     const body = await request<{ entries: WorkspaceFileEntry[] }>(
-      `${path}/files?path=${encodeURIComponent(relativePath)}`,
+      `${path}/files?path=${encodeURIComponent(relativePath)}&${folderQuery(folderId)}`,
     )
     return body.entries || []
   },
-  getWorkspaceFile(relativePath: string): Promise<WorkspaceFileContent> {
-    return request(`${path}/files/content?path=${encodeURIComponent(relativePath)}`)
+  getWorkspaceFile(relativePath: string, folderId = ''): Promise<WorkspaceFileContent> {
+    return request(`${path}/files/content?path=${encodeURIComponent(relativePath)}&${folderQuery(folderId)}`)
   },
-  async listWorkspaceChanges(): Promise<{
+  async listWorkspaceChanges(folderId = ''): Promise<{
     changes: WorkspaceChange[]
     git: boolean
     truncated: boolean
   }> {
-    return request(`${path}/changes`)
+    return request(`${path}/changes?${folderQuery(folderId)}`)
   },
-  async getWorkspaceDiff(filePath: string): Promise<WorkspaceChange> {
-    return request(`${path}/changes/diff?path=${encodeURIComponent(filePath)}`)
+  async getWorkspaceDiff(filePath: string, folderId = ''): Promise<WorkspaceChange> {
+    return request(`${path}/changes/diff?path=${encodeURIComponent(filePath)}&${folderQuery(folderId)}`)
   },
   connectEvents(conversationId: string, onEvent: (event: AgentEvent) => void): WebSocket {
+    if (import.meta.env.VITE_MOCK === '1') return mockConnect(conversationId, onEvent)
     const configured = import.meta.env.VITE_WS_URL
     const host = location.protocol === 'file:' ? '127.0.0.1:8080' : location.host
     const base = configured || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${host}`
-    const socket = new WebSocket(
-      `${base}${path}/events?conversation_id=${encodeURIComponent(conversationId)}`,
-    )
-    socket.onmessage = ({ data }) => onEvent(JSON.parse(String(data)) as AgentEvent)
+    const socket = new WebSocket(`${base}${path}/events?conversation_id=${encodeURIComponent(conversationId)}`)
+    socket.onmessage = ({ data }) => {
+      try {
+        const event: unknown = JSON.parse(String(data))
+        if (event && typeof event === 'object' && 'type' in event && 'payload' in event) onEvent(event as AgentEvent)
+      } catch {
+        /* A malformed frame must not interrupt reconnection/replay. */
+      }
+    }
     return socket
   },
 }

@@ -10,7 +10,7 @@ describe('Electron runtime environment', () => {
       DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
       XDG_RUNTIME_DIR: '/run/user/1000',
       HTTPS_PROXY: 'http://proxy.example.test:8080',
-      NANAMI_WORKSPACE_ROOT: '/workspace/project',
+      MAIGOKITE_WORKSPACE_ROOT: '/workspace/project',
       OPENAI_API_KEY: 'must-not-be-forwarded',
       UNRELATED_SECRET: 'must-not-be-forwarded',
     })
@@ -20,7 +20,7 @@ describe('Electron runtime environment', () => {
       DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
       XDG_RUNTIME_DIR: '/run/user/1000',
       HTTPS_PROXY: 'http://proxy.example.test:8080',
-      NANAMI_WORKSPACE_ROOT: '/workspace/project',
+      MAIGOKITE_WORKSPACE_ROOT: '/workspace/project',
     })
     expect(result.OPENAI_API_KEY).toBeUndefined()
     expect(result.UNRELATED_SECRET).toBeUndefined()

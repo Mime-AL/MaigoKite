@@ -2,18 +2,18 @@
 
 from agent.runtime.langgraph_runtime import (
     LangGraphRuntime,
-    NanamiEvent,
+    MaigoKiteEvent,
     ProductToolSpec,
     RunHandle,
     RuntimeRunRequest,
 )
 
-NanamiRuntimeAdapter = LangGraphRuntime
+MaigoKiteRuntimeAdapter = LangGraphRuntime
 SpikeRunRequest = RuntimeRunRequest
 
 __all__ = [
-    "NanamiEvent",
-    "NanamiRuntimeAdapter",
+    "MaigoKiteEvent",
+    "MaigoKiteRuntimeAdapter",
     "ProductToolSpec",
     "RunHandle",
     "SpikeRunRequest",

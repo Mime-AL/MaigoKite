@@ -69,7 +69,7 @@ class RuleModel(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "nanami-production-rule-model"
+        return "maigokite-production-rule-model"
 
 
 class SlowModel(BaseChatModel):
@@ -94,7 +94,7 @@ class SlowModel(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "nanami-production-slow-model"
+        return "maigokite-production-slow-model"
 
 
 class SerialWritesModel(BaseChatModel):
@@ -140,7 +140,7 @@ class SerialWritesModel(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "nanami-production-serial-writes-model"
+        return "maigokite-production-serial-writes-model"
 
 
 class ModelOwner(IChatProvider):

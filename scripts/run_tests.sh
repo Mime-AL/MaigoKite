@@ -76,7 +76,7 @@ run_vue_tests() {
 
 echo ""
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  NanamiGopher Test Suite${NC}"
+echo -e "${BLUE}  MaigoKite Test Suite${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 

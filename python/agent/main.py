@@ -12,12 +12,12 @@ from agent.event_bus import EventBus
 from agent.grpc_runner import create_and_run_server
 from agent.observability import ConsoleObserver, Observability
 
-logger = logging.getLogger("nanami-agent")
+logger = logging.getLogger("maigokite-agent")
 
 
 @click.group()
 def cli() -> None:
-    """Run the NanamiGopher Agent Core."""
+    """Run the MaigoKite Agent Core."""
 
 
 def main_cli() -> None:

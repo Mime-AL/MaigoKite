@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/credentialstore"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
+	"maigokite/gateway/internal/credentialstore"
+	agentgrpc "maigokite/gateway/internal/grpc"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 )
 
 type ModelHandler struct {

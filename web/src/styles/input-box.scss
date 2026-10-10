@@ -1,0 +1,107 @@
+@use './mixins';
+
+.composer-wrap {
+  width: min(var(--content-width), 100%);
+  margin: 0 auto;
+  padding: 12px 20px 14px;
+  flex: none;
+}
+.composer {
+  position: relative;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  padding: 16px 16px 10px;
+  transition: border-color var(--duration) var(--ease);
+}
+.composer:focus-within {
+  border-color: var(--accent);
+}
+textarea {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  min-height: 26px;
+  border: 0;
+  outline: 0;
+  padding: 0 0 12px;
+  resize: none;
+  font-size: var(--text-md);
+  line-height: var(--leading-body);
+  background: var(--transparent);
+}
+textarea::placeholder {
+  color: var(--ink-3);
+}
+.composer-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+select {
+  @include mixins.interactive-row;
+  max-width: 130px;
+  border: 0;
+  background: var(--transparent);
+  padding: 3px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.control-spacer {
+  flex: 1;
+}
+.reference-button {
+  @include mixins.interactive-row;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: var(--transparent);
+  color: var(--ink-3);
+}
+.send-button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-content: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.send-button:not(:disabled):active {
+  background: var(--accent-pressed);
+  scale: var(--press-scale);
+}
+@media (hover: hover) {
+  .send-button:not(:disabled):hover {
+    background: var(--accent-hover);
+  }
+  .send-button:not(:disabled):hover:active {
+    background: var(--accent-pressed);
+  }
+}
+.composer-help {
+  margin: 8px 0 0;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.configure-link {
+  display: block;
+  margin-top: 8px;
+  text-align: center;
+  font-size: var(--text-sm);
+}
+@media (max-width: 720px) {
+  .composer-wrap {
+    padding-inline: 12px;
+  }
+  select {
+    max-width: 100px;
+  }
+  .control-spacer {
+    display: none;
+  }
+}

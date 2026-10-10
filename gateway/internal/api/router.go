@@ -2,11 +2,11 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/config"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/credentialstore"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
-	"github.com/nanamigopher/nanamigopher/gateway/internal/observability"
-	ws "github.com/nanamigopher/nanamigopher/gateway/internal/websocket"
+	"maigokite/gateway/internal/config"
+	"maigokite/gateway/internal/credentialstore"
+	agentgrpc "maigokite/gateway/internal/grpc"
+	"maigokite/gateway/internal/observability"
+	ws "maigokite/gateway/internal/websocket"
 	"net"
 	"net/http"
 	"strings"
@@ -69,6 +69,9 @@ func (r *Router) routes() {
 	v1 := r.engine.Group("/api/v1")
 	workspaces := v1.Group("/workspaces/:workspaceID")
 	workspaces.Use(r.requireWorkspaceAccess())
+	folders := &WorkspaceFolderHandler{client: r.client}
+	workspaces.GET("/folders", folders.List)
+	workspaces.POST("/folders", r.requireWorkspaceOwner(), folders.Create)
 	s := &SessionHandler{client: r.client}
 	credentialManager := credentialstore.NewManager(credentialstore.NewOSStore())
 	m := &MessageHandler{client: r.client, hub: r.hub, mgr: credentialManager}
@@ -81,13 +84,24 @@ func (r *Router) routes() {
 	tasks := &TaskHandler{client: r.client}
 	workspaces.GET("/tasks", tasks.List)
 	workspaces.GET("/tasks/:taskID", tasks.Get)
+	inspection := &TaskInspectionHandler{client: r.client}
+	workspaces.GET("/capabilities", inspection.Capabilities)
+	workspaces.GET("/tasks/:taskID/inspection", inspection.Get)
+	workspaces.GET("/tasks/:taskID/inputs", inspection.Inputs)
+	workspaces.POST("/tasks/:taskID/inputs", inspection.SubmitInput)
+	workspaces.GET("/jobs", inspection.Jobs)
+	workspaces.POST("/jobs/:jobID/stop", inspection.StopJob)
 	workspaces.POST("/tasks/:taskID/cancel", tasks.Cancel)
 	workspaces.GET("/conversations/:conversationID/events/history", tasks.Events)
 	workspaces.POST("/conversations/:conversationID/messages", m.Send)
 	workspaces.GET("/events", m.Stream)
-	approvals := &ApprovalHandler{client: r.client, hub: r.hub}
+	approvals := &ApprovalHandler{client: r.client, hub: r.hub, mgr: credentialManager}
 	workspaces.GET("/approvals", approvals.List)
+	workspaces.GET("/approvals/:approvalID", approvals.Get)
 	workspaces.POST("/approvals/:approvalID/decision", approvals.Decide)
+	questions := &QuestionHandler{client: r.client, hub: r.hub, mgr: credentialManager}
+	workspaces.GET("/questions", questions.List)
+	workspaces.POST("/questions/:questionID/answer", questions.Answer)
 	workspaces.GET("/audit-events", (&AuditHandler{client: r.client}).List)
 	credentials := &CredentialHandler{mgr: credentialManager, client: r.client}
 	models := &ModelHandler{mgr: credentialManager, client: r.client}
@@ -127,11 +141,21 @@ func (r *Router) routes() {
 		runtimeHealth = r.client
 	}
 	runtimeStatus := newRuntimeStatusHandler(r.cfg, workspace, runtimeHealth)
-	workspaces.GET("/runtime-status", r.requireWorkspaceOwner(), runtimeStatus.Get)
-	workspaces.GET("/files", workspace.ListFiles)
-	workspaces.GET("/files/content", workspace.ReadFile)
-	workspaces.GET("/changes", workspace.Changes)
-	workspaces.GET("/changes/diff", workspace.ChangeDiff)
+	workspaces.GET("/runtime-status", r.requireWorkspaceOwner(), folders.Files(workspace, func(selected *WorkspaceHandler, c *gin.Context) {
+		if selected == workspace {
+			runtimeStatus.Get(c)
+			return
+		}
+		handler := newRuntimeStatusHandler(r.cfg, selected, runtimeHealth)
+		if c.Query("folder_id") != "" {
+			handler.rootSource = "selection"
+		}
+		handler.Get(c)
+	}))
+	workspaces.GET("/files", folders.Files(workspace, (*WorkspaceHandler).ListFiles))
+	workspaces.GET("/files/content", folders.Files(workspace, (*WorkspaceHandler).ReadFile))
+	workspaces.GET("/changes", folders.Files(workspace, (*WorkspaceHandler).Changes))
+	workspaces.GET("/changes/diff", folders.Files(workspace, (*WorkspaceHandler).ChangeDiff))
 }
 
 func (r *Router) requireWorkspaceOwner() gin.HandlerFunc {

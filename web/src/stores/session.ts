@@ -1,9 +1,7 @@
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
   api,
-  type AgentActivityGroup,
-  type AgentActivityItem,
   type AgentEvent,
   type Approval,
   type ChatMessage,
@@ -11,471 +9,485 @@ import {
   type PermissionMode,
   type ResponseMode,
 } from '@/api/client'
+import { EventSocket } from '@/api/socket'
+import { mapGatewayEvent } from '@/api/event-adapter'
+import { useRunStore } from './run'
+import { activityGroups, projectMessage } from './session-projection'
+import { useWorkspaceStore } from './workspace'
 
 export const useSessionStore = defineStore('session', () => {
-  const sessions = ref<Conversation[]>([])
-  const messages = ref<Record<string, ChatMessage[]>>({})
-  const activeSessionId = ref<string | null>(null)
-  const isLoading = ref(false)
-  const runningTaskIds = ref<Record<string, string[]>>({})
-  const error = ref<string | null>(null)
-  const approvals = ref<Record<string, Approval[]>>({})
-  const activities = ref<Record<string, AgentActivityItem[]>>({})
-  const taskActivityStatuses = ref<Record<string, Record<string, AgentActivityGroup['status']>>>({})
-  let socket: WebSocket | null = null
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  let switchGeneration = 0
-  const seenEventIds = new Map<string, Set<string>>()
-  const lastSequences = new Map<string, number>()
+  const workspace = useWorkspaceStore()
+  const showArchived = ref(false)
+  const sessions = ref<Conversation[]>([]),
+    messages = ref<Record<string, ChatMessage[]>>({})
+  const activeSessionId = ref<string | null>(null),
+    isLoading = ref(false),
+    error = ref<string | null>(null)
+  const runningTaskIds = ref<Record<string, string[]>>({}),
+    approvals = ref<Record<string, Approval[]>>({})
+  const queuedMessages = ref<Record<string, string[]>>({})
+  const queuedPaused = ref<Record<string, boolean>>({})
+  const stoppingTaskIds = ref<string[]>([])
+  const isStopping = computed(() =>
+    (runningTaskIds.value[activeSessionId.value || ''] || []).some((id) =>
+      stoppingTaskIds.value.includes(id),
+    ),
+  )
+  const queuedAfterTask = new Map<string, string>(),
+    draining = new Set<string>()
+  const loadingSessions = new Map<string, Promise<void>>()
+  const deletedSessions = new Set<string>()
+  const bufferedEvents = new Map<string, Array<{ event: AgentEvent; replay: boolean }>>()
+  const run = useRunStore(),
+    streams = new Map<string, EventSocket>()
   const activeSession = computed(() =>
     sessions.value.find((item) => item.id === activeSessionId.value),
   )
+  const visibleSessions = computed(() => sessions.value.filter((item) =>
+    (item.folder_id || '') === workspace.selectedId && Boolean(item.archived) === showArchived.value,
+  ))
   const activeMessages = computed(() =>
     activeSessionId.value ? messages.value[activeSessionId.value] || [] : [],
   )
-  const isSending = computed(() => {
-    const id = activeSessionId.value
-    return Boolean(id && (runningTaskIds.value[id] || []).length)
-  })
-
-  function markTaskRunning(conversationId: string, taskId: string) {
-    if (!taskId) return
-    const tasks = runningTaskIds.value[conversationId] || []
-    if (!tasks.includes(taskId)) runningTaskIds.value[conversationId] = [...tasks, taskId]
+  const activeApprovals = computed(() =>
+    activeSessionId.value ? approvals.value[activeSessionId.value] || [] : [],
+  )
+  const isSending = computed(() =>
+    Boolean(activeSessionId.value && runningTaskIds.value[activeSessionId.value]?.length),
+  )
+  const activeActivityGroups = computed(() =>
+    activityGroups(run.turns[activeSessionId.value || ''] || []),
+  )
+  const activeActivities = computed(() =>
+    activeActivityGroups.value.flatMap((group) => group.items),
+  )
+  const activities = computed(() =>
+    Object.fromEntries(
+      Object.entries(run.turns).map(([id, turns]) => [
+        id,
+        activityGroups(turns).flatMap((g) => g.items),
+      ]),
+    ),
+  )
+  const taskActivityStatuses = computed(() =>
+    Object.fromEntries(
+      Object.entries(run.turns).map(([id, turns]) => [
+        id,
+        Object.fromEntries(activityGroups(turns).map((g) => [g.task_id, g.status])),
+      ]),
+    ),
+  )
+  let generation = 0,
+    frame = 0,
+    lifecycle = 0
+  const deltas: Array<{ id: string; event: AgentEvent; replay: boolean }> = []
+  function flushDeltas() {
+    if (frame) cancelAnimationFrame(frame)
+    frame = 0
+    for (const item of deltas.splice(0))
+      projectMessage((messages.value[item.id] ||= []), item.event, item.replay)
   }
-
-  function clearTaskRunning(conversationId: string, taskId: string) {
-    if (!taskId) return
-    runningTaskIds.value[conversationId] = (runningTaskIds.value[conversationId] || []).filter(
-      (item) => item !== taskId,
-    )
+  function mark(id: string, task: string) {
+    const list = (runningTaskIds.value[id] ||= [])
+    if (task && !list.includes(task)) list.push(task)
   }
-
-  function setTaskActivityStatus(
-    conversationId: string,
-    taskId: string,
-    status: AgentActivityGroup['status'],
-  ) {
-    if (!taskId) return
-    const statuses =
-      taskActivityStatuses.value[conversationId] ||
-      (taskActivityStatuses.value[conversationId] = {})
-    statuses[taskId] = status
+  function clear(id: string, task: string) {
+    runningTaskIds.value[id] = (runningTaskIds.value[id] || []).filter((item) => item !== task)
   }
-
-  function upsertActivity(conversationId: string, value: AgentActivityItem) {
-    const list = activities.value[conversationId] || (activities.value[conversationId] = [])
-    const existing = list.find((item) => item.id === value.id)
-    if (existing) Object.assign(existing, value)
-    else list.push(value)
-  }
-
-  function activityTimestamp(event: AgentEvent): string {
-    return event.occurred_at || new Date().toISOString()
-  }
-
-  function handleReasoningActivity(id: string, event: AgentEvent) {
-    if (!['reasoning.started', 'reasoning.delta', 'reasoning.completed'].includes(event.type))
+  function handleEvent(id: string, event: AgentEvent, replay = false) {
+    if (deletedSessions.has(id)) return
+    const buffer = bufferedEvents.get(id)
+    if (buffer) {
+      buffer.push({ event, replay })
       return
-    const activityId = String(
-      event.payload.activity_id || `reasoning-${event.task_id || event.event_id}`,
-    )
-    const existing = (activities.value[id] || []).find((item) => item.id === activityId)
-    const nextText = String(event.payload.summary || event.payload.content || '')
-    const summary =
-      event.type === 'reasoning.delta'
-        ? `${existing?.summary || ''}${nextText}`
-        : nextText || existing?.summary || ''
-    upsertActivity(id, {
-      id: activityId,
-      task_id: event.task_id || '',
-      kind: 'reasoning',
-      status: event.type === 'reasoning.completed' ? 'completed' : 'running',
-      title: String(event.payload.title || '过程说明'),
-      summary,
-      sequence: existing?.sequence ?? event.sequence,
-      created_at: existing?.created_at || activityTimestamp(event),
-    })
+    }
+    const task = event.task_id || ''
+    if (event.type === 'task.started') {
+      mark(id, task)
+      run.markStarted(
+        id,
+        task,
+        String(event.payload.input_text || '') || undefined,
+        event.occurred_at,
+      )
+    }
+    if (event.type === 'message.delta') {
+      deltas.push({ id, event, replay })
+      if (!frame) frame = requestAnimationFrame(flushDeltas)
+    } else {
+      flushDeltas()
+      projectMessage((messages.value[id] ||= []), event, replay)
+    }
+    if (event.type === 'message.completed' && typeof event.payload.content === 'string')
+      run.completeText(id, task, event.payload.content, String(event.payload.message_id || ''))
+    for (const mapped of mapGatewayEvent(event)) run.apply(mapped)
+    if (event.type === 'approval.requested') {
+      const pending = (approvals.value[id] ||= [])
+      const approval = {
+        ...event.payload,
+        id: String(event.payload.approval_id || event.payload.id || ''),
+        conversation_id: id,
+        task_id: task,
+      } as unknown as Approval
+      if (approval.id && !pending.some((a) => a.id === approval.id)) pending.push(approval)
+      mark(id, task)
+    }
+    if (event.type === 'approval.decided')
+      approvals.value[id] = (approvals.value[id] || []).filter(
+        (a) => a.id !== String(event.payload.approval_id),
+      )
+    if (
+      [
+        'task.succeeded',
+        'task.completed',
+        'task.failed',
+        'task.cancelled',
+        'task.interrupted',
+      ].includes(event.type)
+    ) {
+      clear(id, task)
+      approvals.value[id] = (approvals.value[id] || []).filter((a) => a.task_id !== task)
+      if (event.type === 'task.failed') error.value = String(event.payload.message || '执行失败')
+      const succeeded = ['task.succeeded', 'task.completed'].includes(event.type)
+      if (!succeeded && queuedAfterTask.get(id) === task) queuedPaused.value[id] = true
+      if (!replay && succeeded) void sendNext(id, task)
+    }
   }
-
-  function handleToolActivity(id: string, event: AgentEvent) {
-    if (!['tool.proposed', 'tool.started', 'tool.completed', 'tool.failed'].includes(event.type))
-      return
-    const toolCallId = String(event.payload.tool_call_id || '')
-    if (!toolCallId) return
-    const activityId = `tool-${toolCallId}`
-    const existing = (activities.value[id] || []).find((item) => item.id === activityId)
-    const previousDetail =
-      existing?.detail && typeof existing.detail === 'object'
-        ? (existing.detail as Record<string, unknown>)
-        : {}
-    const status: AgentActivityItem['status'] =
-      event.type === 'tool.proposed'
-        ? 'pending'
-        : event.type === 'tool.started'
-          ? 'running'
-          : event.type === 'tool.completed'
-            ? 'completed'
-            : event.payload.denied
-              ? 'denied'
-              : 'failed'
-    const rawAction = event.payload.action
-    const action =
-      rawAction &&
-      typeof rawAction === 'object' &&
-      typeof (rawAction as Record<string, unknown>).label === 'string' &&
-      typeof (rawAction as Record<string, unknown>).to === 'string' &&
-      String((rawAction as Record<string, unknown>).to).startsWith('/') &&
-      !String((rawAction as Record<string, unknown>).to).startsWith('//')
-        ? {
-            label: String((rawAction as Record<string, unknown>).label),
-            to: String((rawAction as Record<string, unknown>).to),
-          }
-        : existing?.action
-    upsertActivity(id, {
-      id: activityId,
-      task_id: event.task_id || existing?.task_id || '',
-      kind: 'tool',
-      status,
-      title: String(event.payload.tool_name || existing?.title || '工具调用'),
-      summary: String(event.payload.summary || event.payload.message || existing?.summary || ''),
-      hint: String(event.payload.user_hint || existing?.hint || '') || undefined,
-      action,
-      detail: {
-        ...previousDetail,
-        ...(event.payload.arguments ? { arguments: event.payload.arguments } : {}),
-        ...(event.payload.data !== undefined ? { result: event.payload.data } : {}),
+  function watchSession(id: string) {
+    if (streams.has(id) || deletedSessions.has(id)) return
+    const stream = new EventSocket({
+      connect: (receive) => api.connectEvents(id, receive),
+      history: (after, signal) => api.listTaskEvents(id, after, signal),
+      receive: (event, replay) => handleEvent(id, event, replay),
+      connection: (online) => {
+        run.setConnection(id, online)
+        if (!online && queuedMessages.value[id]?.length) queuedPaused.value[id] = true
       },
-      sequence: existing?.sequence ?? event.sequence,
-      created_at: existing?.created_at || activityTimestamp(event),
     })
+    streams.set(id, stream)
+    stream.start()
   }
-
-  function handleSubagentActivity(id: string, event: AgentEvent) {
-    const subagentTypes = [
-      'subagent.started',
-      'subagent.progress',
-      'subagent.completed',
-      'subagent.failed',
-      'sub_agent_spawn',
-      'sub_agent_complete',
-    ]
-    if (!subagentTypes.includes(event.type)) return
-    const subagentId = String(event.payload.subagent_id || event.payload.agent_id || event.event_id)
-    const activityId = `subagent-${subagentId}`
-    const existing = (activities.value[id] || []).find((item) => item.id === activityId)
-    const delta = String(
-      event.payload.summary || event.payload.content || event.payload.message || '',
-    )
-    const isProgress = event.type === 'subagent.progress'
-    const failed = event.type === 'subagent.failed'
-    const completed = event.type === 'subagent.completed' || event.type === 'sub_agent_complete'
-    upsertActivity(id, {
-      id: activityId,
-      task_id: event.task_id || existing?.task_id || '',
-      kind: 'subagent',
-      status: failed ? 'failed' : completed ? 'completed' : 'running',
-      title: `子 Agent · ${String(event.payload.name || event.payload.role || subagentId)}`,
-      summary: isProgress ? `${existing?.summary || ''}${delta}` : delta || existing?.summary || '',
-      detail: event.payload,
-      sequence: existing?.sequence ?? event.sequence,
-      created_at: existing?.created_at || activityTimestamp(event),
-    })
-  }
-
   async function loadSessions() {
     if (isLoading.value) return
     isLoading.value = true
     error.value = null
     try {
-      sessions.value = await api.listConversations()
+      await workspace.load()
+      sessions.value = (await api.listConversations()).filter((item) => !deletedSessions.has(item.id))
+      const current = activeSession.value
+      if (current) { workspace.select(current.folder_id || ''); showArchived.value = Boolean(current.archived) }
     } catch (reason) {
-      error.value = `无法连接应用服务：${reason instanceof Error ? reason.message : String(reason)}`
+      error.value =
+        '无法连接应用服务：' + (reason instanceof Error ? reason.message : String(reason))
     } finally {
       isLoading.value = false
     }
   }
   async function createSession(title: string) {
-    error.value = null
     try {
-      const item = await api.createConversation({ title })
+      const item = await api.createConversation({ title, folder_id: workspace.selectedId })
+      showArchived.value = false
       sessions.value.unshift(item)
       await switchSession(item.id)
       return item
     } catch (reason) {
-      error.value = `无法创建对话：${reason instanceof Error ? reason.message : String(reason)}`
+      error.value = String(reason)
       throw reason
     }
   }
-  function connectSocket(id: string, generation: number) {
-    const connected = api.connectEvents(id, (event) => handleEvent(id, event))
-    socket = connected
-    connected.onopen = () => {
-      void (async () => {
-        try {
-          const missed = await api.listTaskEvents(id, lastSequences.get(id) || 0)
-          if (generation !== switchGeneration || activeSessionId.value !== id) return
-          for (const event of missed) handleEvent(id, event, true)
-        } catch {
-          // The live socket remains useful; the next reconnect retries reconciliation.
-        }
-      })()
-    }
-    connected.onclose = () => {
-      if (generation !== switchGeneration || activeSessionId.value !== id) return
-      socket = null
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null
-        if (generation === switchGeneration && activeSessionId.value === id) {
-          void switchSession(id, true)
-        }
-      }, 1000)
-    }
-  }
-
   async function switchSession(id: string, force = false) {
-    const socketActive = socket && (typeof socket.readyState !== 'number' || socket.readyState <= 1)
-    if (!force && activeSessionId.value === id && messages.value[id] && socketActive) return
-    const generation = ++switchGeneration
+    if (!force && activeSessionId.value === id && messages.value[id] && streams.has(id)) return
+    const current = ++generation
     activeSessionId.value = id
     error.value = null
+    let conversation: Conversation
     try {
-      const [loadedResult, approvalsResult, tasksResult, historyResult] = await Promise.allSettled([
-        api.listMessages(id),
-        api.listApprovals(id),
-        api.listTasks(id),
-        api.listTaskEvents(id, lastSequences.get(id) || 0),
-      ])
-      if (loadedResult.status === 'rejected') throw loadedResult.reason
-      const loaded = loadedResult.value
-      const pendingApprovals = approvalsResult.status === 'fulfilled' ? approvalsResult.value : []
-      const tasks = tasksResult.status === 'fulfilled' ? tasksResult.value : []
-      const history = historyResult.status === 'fulfilled' ? historyResult.value : []
-      if (generation !== switchGeneration) return
-      messages.value[id] = loaded
-      approvals.value[id] = pendingApprovals
-      runningTaskIds.value[id] = tasks
-        .filter((task) => ['created', 'queued', 'running', 'retry_wait'].includes(task.status))
-        .map((task) => task.id)
-      for (const event of history) handleEvent(id, event, true)
-      socket?.close()
-      connectSocket(id, generation)
+      conversation = await api.getConversation(id)
     } catch (reason) {
-      if (generation !== switchGeneration) return
-      messages.value[id] = []
-      error.value = `无法载入对话：${reason instanceof Error ? reason.message : String(reason)}`
-    }
-  }
-  function handleEvent(id: string, event: AgentEvent, replay = false) {
-    const seen = seenEventIds.get(id) || new Set<string>()
-    if (event.event_id && seen.has(event.event_id)) return
-    if (event.event_id) {
-      seen.add(event.event_id)
-      seenEventIds.set(id, seen)
-    }
-    lastSequences.set(id, Math.max(lastSequences.get(id) || 0, event.sequence || 0))
-    const list = messages.value[id] || (messages.value[id] = [])
-    const content = String(event.payload?.content || '')
-    const taskId = event.task_id || ''
-    if (event.type === 'task.started') {
-      setTaskActivityStatus(id, taskId, 'running')
-      markTaskRunning(id, taskId)
-    }
-    if (event.type === 'task.waiting_approval')
-      setTaskActivityStatus(id, taskId, 'waiting_approval')
-    if (event.type === 'task.succeeded') {
-      setTaskActivityStatus(id, taskId, 'completed')
-      clearTaskRunning(id, taskId)
-    }
-    if (event.type === 'task.failed' || event.type === 'task.interrupted') {
-      setTaskActivityStatus(id, taskId, 'failed')
-      clearTaskRunning(id, taskId)
-    }
-    if (event.type === 'task.cancelled') {
-      setTaskActivityStatus(id, taskId, 'cancelled')
-      clearTaskRunning(id, taskId)
-    }
-    handleReasoningActivity(id, event)
-    handleToolActivity(id, event)
-    handleSubagentActivity(id, event)
-    if (!replay && event.type === 'message.delta' && content) {
-      const streamId = `stream-${taskId}`
-      const streamed = list.find((item) => item.id === streamId)
-      if (streamed) streamed.content += content
-      else
-        list.push({
-          id: streamId,
-          conversation_id: id,
-          role: 'assistant',
-          content,
-          created_at: activityTimestamp(event),
-          streaming: true,
-        })
-    }
-    if (event.type === 'message.completed') {
-      const streamId = `stream-${taskId}`
-      const streamed = list.find((item) => item.id === streamId)
-      const messageId = String(event.payload.message_id || streamId)
-      const persisted = list.find((item) => item.id === messageId)
-      if (streamed && persisted && streamed !== persisted) {
-        list.splice(list.indexOf(streamed), 1)
-      } else if (streamed) {
-        streamed.id = messageId
-        streamed.streaming = false
-        if (content) streamed.content = content
-      } else if (!persisted && content) {
-        list.push({
-          id: messageId,
-          conversation_id: id,
-          role: 'assistant',
-          content,
-          created_at: activityTimestamp(event),
-          streaming: false,
-        })
+      if (current === generation) {
+        activeSessionId.value = null
+        error.value = '无法载入对话：' + (reason instanceof Error ? reason.message : String(reason))
       }
-      setTaskActivityStatus(id, taskId, 'completed')
-      clearTaskRunning(id, taskId)
+      return
     }
-    if (event.type === 'approval.requested') {
-      const approvalId = String(event.payload.approval_id || event.payload.id || '')
-      const value = { ...event.payload, id: approvalId } as unknown as Approval
-      const pending = approvals.value[id] || (approvals.value[id] = [])
-      if (approvalId && !pending.some((item) => item.id === approvalId)) pending.push(value)
-      clearTaskRunning(id, taskId)
+    if (current !== generation || deletedSessions.has(id)) return
+    const index = sessions.value.findIndex((item) => item.id === id)
+    if (index < 0) sessions.value.unshift(conversation)
+    else sessions.value[index] = conversation
+    workspace.select(conversation.folder_id || '')
+    showArchived.value = Boolean(conversation.archived)
+    let loading = loadingSessions.get(id)
+    if (!loading) {
+      const epoch = lifecycle
+      // Buffer before subscribing/fetching. Snapshot installation must never
+      // overwrite an event already consumed by EventSocket's dedupe set.
+      const buffer: Array<{ event: AgentEvent; replay: boolean }> = []
+      bufferedEvents.set(id, buffer)
+      watchSession(id)
+      loading = (async () => {
+        try {
+          const [loaded, pending, tasks] = await Promise.all([
+            api.listMessages(id),
+            api.listApprovals(id),
+            api.listTasks(id),
+          ])
+          if (epoch !== lifecycle || deletedSessions.has(id)) return
+          flushDeltas()
+          const live = messages.value[id] || []
+          messages.value[id] = [
+            ...loaded,
+            ...live.filter((m) => m.streaming && !loaded.some((item) => item.id === m.id)),
+          ]
+          approvals.value[id] = pending
+          const sending = (runningTaskIds.value[id] || []).filter((task) =>
+            task.startsWith('pending-'),
+          )
+          runningTaskIds.value[id] = [
+            ...sending,
+            ...tasks
+              .filter((t) =>
+                ['created', 'queued', 'running', 'waiting_approval', 'retry_wait'].includes(
+                  t.status,
+                ),
+              )
+              .map((t) => t.id),
+          ]
+          for (const task of tasks) run.hydrateTask(id, task)
+        } finally {
+          if (bufferedEvents.get(id) === buffer) bufferedEvents.delete(id)
+          if (epoch === lifecycle && !deletedSessions.has(id))
+            for (const item of buffer) handleEvent(id, item.event, item.replay)
+        }
+        if (epoch === lifecycle) await streams.get(id)?.recover()
+      })().finally(() => {
+        if (loadingSessions.get(id) === loading) loadingSessions.delete(id)
+      })
+      loadingSessions.set(id, loading)
     }
-    if (event.type === 'approval.decided') {
-      const approvalId = String(event.payload.approval_id || '')
-      approvals.value[id] = (approvals.value[id] || []).filter((item) => item.id !== approvalId)
-      if (event.payload.decision === 'allow') {
-        setTaskActivityStatus(id, taskId, 'running')
-        markTaskRunning(id, taskId)
-      } else clearTaskRunning(id, taskId)
-    }
-    if (event.type === 'error' || event.type === 'task.failed') {
-      error.value = event.payload?.message || 'Agent 执行失败'
-      setTaskActivityStatus(id, taskId, 'failed')
-      clearTaskRunning(id, taskId)
+    try {
+      await loading
+    } catch (reason) {
+      if (current === generation)
+        error.value = '无法载入对话：' + (reason instanceof Error ? reason.message : String(reason))
     }
   }
-  async function sendMessage(content: string) {
-    const id = activeSessionId.value
-    if (!id || isSending.value) return
-    const pendingTaskId = `pending-${Date.now()}`
-    markTaskRunning(id, pendingTaskId)
+  async function sendToSession(id: string, content: string) {
+    if (sessions.value.find((item) => item.id === id)?.archived)
+      throw new Error('请先恢复归档对话，再发送消息。')
+    if (runningTaskIds.value[id]?.length) {
+      if (!queuedMessages.value[id]?.length) {
+        queuedAfterTask.set(id, runningTaskIds.value[id][0])
+        queuedPaused.value[id] =
+          runningTaskIds.value[id].length !== 1 || run.connected[id] === false
+      }
+      const queue = (queuedMessages.value[id] ||= [])
+      queue.push(content)
+      return
+    }
+    watchSession(id)
+    const pending = 'pending-' + Date.now()
+    mark(id, pending)
     error.value = null
+    if (queuedMessages.value[id]?.length && !queuedPaused.value[id])
+      queuedAfterTask.set(id, pending)
     const optimistic: ChatMessage = {
-      id: `local-${Date.now()}`,
+      id: 'local-' + Date.now(),
       conversation_id: id,
       role: 'user',
       content,
       created_at: new Date().toISOString(),
     }
-    ;(messages.value[id] || (messages.value[id] = [])).push(optimistic)
+    ;(messages.value[id] ||= []).push(optimistic)
     try {
       const result = await api.sendMessage(id, content)
-      clearTaskRunning(id, pendingTaskId)
-      markTaskRunning(id, result.task_id)
+      clear(id, pending)
+      if (queuedAfterTask.get(id) === pending) queuedAfterTask.set(id, result.task_id)
+      run.markStarted(id, result.task_id, content)
+      const turn = run.getTurn(id, result.task_id)
+      if (!['completed', 'failed', 'cancelled'].includes(turn.status)) mark(id, result.task_id)
+      else if (turn.status === 'completed') void sendNext(id, result.task_id)
+      else queuedPaused.value[id] = true
+      const item = sessions.value.find((s) => s.id === id)
+      if (item) {
+        item.updated_at = new Date().toISOString()
+        if (item.title === '新对话') item.title = content.slice(0, 28)
+        sessions.value.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+      }
     } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-      clearTaskRunning(id, pendingTaskId)
-    }
-  }
-  async function setPermissionMode(permissionMode: PermissionMode) {
-    const id = activeSessionId.value
-    if (!id) return
-    try {
-      const updated = await api.updateConversationPermission(id, permissionMode)
-      const index = sessions.value.findIndex((item) => item.id === id)
-      if (index >= 0) sessions.value[index] = updated
-    } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-      throw reason
-    }
-  }
-  async function setConversationRuntime(modelId: string, responseMode: ResponseMode) {
-    const id = activeSessionId.value
-    if (!id) return
-    try {
-      const updated = await api.updateConversationSettings(id, {
-        model_id: modelId,
-        response_mode: responseMode,
-      })
-      const index = sessions.value.findIndex((item) => item.id === id)
-      if (index >= 0) sessions.value[index] = updated
-    } catch (reason) {
+      clear(id, pending)
+      queuedPaused.value[id] = true
+      messages.value[id] = messages.value[id].filter((m) => m.id !== optimistic.id)
       error.value = reason instanceof Error ? reason.message : String(reason)
       throw reason
     }
+  }
+  async function sendMessage(content: string) {
+    if (activeSessionId.value) await sendToSession(activeSessionId.value, content)
+  }
+  async function sendNext(id: string, completedTask?: string, confirmed = false) {
+    if (draining.has(id) || runningTaskIds.value[id]?.length || !queuedMessages.value[id]?.length)
+      return
+    if (
+      !confirmed &&
+      (queuedPaused.value[id] || !completedTask || queuedAfterTask.get(id) !== completedTask)
+    )
+      return
+    draining.add(id)
+    const epoch = lifecycle
+    try {
+      // HTTP 202 or an unrelated task's completion never authorizes a send.
+      const tasks = await api.listTasks(id)
+      if (epoch !== lifecycle) return
+      if (
+        tasks.some((t) =>
+          ['created', 'queued', 'running', 'waiting_approval', 'retry_wait'].includes(t.status),
+        )
+      ) {
+        queuedPaused.value[id] = true
+        return
+      }
+      if (!confirmed && tasks.find((t) => t.id === completedTask)?.status !== 'succeeded') {
+        queuedPaused.value[id] = true
+        return
+      }
+      if (runningTaskIds.value[id]?.length || (!confirmed && queuedPaused.value[id])) return
+      const next = queuedMessages.value[id]?.shift()
+      if (!next) return
+      queuedPaused.value[id] = false
+      try {
+        await sendToSession(id, next)
+      } catch {
+        const queue = (queuedMessages.value[id] ||= [])
+        queue.unshift(next)
+        queuedPaused.value[id] = true
+      }
+    } catch (reason) {
+      queuedPaused.value[id] = true
+      error.value = String(reason)
+    } finally {
+      draining.delete(id)
+      const task = queuedAfterTask.get(id)
+      // A very short run can finish before its POST response arrives.
+      if (
+        task &&
+        !queuedPaused.value[id] &&
+        run.turns[id]?.find((t) => t.id === task)?.status === 'completed' &&
+        !runningTaskIds.value[id]?.length &&
+        queuedMessages.value[id]?.length
+      ) {
+        // The next turn will rebind the queue; do not retry a stale completion.
+        if (task !== completedTask) void sendNext(id, task)
+      }
+    }
+  }
+  async function resumeQueued(id: string) {
+    await sendNext(id, undefined, true)
+  }
+  function removeQueued(id: string, index: number) {
+    queuedMessages.value[id]?.splice(index, 1)
+  }
+  async function setPermissionMode(permissionMode: PermissionMode, id = activeSessionId.value) {
+    if (!id) return
+    const updated = await api.updateConversationPermission(id, permissionMode)
+    const i = sessions.value.findIndex((s) => s.id === updated.id)
+    if (i >= 0) sessions.value[i] = updated
+  }
+  async function setConversationRuntime(
+    modelId: string,
+    responseMode: ResponseMode,
+    id = activeSessionId.value,
+  ) {
+    if (!id) return
+    const updated = await api.updateConversationSettings(id, {
+      model_id: modelId,
+      response_mode: responseMode,
+    })
+    const i = sessions.value.findIndex((s) => s.id === updated.id)
+    if (i >= 0) sessions.value[i] = updated
+  }
+  async function refreshEvents(id: string) {
+    watchSession(id)
+    await loadingSessions.get(id)
+    await streams.get(id)?.recover()
   }
   async function decideApproval(approval: Approval, decision: 'allow' | 'deny') {
-    error.value = null
-    try {
-      if (decision === 'allow') markTaskRunning(approval.conversation_id, approval.task_id)
-      await api.decideApproval(approval.id, decision, approval.version)
-    } catch (reason) {
-      clearTaskRunning(approval.conversation_id, approval.task_id)
-      error.value = reason instanceof Error ? reason.message : String(reason)
-      throw reason
-    }
+    await api.decideApproval(approval.id, decision, approval.version)
+    await refreshEvents(approval.conversation_id)
   }
-  function disconnect() {
-    switchGeneration++
-    if (reconnectTimer) clearTimeout(reconnectTimer)
-    reconnectTimer = null
-    socket?.close()
-    socket = null
+  async function cancelTask(task: string, conversationId: string) {
+    queuedPaused.value[conversationId] = true
+    if (stoppingTaskIds.value.includes(task)) return false
+    stoppingTaskIds.value.push(task)
+    try {
+      await api.cancelTask(task)
+      // HTTP acceptance is not a terminal task event.
+      await refreshEvents(conversationId)
+      return true
+    } catch (reason) {
+      error.value = '未能确认停止：' + (reason instanceof Error ? reason.message : String(reason))
+      return false
+    } finally {
+      stoppingTaskIds.value = stoppingTaskIds.value.filter((id) => id !== task)
+    }
   }
   async function cancelActiveTask() {
     const id = activeSessionId.value
-    const taskId = id ? (runningTaskIds.value[id] || []).find((item) => !item.startsWith('pending-')) : ''
-    if (!id || !taskId) return
-    try {
-      await api.cancelTask(taskId)
-      clearTaskRunning(id, taskId)
-      setTaskActivityStatus(id, taskId, 'cancelled')
-    } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-      throw reason
-    }
+    if (id) queuedPaused.value[id] = true
+    const task = id ? runningTaskIds.value[id]?.find((t) => !t.startsWith('pending-')) : undefined
+    if (id && task) await cancelTask(task, id)
+    else if (id && runningTaskIds.value[id]?.length)
+      error.value = '消息正在提交，任务建立后可停止。待发消息已暂停。'
   }
-  const activeApprovals = computed(() =>
-    activeSessionId.value ? approvals.value[activeSessionId.value] || [] : [],
-  )
-  const activeActivities = computed(() =>
-    activeSessionId.value ? activities.value[activeSessionId.value] || [] : [],
-  )
-  const activeActivityGroups = computed<AgentActivityGroup[]>(() => {
-    const conversationId = activeSessionId.value
-    if (!conversationId) return []
-    const grouped = new Map<string, AgentActivityItem[]>()
-    for (const item of activities.value[conversationId] || []) {
-      const list = grouped.get(item.task_id) || []
-      list.push(item)
-      grouped.set(item.task_id, list)
-    }
-    const statuses = taskActivityStatuses.value[conversationId] || {}
-    const taskIds = new Set([...Object.keys(statuses), ...grouped.keys()])
-    return [...taskIds]
-      .map((task_id) => ({
-        task_id,
-        status: statuses[task_id] || 'running',
-        items: (grouped.get(task_id) || []).slice().sort((a, b) => a.sequence - b.sequence),
-      }))
-      .filter(
-        (group) =>
-          group.status === 'running' || group.status === 'waiting_approval' || group.items.length > 0,
-      )
-  })
+  function disconnect() {
+    generation++
+    lifecycle++
+    bufferedEvents.clear()
+    loadingSessions.clear()
+    for (const id of Object.keys(queuedMessages.value)) queuedPaused.value[id] = true
+    for (const stream of streams.values()) stream.stop()
+    streams.clear()
+    flushDeltas()
+  }
+  async function manageSession(id: string, patch: { title?: string; archived?: boolean; folder_id?: string }) {
+    const item = await api.updateConversationSettings(id, patch)
+    const index = sessions.value.findIndex((session) => session.id === id)
+    if (index >= 0) sessions.value[index] = item
+    if (activeSessionId.value === id) workspace.select(item.folder_id || '')
+    return item
+  }
+  async function deleteSession(id: string) {
+    await api.deleteConversation(id)
+    // Late snapshots/events must not recreate a conversation after confirmed deletion.
+    deletedSessions.add(id)
+    loadingSessions.delete(id)
+    streams.get(id)?.stop()
+    streams.delete(id)
+    bufferedEvents.delete(id)
+    deltas.splice(0, deltas.length, ...deltas.filter((item) => item.id !== id))
+    for (const map of [messages.value, approvals.value, runningTaskIds.value, queuedMessages.value, queuedPaused.value])
+      delete map[id]
+    queuedAfterTask.delete(id)
+    sessions.value = sessions.value.filter((item) => item.id !== id)
+    run.forgetSession(id)
+    if (activeSessionId.value === id) activeSessionId.value = null
+  }
+  onScopeDispose(disconnect)
   return {
     sessions,
+    visibleSessions,
+    showArchived,
     messages,
     approvals,
     activities,
     taskActivityStatuses,
     runningTaskIds,
+    queuedMessages,
+    queuedPaused,
     activeSessionId,
     isLoading,
     isSending,
+    isStopping,
+    stoppingTaskIds,
     error,
     activeSession,
     activeMessages,
@@ -484,12 +496,20 @@ export const useSessionStore = defineStore('session', () => {
     activeActivityGroups,
     loadSessions,
     createSession,
+    manageSession,
+    deleteSession,
     switchSession,
+    watchSession,
+    refreshEvents,
     sendMessage,
+    sendToSession,
     setPermissionMode,
     setConversationRuntime,
     decideApproval,
     cancelActiveTask,
+    cancelTask,
+    removeQueued,
+    resumeQueued,
     disconnect,
   }
 })

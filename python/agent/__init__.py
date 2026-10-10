@@ -1,4 +1,4 @@
-"""NanamiGopher Python Agent Core."""
+"""MaigoKite Python Agent Core."""
 
 from agent.core import AgentCore
 

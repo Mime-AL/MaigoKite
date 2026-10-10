@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -20,7 +21,8 @@ from agent.models.chat_provider import ChatMessage, ChatStreamChunk, IChatProvid
 from agent.models.runtime import ChatModelRuntime, ChatModelSettings
 from agent.mcp import MCPClient
 from agent.observability import Observability
-from agent.repository import SQLiteRepository
+from agent.repository import ConversationBusyError, MessageReplay, SQLiteRepository
+from agent.process_registry import ProcessRegistry
 from agent.runtime import LangGraphRuntime, ProductToolSpec, RuntimeRunRequest
 from agent.security.injection_filter import InjectionFilter
 from agent.security.whitelist import Whitelist
@@ -78,7 +80,7 @@ class AgentCore:
         self.observability = observability
         self.provider = provider
         db_path = config.get(
-            "storage.sqlite_path", config.get("memory.storage.sqlite_path", "~/.nanamigopher/data/agent.db")
+            "storage.sqlite_path", config.get("memory.storage.sqlite_path", "~/.maigokite/data/agent.db")
         )
         self.repository = repository or SQLiteRepository(db_path)
         self.models = ChatModelRuntime(config, self.repository)
@@ -143,6 +145,7 @@ class AgentCore:
             raise ValueError("agent.runtime must be 'legacy' or 'langgraph'")
         self._langgraph_runtime: LangGraphRuntime | None = None
         self._langgraph_entry_tasks: set[asyncio.Task[Any]] = set()
+        self.processes = ProcessRegistry()
 
     async def initialize(self) -> None:
         if self._initialized:
@@ -212,13 +215,17 @@ class AgentCore:
         return interrupted
 
     async def shutdown(self) -> None:
-        if self._langgraph_runtime is not None:
-            await self._langgraph_runtime.close()
-            self._langgraph_runtime = None
+        # Stop admission and drain entry tasks before closing their shared clients.
+        self._initialized = False
         current = asyncio.current_task()
         entries = [task for task in self._langgraph_entry_tasks if task is not current]
         if entries:
+            for task in entries:
+                task.cancel()
             await asyncio.gather(*entries, return_exceptions=True)
+        if self._langgraph_runtime is not None:
+            await self._langgraph_runtime.close()
+            self._langgraph_runtime = None
         await self._stop_mcp_servers()
         if self._browser is not None:
             await self._browser.close()
@@ -315,6 +322,9 @@ class AgentCore:
 
     async def _initialize_langgraph_runtime(self) -> None:
         """Reuse product tools; LangChain owns all runtime invocation."""
+        from agent.tools.native.ask_user_question import AskUserQuestionTool
+
+        self._registry.register(AskUserQuestionTool())
         specs = [
             ProductToolSpec(tool, tool.to_langchain_tool())
             for tool in self._registry.list_tools() if tool.name != "bash"
@@ -329,13 +339,13 @@ class AgentCore:
                     "storage.sqlite_path",
                     self.config.get(
                         "memory.storage.sqlite_path",
-                        "~/.nanamigopher/data/agent.db",
+                        "~/.maigokite/data/agent.db",
                     ),
                 )
             )
             if db_value == ":memory:":
                 checkpoint_path = str(
-                    self._policy.workspace_root / ".nanami-langgraph-checkpoints.sqlite"
+                    self._policy.workspace_root / ".maigokite-langgraph-checkpoints.sqlite"
                 )
             else:
                 database_path = Path(db_value).expanduser()
@@ -376,10 +386,14 @@ class AgentCore:
         disabled = ["exec_command" if name == "bash" else name for name in disabled]
         available = {tool.name for tool in self._registry.list_tools()}
         known = available | set(ToolRegistry.DEFAULT_TOOLS) | {"sleep", "todo_write"}
+        if self._runtime_backend == "langgraph":
+            known.add("ask_user_question")
         if unknown := (set(defaults) | set(disabled)) - known:
             raise ValueError(f"unknown configured tools: {', '.join(sorted(unknown))}")
         # Connected MCP tools are selected at their server boundary first.
         defaults = set(defaults) | {name for name in available if "__" in name}
+        if self._runtime_backend == "langgraph":
+            defaults |= {"ask_user_question"}
         return defaults - {"bash"}, set(disabled) | {"bash"}
 
     async def get_tool_settings(self, workspace_id: str) -> dict[str, Any]:
@@ -428,24 +442,22 @@ class AgentCore:
 
     async def get_permission_settings(self, workspace_id: str) -> dict[str, Any]:
         stored = await self.repository.get_workspace_setting(workspace_id, "permissions.policy")
-        base_levels = {name: int(level) for name, level in self._policy.BASE_RISK.items()}
         if not isinstance(stored, dict):
-            return {"default_mode": self._policy.mode, "tool_levels": base_levels}
+            return {"default_mode": self._policy.mode}
         try:
             mode = self._policy.normalize_mode(str(stored.get("default_mode", self._policy.mode)))
         except ValueError:
             mode = self._policy.mode
-        return {"default_mode": mode, "tool_levels": base_levels}
+        return {"default_mode": mode}
 
     async def update_permission_settings(
-        self, workspace_id: str, default_mode: str, tool_levels: dict[str, int]
+        self, workspace_id: str, default_mode: str
     ) -> dict[str, Any]:
         try:
             default_mode = self._policy.normalize_mode(default_mode)
         except ValueError:
             raise ValueError("invalid permission mode")
-        normalized = {name: int(base) for name, base in self._policy.BASE_RISK.items()}
-        value = {"default_mode": default_mode, "tool_levels": normalized}
+        value = {"default_mode": default_mode}
         await self.repository.save_workspace_setting(workspace_id, "permissions.policy", value)
         return value
 
@@ -456,6 +468,7 @@ class AgentCore:
         model_id: str = "",
         permission_mode: str | None = None,
         response_mode: str = "balanced",
+        folder_id: str = "",
     ) -> dict[str, Any]:
         mode = permission_mode or (await self.get_permission_settings(workspace_id))["default_mode"]
         try:
@@ -468,7 +481,7 @@ class AgentCore:
             await self.models.get_profile(workspace_id, model_id)
         else:
             _, model_id = await self.models.list_settings(workspace_id)
-        return await self.repository.create_conversation(workspace_id, title, model_id, mode, response_mode)
+        return await self.repository.create_conversation(workspace_id, title, model_id, mode, response_mode, folder_id)
 
     async def update_conversation_permission(
         self, workspace_id: str, conversation_id: str, permission_mode: str
@@ -487,7 +500,18 @@ class AgentCore:
         model_id: str | None = None,
         response_mode: str | None = None,
         permission_mode: str | None = None,
+        title: str | None = None,
+        folder_id: str | None = None,
+        archived: bool | None = None,
     ) -> dict[str, Any]:
+        if folder_id is not None or archived is not None:
+            self._require_inactive_conversation(conversation_id)
+        if folder_id is not None:
+            await self.get_workspace_folder(workspace_id, folder_id)
+        if title is not None:
+            title = title.strip()
+            if not title or len(title) > 200:
+                raise ValueError("对话名称须为 1–200 个字符。")
         if permission_mode is not None:
             try:
                 permission_mode = self._policy.normalize_mode(permission_mode)
@@ -503,6 +527,9 @@ class AgentCore:
             model_id=model_id,
             response_mode=response_mode,
             permission_mode=permission_mode,
+            title=title,
+            folder_id=folder_id,
+            archived=archived,
         )
 
     async def list_conversations(self, workspace_id: str = "personal") -> list[dict[str, Any]]:
@@ -511,8 +538,45 @@ class AgentCore:
     async def get_conversation(self, workspace_id: str, conversation_id: str) -> dict[str, Any]:
         return await self.repository.get_conversation(workspace_id, conversation_id)
 
+    def _require_inactive_conversation(self, conversation_id: str) -> None:
+        if self._langgraph_runtime is not None and self._langgraph_runtime.has_active_conversation(conversation_id):
+            raise ConversationBusyError("此对话的任务尚未结束，请稍后再管理。")
+
     async def delete_conversation(self, workspace_id: str, conversation_id: str) -> None:
-        await self.repository.delete_conversation(workspace_id, conversation_id)
+        self._require_inactive_conversation(conversation_id)
+        task_ids = await self.repository.delete_conversation(workspace_id, conversation_id)
+        if self._langgraph_runtime is not None:
+            await self._langgraph_runtime.delete_threads(task_ids)
+
+    async def get_workspace_folder(self, workspace_id: str, folder_id: str) -> dict[str, Any]:
+        if not folder_id:
+            return {"id": "", "name": "默认工作区", "root_path": str(self._policy.workspace_root)}
+        item = await self.repository.get_workspace_folder(workspace_id, folder_id)
+        root = Path(item["root_path"])
+        if not root.is_dir() or str(root.resolve(strict=True)) != item["root_path"]:
+            raise ValueError("工作区文件夹不存在或路径已变更，请重新选择文件夹。")
+        return item
+
+    async def list_workspace_folders(self, workspace_id: str) -> list[dict[str, Any]]:
+        return [await self.get_workspace_folder(workspace_id, ""),
+                *await self.repository.list_workspace_folders(workspace_id)]
+
+    async def create_workspace_folder(self, workspace_id: str, root_path: str, name: str = "") -> dict[str, Any]:
+        if not root_path.strip() or len(root_path) > 4096 or "\0" in root_path:
+            raise ValueError("请选择有效的文件夹。")
+        root = Path(root_path).expanduser()
+        if not root.is_absolute():
+            raise ValueError("工作区文件夹须使用绝对路径。")
+        root = root.resolve(strict=True)
+        if not root.is_dir():
+            raise ValueError("工作区路径不是文件夹。")
+        self._policy.for_workspace(root)  # Preserve the existing filesystem-root boundary.
+        if root == self._policy.workspace_root:
+            return await self.get_workspace_folder(workspace_id, "")
+        name = name.strip() or root.name
+        if len(name) > 120:
+            raise ValueError("工作区名称不能超过 120 个字符。")
+        return await self.repository.create_workspace_folder(workspace_id, name, str(root))
 
     async def list_messages(self, conversation_id: str, workspace_id: str = "personal") -> list[dict[str, Any]]:
         await self.repository.get_conversation(workspace_id, conversation_id)
@@ -521,9 +585,32 @@ class AgentCore:
     async def run(self, prompt: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self._initialized:
             raise RuntimeError("Agent Core is not initialized")
+        metadata = dict(metadata or {})
+        key = str(metadata.get("idempotency_key") or "")
+        if key:
+            if len(key) > 128 or not key.isascii() or any(ord(char) < 33 or ord(char) > 126 for char in key):
+                raise ValueError("Idempotency-Key must contain 1 to 128 printable ASCII characters without spaces")
+            conversation_id = str(metadata.get("conversation_id") or metadata.get("session_id") or "")
+            if not conversation_id:
+                raise ValueError("a conversation is required for an idempotent message")
+            workspace_id = str(metadata.get("workspace_id", "personal"))
+            await self.repository.get_conversation(workspace_id, conversation_id)
+            identity = "\x00".join((workspace_id, conversation_id, str(metadata.get("principal_id", "local-user")), key))
+            metadata["task_id"] = "task_" + hashlib.sha256(identity.encode()).hexdigest()
+            body = json.dumps({"content": prompt, "attachments": metadata.get("attachments", [])},
+                              sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            metadata["request_hash"] = hashlib.sha256(body.encode()).hexdigest()
+        try:
+            if key:
+                await self.repository.check_message_replay(workspace_id, metadata["task_id"], metadata["request_hash"])
+            return await self._run_chat(prompt, metadata)
+        except MessageReplay as replay:
+            return {"task_id": replay.task["id"], "conversation_id": replay.task["conversation_id"],
+                    "status": replay.task["status"], "replayed": True}
+
+    async def _run_chat(self, prompt: str, metadata: dict[str, Any]) -> dict[str, Any]:
         prompt = self._input_filter.sanitize_input(prompt)
-        metadata = metadata or {}
-        if self._runtime_backend == "langgraph" and not prompt.startswith("/tool "):
+        if self._runtime_backend == "langgraph":
             return await self._track_langgraph_entry(
                 self._run_langgraph_chat(prompt, metadata)
             )
@@ -538,11 +625,12 @@ class AgentCore:
             except KeyError:
                 conversation_id = (await self.create_conversation(workspace_id, title=prompt[:30]))["id"]
 
-        task = await self._task_manager.create_task(prompt[:60] or "message", prompt)
+        task_id = str(metadata.get("task_id") or f"task_{uuid.uuid4().hex}")
+        await self.repository.start_chat_turn(task_id, workspace_id, conversation_id, prompt,
+                                              str(metadata.get("request_hash") or ""))
+        task = await self._task_manager.create_task(prompt[:60] or "message", prompt, task_id=task_id)
         await self._task_manager.update_status(task.id, TaskStatus.RUNNING)
-        await self.repository.create_task_state(task.id, workspace_id, conversation_id, task.title, "running", prompt)
         trace_id = str(metadata.get("trace_id") or f"trace_{uuid.uuid4().hex}")
-        await self.repository.append_message(conversation_id, "user", prompt)
         await self.event_bus.publish(
             "task.started", {"task_id": task.id, "trace_id": trace_id, "conversation_id": conversation_id}
         )
@@ -627,12 +715,15 @@ class AgentCore:
         conversation = await self.repository.get_conversation(
             workspace_id, conversation_id
         )
+        await self.get_workspace_folder(workspace_id, str(conversation.get("folder_id") or ""))
         request = RuntimeRunRequest(
             workspace_id=workspace_id,
             conversation_id=conversation_id,
             principal_id=principal_id,
             permission_mode=str(conversation["permission_mode"]),
             trace_id=str(metadata.get("trace_id") or f"trace_{uuid.uuid4().hex}"),
+            task_id=str(metadata.get("task_id") or ""),
+            request_hash=str(metadata.get("request_hash") or ""),
         )
         handle = await runtime.start(prompt, request)
         try:
@@ -665,6 +756,11 @@ class AgentCore:
         task = await self.repository.get_task(workspace_id, task_id)
         status = str(task["status"])
         if status == "waiting_approval":
+            questions = [item for item in await self.repository.list_questions(workspace_id, conversation_id)
+                         if str(item["task_id"]) == task_id]
+            if questions:
+                return {"task_id": task_id, "conversation_id": conversation_id,
+                        "status": status, "questions": questions}
             approvals = await self.repository.list_approvals(
                 workspace_id, conversation_id
             )
@@ -949,7 +1045,7 @@ class AgentCore:
         approved: bool = False,
     ) -> dict[str, Any]:
         conversation = await self.repository.get_conversation(workspace_id, conversation_id)
-        permission_settings = await self.get_permission_settings(workspace_id)
+        folder = await self.get_workspace_folder(workspace_id, str(conversation.get("folder_id") or ""))
         api_keys = {
             service: secret
             for (scope, service), secret in self._tool_credentials.items()
@@ -960,9 +1056,9 @@ class AgentCore:
             "conversation_id": conversation_id,
             "principal_id": principal_id,
             "permission_mode": conversation["permission_mode"],
-            "tool_risk_levels": permission_settings["tool_levels"],
+            "process_registry": self.processes,
             "approved": approved,
-            "workspace_root": str(self._policy.workspace_root),
+            "workspace_root": folder["root_path"],
             "api_keys": api_keys,
             "enabled_tools": await self._enabled_tool_names(workspace_id),
         }
@@ -1152,6 +1248,12 @@ class AgentCore:
                 "data": result.data,
             },
         )
+        change = result.metadata.get("file_change")
+        if isinstance(change, dict):
+            await self.event_bus.publish("file.changed", {
+                **change, "task_id": task_id, "conversation_id": conversation_id,
+                "tool_call_id": call.id,
+            })
 
     async def _run_tool_command(self, prompt: str, task_id: str, trace_id: str, metadata: dict[str, Any]) -> str:
         try:
@@ -1204,6 +1306,8 @@ class AgentCore:
             "status": approval["status"],
             "version": int(approval["version"]),
             "expires_at": approval["expires_at"],
+            "note": approval.get("note", ""),
+            "decided_at": approval.get("decided_at") or "",
         }
 
     async def list_approvals(self, workspace_id: str, conversation_id: str | None = None) -> list[dict[str, Any]]:
@@ -1218,6 +1322,7 @@ class AgentCore:
         principal_id: str,
         decision: str,
         version: int,
+        note: str = "",
     ) -> dict[str, Any]:
         if self._langgraph_runtime is not None:
             pending = await self.repository.get_approval(workspace_id, approval_id)
@@ -1232,16 +1337,11 @@ class AgentCore:
                         version,
                         task_id,
                         str(pending["conversation_id"]),
+                        note,
                     )
                 )
-        approval = await self.repository.decide_approval(workspace_id, approval_id, principal_id, decision, version)
-        await self.repository.record_audit(
-            workspace_id,
-            principal_id,
-            "approval.decided",
-            approval_id,
-            "approved" if decision == "allow" else "denied",
-            {"tool_call_id": approval["tool_call_id"], "tool_name": approval["tool_name"]},
+        approval = await self.repository.decide_approval(
+            workspace_id, approval_id, principal_id, decision, version, note,
         )
         payload = self._approval_payload(approval)
         payload["decision"] = decision
@@ -1425,6 +1525,7 @@ class AgentCore:
         version: int,
         task_id: str,
         conversation_id: str,
+        note: str = "",
     ) -> dict[str, Any]:
         runtime = self._langgraph_runtime
         if runtime is None:
@@ -1435,6 +1536,7 @@ class AgentCore:
             principal_id,
             decision,
             version,
+            note,
         )
         try:
             await handle.collect()
@@ -1456,6 +1558,58 @@ class AgentCore:
 
     async def get_task(self, workspace_id: str, task_id: str) -> dict[str, Any]:
         return await self.repository.get_task(workspace_id, task_id)
+
+    async def answer_question(self, workspace_id: str, question_id: str, principal_id: str,
+                              answer: str, version: int) -> dict[str, Any]:
+        return await self._track_langgraph_entry(
+            self._answer_question(workspace_id, question_id, principal_id, answer, version),
+        )
+
+    async def _answer_question(self, workspace_id: str, question_id: str, principal_id: str,
+                               answer: str, version: int) -> dict[str, Any]:
+        runtime = self._langgraph_runtime
+        if runtime is None:
+            raise NotImplementedError("structured questions require the LangGraph runtime")
+        handle = await runtime.answer_question(workspace_id, question_id, principal_id, answer, version)
+        try:
+            await handle.collect()
+            await handle.wait()
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                await asyncio.shield(handle.cancel())
+                raise
+        return await self._langgraph_result(workspace_id, handle.request.task_id, handle.request.conversation_id)
+
+    async def list_jobs(self, workspace_id: str, conversation_id: str = "") -> list[dict[str, Any]]:
+        jobs = []
+        for call in await self.repository.list_command_calls(workspace_id, conversation_id):
+            result = json.loads(call["result_json"] or "{}")
+            data = result.get("data", result)
+            data = data if isinstance(data, dict) else {}
+            status = str(call["status"])
+            active = self.processes.snapshot(workspace_id, str(call["id"]))
+            if active is None and "return_code" not in data:
+                # A proposal (or sandbox setup failure) is not a spawned job.
+                continue
+            if not active and status == "running" and call["task_status"] in {"interrupted", "cancelled", "failed"}:
+                status = str(call["task_status"])
+            jobs.append({
+                "id": str(call["id"]), "task_id": str(call["task_id"]),
+                "conversation_id": str(call["conversation_id"]), "command": str(json.loads(call["arguments_json"]).get("command", "")),
+                "status": status, "live": bool(active and active["live"]),
+                "live_logs_available": bool(active and active["live_logs_available"]),
+                "log_tail": str(active["log_tail"]) if active else "\n".join(
+                    str(data.get(key) or "")[-4000:] for key in ("stdout", "stderr")),
+            })
+        return jobs
+
+    async def stop_job(self, workspace_id: str, job_id: str, principal_id: str = "local-user") -> None:
+        call = await self.repository.get_tool_call(job_id)
+        if call["workspace_id"] != workspace_id or call["tool_name"] not in {"exec_command", "bash"}:
+            raise KeyError(job_id)
+        await self.processes.stop(workspace_id, job_id)
+        await self.repository.record_audit(workspace_id, principal_id, "process.stopped", job_id, "success", {})
 
     async def list_tasks(self, workspace_id: str, conversation_id: str = "", limit: int = 100) -> list[dict[str, Any]]:
         return await self.repository.list_tasks(workspace_id, conversation_id, limit)

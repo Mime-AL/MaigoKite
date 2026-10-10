@@ -21,13 +21,13 @@ func (s *osKeyring) Save(service, username, secret string) error {
 	if strings.TrimSpace(service) == "" || strings.TrimSpace(username) == "" || secret == "" {
 		return errors.New("service, username, and secret are required")
 	}
-	return keyring.Set("NanamiGopher/"+service, username, secret)
+	return keyring.Set("MaigoKite/"+service, username, secret)
 }
 func (s *osKeyring) Get(service, username string) (string, error) {
-	return keyring.Get("NanamiGopher/"+service, username)
+	return keyring.Get("MaigoKite/"+service, username)
 }
 func (s *osKeyring) Delete(service, username string) error {
-	return keyring.Delete("NanamiGopher/"+service, username)
+	return keyring.Delete("MaigoKite/"+service, username)
 }
 func (s *osKeyring) List(string) ([]string, error) { return nil, ErrListUnsupported }
 

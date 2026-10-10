@@ -1,0 +1,28 @@
+@mixin floating {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  box-shadow: var(--shadow-float);
+}
+@mixin ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Shared feedback for flat rows, tabs and menus; selected states stay local. */
+@mixin interactive-row {
+  transition: var(--control-transition);
+  @media (hover: hover) {
+    &:not(:disabled, [aria-disabled='true']):hover {
+      background: var(--control-hover);
+    }
+  }
+  &:not(:disabled, [aria-disabled='true']):focus-visible {
+    background: var(--control-hover);
+  }
+  &:not(:disabled, [aria-disabled='true']):active {
+    background: var(--control-pressed);
+    translate: var(--press-offset);
+    transition-duration: var(--motion-press);
+  }
+}

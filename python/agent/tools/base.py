@@ -90,7 +90,9 @@ class BaseTool(ABC):
                 model_payload.pop("raw", None)
             return ToolMessage(
                 content=json.dumps(model_payload, ensure_ascii=False, default=str),
-                artifact=payload,
+                # UI evidence is retained as an artifact, not duplicated in
+                # model context. It is never a trusted authorization input.
+                artifact={**payload, "file_change": result.metadata.get("file_change")},
                 tool_call_id=str(runtime.tool_call_id),
                 name=self.name,
                 status="success" if result.success else "error",

@@ -3,43 +3,35 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "nanamigopher-agent"
+name = "maigokite-agent"
 version = "0.1.0"
-description = "NanamiGopher AI Agent - Python backend"
+description = "MaigoKite AI Agent - Python backend"
 readme = "README.md"
-license = { text = "MIT" }
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [
-    { name = "NanamiGopher Team", email = "team@nanamigopher.io" },
+    { name = "NanamiKite" },
 ]
 dependencies = [
     "langchain>=1.3.14,<2",
     "langchain-core>=1.5.0,<2",
     "langchain-openai>=0.2.0",
     "langchain-anthropic>=1.4.8,<2",
-    "langchain-community>=0.3.0",
-    "langchain_ollama>=0.2.0",
+    "langchain-ollama>=0.2.0",
     "langgraph>=1.2.9,<2",
     "langgraph-checkpoint-sqlite>=3.1.1",
     "aiosqlite>=0.20.0",
+    # Maintained 1.x SDK: stdio parity without the v2 protocol/HTTP-stack migration.
+    "mcp>=1.28,<2",
     "grpcio>=1.65.0",
-    "grpcio-tools>=1.65.0",
     "protobuf>=5.0.0",
     "httpx>=0.27.0",
-    "aiohttp>=3.9.0",
     "pydantic>=2.0.0",
     "jsonschema>=4.26.0,<5",
     "referencing>=0.37.0,<1",
-    "pydantic-settings>=2.0.0",
     "pyyaml>=6.0",
-    "structlog>=24.0.0",
-    "opentelemetry-api>=1.28.0",
-    "opentelemetry-sdk>=1.28.0",
-    "opentelemetry-exporter-otlp>=1.28.0",
-    "tenacity>=9.0.0",
-    "rich>=13.0.0",
     "click>=8.0.0",
-    "aiofiles>=24.0.0",
     "duckduckgo-search>=6.0.0",
     "markdownify>=0.11.0",
     "playwright>=1.48.0",
@@ -47,6 +39,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "grpcio-tools>=1.65.0",
+    "aiohttp>=3.9.0",
+    "build>=1.2.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
@@ -56,15 +51,14 @@ dev = [
     "pre-commit>=3.7.0",
 ]
 vectorstores = [
+    # Experimental adapters only; not a delivered knowledge/indexing feature.
+    "langchain-community>=0.3.0",
     "chromadb>=0.5.0",
     "qdrant-client>=1.11.0",
 ]
-sandbox = [
-    "docker>=7.0.0",
-]
 
 [project.scripts]
-nanami-agent = "agent.main:main_cli"
+maigokite-agent = "agent.main:main_cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["python/agent"]
@@ -85,5 +79,5 @@ warn_return_any = true
 
 # ---- Pytest ----
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["python/tests"]
 asyncio_mode = "auto"

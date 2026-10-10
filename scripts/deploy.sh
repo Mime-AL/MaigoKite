@@ -15,7 +15,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 ENVIRONMENT="${1:-development}"
 
-info "Deploying NanamiGopher (environment: $ENVIRONMENT)..."
+info "Deploying MaigoKite (environment: $ENVIRONMENT)..."
 
 # Select config file
 case "$ENVIRONMENT" in

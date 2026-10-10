@@ -1,138 +1,97 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import IconSymbol from '@/components/common/IconSymbol.vue'
+import { useSettingsStore } from '@/stores/settings'
 import ModelSettingsPanel from '@/components/settings/ModelSettingsPanel.vue'
+import ToolSettingsPanel from '@/components/settings/ToolSettingsPanel.vue'
 import PermissionSettingsPanel from '@/components/settings/PermissionSettingsPanel.vue'
 import RuntimeStatusPanel from '@/components/settings/RuntimeStatusPanel.vue'
-import ToolSettingsPanel from '@/components/settings/ToolSettingsPanel.vue'
-import { useSettingsStore } from '@/stores/settings'
-
-type SettingsTab = 'models' | 'tools' | 'permissions' | 'workspace' | 'general'
-
-const settings = useSettingsStore()
-const route = useRoute()
-const router = useRouter()
-const isSettingsTab = (value: unknown): value is SettingsTab =>
-  ['models', 'tools', 'permissions', 'workspace', 'general'].includes(String(value))
-const activeTab = ref<SettingsTab>(isSettingsTab(route.query.tab) ? route.query.tab : 'models')
-const profileDraft = reactive({ assistantName: settings.profile.assistantName })
-const tabs: Array<{ id: SettingsTab; label: string; icon: string }> = [
-  { id: 'models', label: '模型服务', icon: 'brain' },
-  { id: 'tools', label: '工具', icon: 'globe' },
-  { id: 'permissions', label: '权限', icon: 'shield' },
-  { id: 'workspace', label: '工作区', icon: 'folder' },
-  { id: 'general', label: '通用', icon: 'settings' },
+import AppearanceSettingsPanel from '@/components/settings/AppearanceSettingsPanel.vue'
+const route = useRoute(),
+  router = useRouter(),
+  settings = useSettingsStore()
+const tabs = [
+  { id: 'general', label: '外观与称呼' },
+  { id: 'models', label: '模型' },
+  { id: 'tools', label: '工具' },
+  { id: 'permissions', label: '权限' },
+  { id: 'workspace', label: '工作区' },
 ]
-
+const activeTab = ref(
+  tabs.some((t) => t.id === route.query.tab) ? String(route.query.tab) : 'general',
+)
 watch(
   () => route.query.tab,
-  (tab) => {
-    if (isSettingsTab(tab)) activeTab.value = tab
+  (value) => {
+    activeTab.value = tabs.some((t) => t.id === value) ? String(value) : 'general'
   },
 )
-
-function selectTab(tab: SettingsTab) {
-  activeTab.value = tab
-  void router.replace({ query: { ...route.query, tab } })
+function selectTab(id: string) {
+  activeTab.value = id
+  void router.replace({ query: { ...route.query, tab: id } })
 }
-
-onMounted(async () => {
-  await Promise.all([settings.loadSettings(), settings.loadPreferences(), settings.loadPermissionSettings()])
-  profileDraft.assistantName = settings.profile.assistantName
+onMounted(() => {
+  void settings.loadPreferences()
+  void settings.loadPermissionSettings()
+  if (!settings.loaded) void settings.loadSettings()
 })
-
-async function handleSavePreferences() {
-  const saved = await settings.savePreferences(profileDraft.assistantName)
-  if (saved) profileDraft.assistantName = settings.profile.assistantName
-}
 </script>
-
 <template>
   <main class="page-shell settings-page">
-    <header class="settings-heading">
-      <div>
-        <h1 class="page-title">设置</h1>
-        <p class="page-subtitle">管理助手称呼、模型、可用工具和执行权限。</p>
-      </div>
+    <header>
+      <h1 class="page-title">设置</h1>
+      <p class="page-subtitle">让它按你的方式工作。</p>
     </header>
-
     <nav class="settings-tabs" aria-label="设置分类">
       <button
         v-for="tab in tabs"
         :key="tab.id"
-        type="button"
-        :class="{ active: activeTab === tab.id }"
+        :aria-pressed="activeTab === tab.id"
         @click="selectTab(tab.id)"
       >
-        <IconSymbol :name="tab.icon" :size="16" />
         {{ tab.label }}
       </button>
     </nav>
-
-    <ModelSettingsPanel v-if="activeTab === 'models'" />
-    <ToolSettingsPanel v-else-if="activeTab === 'tools'" />
-    <PermissionSettingsPanel v-else-if="activeTab === 'permissions'" />
-    <RuntimeStatusPanel v-else-if="activeTab === 'workspace'" />
-
-    <section v-else class="general-card glass-card">
-      <header>
-        <span class="section-icon"><IconSymbol name="sparkles" :size="21" /></span>
-        <div><h2>界面称呼</h2><p>设置你希望在对话和工作区中看到的助手名称。</p></div>
-      </header>
-      <label class="setting-row">
-        <span><strong>助手称呼</strong><small>用于侧栏、欢迎页和对话提示。</small></span>
-        <input v-model.trim="profileDraft.assistantName" type="text" maxlength="32" placeholder="例如：小七">
-      </label>
-      <div class="identity-preview">
-        <span>{{ Array.from(profileDraft.assistantName || '助')[0] }}</span>
-        <div><strong>{{ profileDraft.assistantName || '助手' }}</strong><small>界面预览</small></div>
-      </div>
-      <footer>
-        <button
-          class="primary-button"
-          type="button"
-          :disabled="!profileDraft.assistantName.trim() || settings.saving"
-          @click="handleSavePreferences"
-        >
-          {{ settings.saving ? '正在保存…' : '保存称呼' }}
-        </button>
-      </footer>
-    </section>
-
-    <div v-if="settings.error" class="notice" role="alert">
-      <IconSymbol name="alert" :size="16" /><span>{{ settings.error }}</span>
-    </div>
-    <div v-else-if="settings.success" class="notice success-notice" role="status">
-      <IconSymbol name="check" :size="16" /><span>{{ settings.success }}</span>
-    </div>
+    <AppearanceSettingsPanel v-if="activeTab === 'general'" /><ModelSettingsPanel
+      v-else-if="activeTab === 'models'"
+    /><ToolSettingsPanel v-else-if="activeTab === 'tools'" /><PermissionSettingsPanel
+      v-else-if="activeTab === 'permissions'"
+    /><RuntimeStatusPanel v-else />
+    <p v-if="settings.error" class="error-banner" role="alert">{{ settings.error }}</p>
+    <p v-else-if="settings.success" class="notice" role="status">{{ settings.success }}</p>
   </main>
 </template>
-
 <style scoped lang="scss">
-.settings-page { display: flex; flex-direction: column; gap: 22px; }
-.settings-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
-.settings-tabs { display: inline-flex; align-self: flex-start; gap: 3px; padding: 4px; border: 1px solid var(--border-color); border-radius: 14px; background: var(--surface-strong); }
-.settings-tabs button { display: flex; height: 34px; align-items: center; gap: 7px; padding: 0 14px; border: 0; border-radius: 10px; color: var(--text-secondary); background: transparent; cursor: pointer; font-size: 11px; font-weight: 600; }
-.settings-tabs button.active { color: var(--text-primary); background: var(--surface-solid); box-shadow: 0 2px 8px rgba(28, 35, 48, 0.1); }
-.general-card { overflow: hidden; }
-.general-card > header { display: flex; align-items: center; gap: 13px; padding: 20px 22px; border-bottom: 1px solid var(--border-color); }
-.general-card > header h2 { margin: 0; font-size: 16px; letter-spacing: -0.025em; }
-.general-card > header p { margin: 4px 0 0; color: var(--text-secondary); font-size: 10.5px; }
-.section-icon { display: grid; width: 43px; height: 43px; flex: none; place-items: center; border-radius: 13px; color: #8a63d2; background: rgba(138, 99, 210, 0.13); }
-.setting-row { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 28px; margin-left: 22px; padding: 14px 22px 14px 0; border-bottom: 1px solid var(--border-color); }
-.setting-row > span { min-width: 0; display: flex; flex-direction: column; }
-.setting-row strong { font-size: 11.5px; font-weight: 650; }
-.setting-row small { margin-top: 4px; color: var(--text-tertiary); font-size: 9.5px; line-height: 1.35; }
-.setting-row input { width: min(320px, 48%); height: 38px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 10px; outline: none; color: var(--text-primary); background: var(--surface-muted); font-size: 10.5px; transition: border-color 150ms ease, box-shadow 150ms ease; }
-.setting-row input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px var(--focus-ring); }
-.identity-preview { display: flex; align-items: center; gap: 11px; margin: 16px 22px; padding: 13px; border-radius: 13px; background: var(--surface-muted); }
-.identity-preview > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 12px; color: #fff; background: linear-gradient(145deg, #4b91ff, #8a69e8); font-weight: 750; }
-.identity-preview > div { display: flex; flex-direction: column; }
-.identity-preview strong { font-size: 12px; }
-.identity-preview small { margin-top: 3px; color: var(--text-tertiary); font-size: 9.5px; }
-.general-card footer { display: flex; justify-content: flex-end; padding: 15px 20px; background: var(--surface-muted); }
-.general-card footer .primary-button { min-height: 34px; font-size: 10.5px; }
-.notice { display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border-radius: 12px; color: var(--warning); background: var(--warning-soft); font-size: 10.5px; line-height: 1.45; }
-.success-notice { color: var(--success); background: var(--success-soft); }
+@use '@/styles/mixins' as mixins;
+.settings-page {
+  display: grid;
+  gap: 28px;
+}
+.settings-tabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  border-bottom: 1px solid var(--rule);
+  overflow-x: auto;
+}
+.settings-tabs button {
+  @include mixins.interactive-row;
+  border: 0;
+  border-bottom: 2px solid var(--transparent);
+  border-radius: var(--radius-none);
+  padding: 10px 8px 14px;
+  color: var(--ink-3);
+  background: var(--transparent);
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+.settings-tabs button[aria-pressed='true'] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: var(--weight-semibold);
+}
+.notice {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
 </style>

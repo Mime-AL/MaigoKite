@@ -15,7 +15,7 @@ info()  { echo -e "${GREEN}[DEV]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
 export APP_ENV="development"
-export NANAMI_WORKSPACE_ROOT="${NANAMI_WORKSPACE_ROOT:-$PROJECT_ROOT}"
+export MAIGOKITE_WORKSPACE_ROOT="${MAIGOKITE_WORKSPACE_ROOT:-$PROJECT_ROOT}"
 
 cleanup() {
   info "Shutting down development servers..."
@@ -25,14 +25,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-info "Starting NanamiGopher development environment..."
+info "Starting MaigoKite development environment..."
 echo ""
 
 # --- Go API server ---
 info "Starting Go API server on :8080..."
 (
   cd "$PROJECT_ROOT/gateway"
-  NANAMI_CONFIG="$PROJECT_ROOT/config/config.dev.yaml" go run ./cmd/gateway 2>&1
+  MAIGOKITE_CONFIG="$PROJECT_ROOT/config/config.dev.yaml" go run ./cmd/gateway 2>&1
 ) &
 GO_PID=$!
 info "Go API PID: $GO_PID"
@@ -40,8 +40,8 @@ info "Go API PID: $GO_PID"
 # --- Python Agent server ---
 info "Starting Python agent on :8081..."
 if [ -d "$PROJECT_ROOT/python" ]; then
-  PYTHON_BIN="${NANAMI_PYTHON:-python3}"
-  if [ -x "$PROJECT_ROOT/.venv/bin/python" ] && [ -z "${NANAMI_PYTHON:-}" ]; then
+  PYTHON_BIN="${MAIGOKITE_PYTHON:-python3}"
+  if [ -x "$PROJECT_ROOT/.venv/bin/python" ] && [ -z "${MAIGOKITE_PYTHON:-}" ]; then
     PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
   fi
   (

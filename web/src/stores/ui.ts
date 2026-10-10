@@ -1,0 +1,146 @@
+import { computed, onScopeDispose, ref, watch } from 'vue'
+import { defineStore } from 'pinia'
+import { useLayoutStore } from './layout'
+import { desktopEffects } from '@/composables/useElectron'
+
+export type ThemeMode = 'system' | 'light' | 'dark'
+export type Accent = 'stone' | 'blue' | 'green' | 'earth' | 'lotus' | 'ink'
+export interface Appearance {
+  theme: ThemeMode
+  accent: Accent
+  texture: boolean
+  greetingName: string
+  avatar: string
+  capsuleShortcut: string
+}
+export const accents: Array<{ id: Accent; label: string }> = [
+  { id: 'stone', label: '石青' },
+  { id: 'blue', label: '黛蓝' },
+  { id: 'green', label: '竹青' },
+  { id: 'earth', label: '赭石' },
+  { id: 'lotus', label: '藕荷' },
+  { id: 'ink', label: '墨' },
+]
+export function validAppearance(value: unknown): value is Appearance {
+  if (!value || typeof value !== 'object') return false
+  const p = value as Record<string, unknown>
+  return (
+    ['system', 'light', 'dark'].includes(String(p.theme)) &&
+    accents.some((a) => a.id === p.accent) &&
+    typeof p.texture === 'boolean' &&
+    typeof p.greetingName === 'string' &&
+    p.greetingName.length <= 32 &&
+    typeof p.avatar === 'string' &&
+    Array.from(p.avatar).length === 1 &&
+    typeof p.capsuleShortcut === 'string' &&
+    p.capsuleShortcut.length <= 80
+  )
+}
+export const useUIStore = defineStore('ui', () => {
+  const fallback: Appearance = {
+    theme: 'system',
+    accent: 'stone',
+    texture: true,
+    greetingName: '你',
+    avatar: '助',
+    capsuleShortcut: 'Alt+Space',
+  }
+  const storageKey = import.meta.env.VITE_MOCK === '1' ? 'maigokite_inkline_demo' : 'maigokite_inkline'
+  let stored: unknown
+  try {
+    stored = JSON.parse(localStorage.getItem(storageKey) || 'null')
+  } catch {
+    stored = null
+  }
+  const appearance = ref<Appearance>(validAppearance(stored) ? stored : fallback)
+  const desktop = desktopEffects
+  let desktopReady = !desktop
+  const media = window.matchMedia?.('(prefers-color-scheme: dark)')
+  const systemDark = ref(media?.matches ?? false)
+  const theme = computed(() =>
+    appearance.value.theme === 'system'
+      ? systemDark.value
+        ? 'dark'
+        : 'light'
+      : appearance.value.theme,
+  )
+  const layout = useLayoutStore()
+  const drawerOpen = ref(false)
+  const drawerTab = ref<'changes' | 'jobs' | 'plan' | 'files'>('changes')
+  const inboxOpen = ref(false),
+    commandOpen = ref(false),
+    shortcutsOpen = ref(false)
+  function setAppearance(patch: Partial<Appearance>) {
+    const next = { ...appearance.value, ...patch }
+    if (validAppearance(next)) appearance.value = next
+  }
+  async function setCapsuleShortcut(value: string) {
+    const next = { ...appearance.value, capsuleShortcut: value }
+    if (!validAppearance(next)) throw new Error('快捷键格式不正确')
+    if (desktop) await desktop.setAppearance(next)
+    appearance.value = next
+  }
+  function openDrawer(tab = drawerTab.value) {
+    drawerTab.value = tab
+    drawerOpen.value = true
+  }
+  function closeOverlays() {
+    drawerOpen.value = inboxOpen.value = commandOpen.value = shortcutsOpen.value = false
+  }
+  function apply() {
+    document.documentElement.dataset.theme = theme.value
+    document.documentElement.dataset.accent = appearance.value.accent
+    document.documentElement.dataset.texture = String(appearance.value.texture)
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(appearance.value))
+    } catch {
+      /* Storage may be unavailable. */
+    }
+  }
+  const onSystem = (event: MediaQueryListEvent) => {
+    systemDark.value = event.matches
+  }
+  media?.addEventListener('change', onSystem)
+  watch(
+    [appearance, theme],
+    () => {
+      apply()
+      if (desktopReady) void desktop?.setAppearance(appearance.value).catch(() => undefined)
+    },
+    { deep: true, immediate: true },
+  )
+  // Main owns cross-window appearance. Read it before publishing local defaults.
+  if (desktop)
+    void desktop
+      .getAppearance()
+      .then((value) => {
+        if (validAppearance(value)) appearance.value = value
+        desktopReady = true
+        return desktop.setAppearance(appearance.value)
+      })
+      .catch(() => {
+        desktopReady = true
+      })
+  const off = desktop?.onAppearance((value) => {
+    if (validAppearance(value) && JSON.stringify(value) !== JSON.stringify(appearance.value))
+      appearance.value = value
+  })
+  onScopeDispose(() => {
+    media?.removeEventListener('change', onSystem)
+    off?.()
+  })
+  return {
+    appearance,
+    theme,
+    layout,
+    drawerOpen,
+    drawerTab,
+    inboxOpen,
+    commandOpen,
+    shortcutsOpen,
+    setAppearance,
+    setCapsuleShortcut,
+    openDrawer,
+    closeOverlays,
+  }
+})

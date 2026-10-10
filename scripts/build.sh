@@ -18,7 +18,7 @@ BUILD_TYPE="${1:-all}"
 
 build_go() {
   info "Building Go API..."
-  local output="nanamigopher-api"
+  local output="maigokite-api"
   if [ "$BUILD_TYPE" != "go" ] && [ "$BUILD_TYPE" != "all" ]; then
     warn "Skipping Go build (requested: $BUILD_TYPE)"
     return
@@ -39,13 +39,12 @@ build_python() {
   fi
   mkdir -p "$PROJECT_ROOT/dist"
   if command -v uv &>/dev/null; then
-    TASK_UV_CACHE="/tmp/nanamigopher-uv-cache"
-    (cd "$PROJECT_ROOT/python" && UV_CACHE_DIR="$TASK_UV_CACHE" uv build --no-build-isolation --out-dir "$PROJECT_ROOT/dist" 2>&1) || error "uv build failed"
-  elif command -v poetry &>/dev/null; then
-    (cd "$PROJECT_ROOT/python" && poetry build 2>&1) || error "Poetry build failed"
-    cp "$PROJECT_ROOT"/python/dist/* "$PROJECT_ROOT/dist/"
+    TASK_UV_CACHE="/tmp/maigokite-uv-cache"
+    (cd "$PROJECT_ROOT" && UV_CACHE_DIR="$TASK_UV_CACHE" uv build --out-dir "$PROJECT_ROOT/dist" 2>&1) || error "uv build failed"
   else
-    (cd "$PROJECT_ROOT/python" && python -m build --outdir "$PROJECT_ROOT/dist" 2>&1) || error "Python build failed"
+    local build_python_bin="${MAIGOKITE_PYTHON:-$PROJECT_ROOT/.venv/bin/python}"
+    command -v "$build_python_bin" >/dev/null || error "Python environment missing; run scripts/setup.sh first"
+    (cd "$PROJECT_ROOT" && "$build_python_bin" -m build --outdir "$PROJECT_ROOT/dist" 2>&1) || error "Python build failed"
   fi
   info "Python wheel/sdist in dist/"
 }
@@ -66,7 +65,7 @@ build_vue() {
 
 echo ""
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  NanamiGopher Build ($BUILD_TYPE)${NC}"
+echo -e "${BLUE}  MaigoKite Build ($BUILD_TYPE)${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 

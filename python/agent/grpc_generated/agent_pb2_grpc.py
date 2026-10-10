@@ -35,197 +35,252 @@ class AgentServiceStub:
             channel: A grpc.Channel.
         """
         self.ProcessMessage = channel.unary_stream(
-                '/nanamigopher.agent.v1.AgentService/ProcessMessage',
+                '/maigokite.agent.v1.AgentService/ProcessMessage',
                 request_serializer=agent__pb2.ProcessMessageRequest.SerializeToString,
                 response_deserializer=agent__pb2.AgentEvent.FromString,
                 _registered_method=True)
         self.CreateConversation = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/CreateConversation',
+                '/maigokite.agent.v1.AgentService/CreateConversation',
                 request_serializer=agent__pb2.ConversationRequest.SerializeToString,
                 response_deserializer=agent__pb2.Conversation.FromString,
                 _registered_method=True)
         self.GetConversation = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/GetConversation',
+                '/maigokite.agent.v1.AgentService/GetConversation',
                 request_serializer=agent__pb2.ConversationRequest.SerializeToString,
                 response_deserializer=agent__pb2.Conversation.FromString,
                 _registered_method=True)
         self.ListConversations = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListConversations',
+                '/maigokite.agent.v1.AgentService/ListConversations',
                 request_serializer=agent__pb2.ListConversationsRequest.SerializeToString,
                 response_deserializer=agent__pb2.ConversationList.FromString,
                 _registered_method=True)
         self.DeleteConversation = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/DeleteConversation',
+                '/maigokite.agent.v1.AgentService/DeleteConversation',
                 request_serializer=agent__pb2.ConversationRequest.SerializeToString,
                 response_deserializer=agent__pb2.Empty.FromString,
                 _registered_method=True)
         self.UpdateConversationPermission = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/UpdateConversationPermission',
+                '/maigokite.agent.v1.AgentService/UpdateConversationPermission',
                 request_serializer=agent__pb2.ConversationPermissionRequest.SerializeToString,
                 response_deserializer=agent__pb2.Conversation.FromString,
                 _registered_method=True)
         self.UpdateConversationSettings = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/UpdateConversationSettings',
+                '/maigokite.agent.v1.AgentService/UpdateConversationSettings',
                 request_serializer=agent__pb2.ConversationSettingsRequest.SerializeToString,
                 response_deserializer=agent__pb2.Conversation.FromString,
                 _registered_method=True)
+        self.ListWorkspaceFolders = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/ListWorkspaceFolders',
+                request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
+                response_deserializer=agent__pb2.WorkspaceFolderList.FromString,
+                _registered_method=True)
+        self.CreateWorkspaceFolder = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/CreateWorkspaceFolder',
+                request_serializer=agent__pb2.WorkspaceFolderRequest.SerializeToString,
+                response_deserializer=agent__pb2.WorkspaceFolder.FromString,
+                _registered_method=True)
+        self.GetWorkspaceFolder = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/GetWorkspaceFolder',
+                request_serializer=agent__pb2.WorkspaceFolderRequest.SerializeToString,
+                response_deserializer=agent__pb2.WorkspaceFolder.FromString,
+                _registered_method=True)
         self.ListMessages = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListMessages',
+                '/maigokite.agent.v1.AgentService/ListMessages',
                 request_serializer=agent__pb2.ConversationRequest.SerializeToString,
                 response_deserializer=agent__pb2.MessageList.FromString,
                 _registered_method=True)
         self.GetTask = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/GetTask',
+                '/maigokite.agent.v1.AgentService/GetTask',
                 request_serializer=agent__pb2.TaskRequest.SerializeToString,
                 response_deserializer=agent__pb2.Task.FromString,
                 _registered_method=True)
         self.ListTasks = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListTasks',
+                '/maigokite.agent.v1.AgentService/ListTasks',
                 request_serializer=agent__pb2.TaskListRequest.SerializeToString,
                 response_deserializer=agent__pb2.TaskList.FromString,
                 _registered_method=True)
         self.CancelTask = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/CancelTask',
+                '/maigokite.agent.v1.AgentService/CancelTask',
                 request_serializer=agent__pb2.TaskRequest.SerializeToString,
                 response_deserializer=agent__pb2.Task.FromString,
                 _registered_method=True)
         self.ListTaskEvents = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListTaskEvents',
+                '/maigokite.agent.v1.AgentService/ListTaskEvents',
                 request_serializer=agent__pb2.TaskEventListRequest.SerializeToString,
                 response_deserializer=agent__pb2.TaskEventList.FromString,
                 _registered_method=True)
         self.ListApprovals = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListApprovals',
+                '/maigokite.agent.v1.AgentService/ListApprovals',
                 request_serializer=agent__pb2.ApprovalListRequest.SerializeToString,
                 response_deserializer=agent__pb2.ApprovalList.FromString,
                 _registered_method=True)
+        self.GetApproval = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/GetApproval',
+                request_serializer=agent__pb2.ApprovalRequest.SerializeToString,
+                response_deserializer=agent__pb2.Approval.FromString,
+                _registered_method=True)
+        self.GetTaskInspection = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/GetTaskInspection',
+                request_serializer=agent__pb2.TaskRequest.SerializeToString,
+                response_deserializer=agent__pb2.TaskInspection.FromString,
+                _registered_method=True)
+        self.ListQuestions = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/ListQuestions',
+                request_serializer=agent__pb2.ApprovalListRequest.SerializeToString,
+                response_deserializer=agent__pb2.QuestionList.FromString,
+                _registered_method=True)
+        self.AnswerQuestion = channel.unary_stream(
+                '/maigokite.agent.v1.AgentService/AnswerQuestion',
+                request_serializer=agent__pb2.QuestionAnswerRequest.SerializeToString,
+                response_deserializer=agent__pb2.AgentEvent.FromString,
+                _registered_method=True)
+        self.SubmitTaskInput = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/SubmitTaskInput',
+                request_serializer=agent__pb2.TaskInputRequest.SerializeToString,
+                response_deserializer=agent__pb2.TaskInput.FromString,
+                _registered_method=True)
+        self.ListTaskInputs = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/ListTaskInputs',
+                request_serializer=agent__pb2.TaskRequest.SerializeToString,
+                response_deserializer=agent__pb2.TaskInputList.FromString,
+                _registered_method=True)
+        self.ListJobs = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/ListJobs',
+                request_serializer=agent__pb2.TaskListRequest.SerializeToString,
+                response_deserializer=agent__pb2.JobList.FromString,
+                _registered_method=True)
+        self.StopJob = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/StopJob',
+                request_serializer=agent__pb2.JobRequest.SerializeToString,
+                response_deserializer=agent__pb2.Empty.FromString,
+                _registered_method=True)
         self.DecideApproval = channel.unary_stream(
-                '/nanamigopher.agent.v1.AgentService/DecideApproval',
+                '/maigokite.agent.v1.AgentService/DecideApproval',
                 request_serializer=agent__pb2.ApprovalDecisionRequest.SerializeToString,
                 response_deserializer=agent__pb2.AgentEvent.FromString,
                 _registered_method=True)
         self.CheckWorkspaceAccess = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/CheckWorkspaceAccess',
+                '/maigokite.agent.v1.AgentService/CheckWorkspaceAccess',
                 request_serializer=agent__pb2.WorkspaceAccessRequest.SerializeToString,
                 response_deserializer=agent__pb2.WorkspaceAccessResponse.FromString,
                 _registered_method=True)
         self.ListAuditEvents = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListAuditEvents',
+                '/maigokite.agent.v1.AgentService/ListAuditEvents',
                 request_serializer=agent__pb2.ListConversationsRequest.SerializeToString,
                 response_deserializer=agent__pb2.AuditEventList.FromString,
                 _registered_method=True)
         self.RecordAuditEvent = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/RecordAuditEvent',
+                '/maigokite.agent.v1.AgentService/RecordAuditEvent',
                 request_serializer=agent__pb2.AuditWriteRequest.SerializeToString,
                 response_deserializer=agent__pb2.Empty.FromString,
                 _registered_method=True)
         self.GetChatModelSettings = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/GetChatModelSettings',
+                '/maigokite.agent.v1.AgentService/GetChatModelSettings',
                 request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
                 response_deserializer=agent__pb2.ChatModelSettings.FromString,
                 _registered_method=True)
         self.UpdateChatModelSettings = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/UpdateChatModelSettings',
+                '/maigokite.agent.v1.AgentService/UpdateChatModelSettings',
                 request_serializer=agent__pb2.UpdateChatModelSettingsRequest.SerializeToString,
                 response_deserializer=agent__pb2.ChatModelSettings.FromString,
                 _registered_method=True)
         self.ListChatModels = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListChatModels',
+                '/maigokite.agent.v1.AgentService/ListChatModels',
                 request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
                 response_deserializer=agent__pb2.ChatModelList.FromString,
                 _registered_method=True)
         self.UpsertChatModel = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/UpsertChatModel',
+                '/maigokite.agent.v1.AgentService/UpsertChatModel',
                 request_serializer=agent__pb2.UpsertChatModelRequest.SerializeToString,
                 response_deserializer=agent__pb2.ChatModelSettings.FromString,
                 _registered_method=True)
         self.DeleteChatModel = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/DeleteChatModel',
+                '/maigokite.agent.v1.AgentService/DeleteChatModel',
                 request_serializer=agent__pb2.ChatModelRequest.SerializeToString,
                 response_deserializer=agent__pb2.Empty.FromString,
                 _registered_method=True)
         self.SetDefaultChatModel = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/SetDefaultChatModel',
+                '/maigokite.agent.v1.AgentService/SetDefaultChatModel',
                 request_serializer=agent__pb2.ChatModelRequest.SerializeToString,
                 response_deserializer=agent__pb2.ChatModelList.FromString,
                 _registered_method=True)
         self.ValidateChatModel = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ValidateChatModel',
+                '/maigokite.agent.v1.AgentService/ValidateChatModel',
                 request_serializer=agent__pb2.ValidateChatModelRequest.SerializeToString,
                 response_deserializer=agent__pb2.ModelValidationResponse.FromString,
                 _registered_method=True)
         self.SetChatModelCredential = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/SetChatModelCredential',
+                '/maigokite.agent.v1.AgentService/SetChatModelCredential',
                 request_serializer=agent__pb2.SetChatModelCredentialRequest.SerializeToString,
                 response_deserializer=agent__pb2.Empty.FromString,
                 _registered_method=True)
         self.SetToolCredential = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/SetToolCredential',
+                '/maigokite.agent.v1.AgentService/SetToolCredential',
                 request_serializer=agent__pb2.SetToolCredentialRequest.SerializeToString,
                 response_deserializer=agent__pb2.Empty.FromString,
                 _registered_method=True)
         self.GetUserPreferences = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/GetUserPreferences',
+                '/maigokite.agent.v1.AgentService/GetUserPreferences',
                 request_serializer=agent__pb2.UserPreferencesRequest.SerializeToString,
                 response_deserializer=agent__pb2.UserPreferences.FromString,
                 _registered_method=True)
         self.UpdateUserPreferences = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/UpdateUserPreferences',
+                '/maigokite.agent.v1.AgentService/UpdateUserPreferences',
                 request_serializer=agent__pb2.UpdateUserPreferencesRequest.SerializeToString,
                 response_deserializer=agent__pb2.UserPreferences.FromString,
                 _registered_method=True)
         self.GetPermissionSettings = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/GetPermissionSettings',
+                '/maigokite.agent.v1.AgentService/GetPermissionSettings',
                 request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
                 response_deserializer=agent__pb2.PermissionSettings.FromString,
                 _registered_method=True)
         self.UpdatePermissionSettings = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/UpdatePermissionSettings',
+                '/maigokite.agent.v1.AgentService/UpdatePermissionSettings',
                 request_serializer=agent__pb2.UpdatePermissionSettingsRequest.SerializeToString,
                 response_deserializer=agent__pb2.PermissionSettings.FromString,
                 _registered_method=True)
         self.GetToolSettings = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/GetToolSettings',
+                '/maigokite.agent.v1.AgentService/GetToolSettings',
                 request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
                 response_deserializer=agent__pb2.ToolSettings.FromString,
                 _registered_method=True)
         self.UpdateToolSettings = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/UpdateToolSettings',
+                '/maigokite.agent.v1.AgentService/UpdateToolSettings',
                 request_serializer=agent__pb2.UpdateToolSettingsRequest.SerializeToString,
                 response_deserializer=agent__pb2.ToolSettings.FromString,
                 _registered_method=True)
         self.ListMemories = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListMemories',
+                '/maigokite.agent.v1.AgentService/ListMemories',
                 request_serializer=agent__pb2.MemoryListRequest.SerializeToString,
                 response_deserializer=agent__pb2.MemoryList.FromString,
                 _registered_method=True)
         self.UpsertMemory = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/UpsertMemory',
+                '/maigokite.agent.v1.AgentService/UpsertMemory',
                 request_serializer=agent__pb2.UpsertMemoryRequest.SerializeToString,
                 response_deserializer=agent__pb2.Memory.FromString,
                 _registered_method=True)
         self.DeleteMemory = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/DeleteMemory',
+                '/maigokite.agent.v1.AgentService/DeleteMemory',
                 request_serializer=agent__pb2.MemoryRequest.SerializeToString,
                 response_deserializer=agent__pb2.Empty.FromString,
                 _registered_method=True)
         self.GetWorkspaceDataSummary = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/GetWorkspaceDataSummary',
+                '/maigokite.agent.v1.AgentService/GetWorkspaceDataSummary',
                 request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
                 response_deserializer=agent__pb2.WorkspaceDataSummary.FromString,
                 _registered_method=True)
         self.ListMCPServers = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListMCPServers',
+                '/maigokite.agent.v1.AgentService/ListMCPServers',
                 request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
                 response_deserializer=agent__pb2.MCPServerList.FromString,
                 _registered_method=True)
         self.ListSkills = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/ListSkills',
+                '/maigokite.agent.v1.AgentService/ListSkills',
                 request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
                 response_deserializer=agent__pb2.SkillList.FromString,
                 _registered_method=True)
         self.Health = channel.unary_unary(
-                '/nanamigopher.agent.v1.AgentService/Health',
+                '/maigokite.agent.v1.AgentService/Health',
                 request_serializer=agent__pb2.Empty.SerializeToString,
                 response_deserializer=agent__pb2.HealthResponse.FromString,
                 _registered_method=True)
@@ -276,6 +331,24 @@ class AgentServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListWorkspaceFolders(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateWorkspaceFolder(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetWorkspaceFolder(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListMessages(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -307,6 +380,54 @@ class AgentServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def ListApprovals(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetApproval(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetTaskInspection(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListQuestions(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AnswerQuestion(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SubmitTaskInput(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListTaskInputs(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListJobs(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StopJob(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -506,6 +627,21 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     request_deserializer=agent__pb2.ConversationSettingsRequest.FromString,
                     response_serializer=agent__pb2.Conversation.SerializeToString,
             ),
+            'ListWorkspaceFolders': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListWorkspaceFolders,
+                    request_deserializer=agent__pb2.WorkspaceRequest.FromString,
+                    response_serializer=agent__pb2.WorkspaceFolderList.SerializeToString,
+            ),
+            'CreateWorkspaceFolder': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateWorkspaceFolder,
+                    request_deserializer=agent__pb2.WorkspaceFolderRequest.FromString,
+                    response_serializer=agent__pb2.WorkspaceFolder.SerializeToString,
+            ),
+            'GetWorkspaceFolder': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetWorkspaceFolder,
+                    request_deserializer=agent__pb2.WorkspaceFolderRequest.FromString,
+                    response_serializer=agent__pb2.WorkspaceFolder.SerializeToString,
+            ),
             'ListMessages': grpc.unary_unary_rpc_method_handler(
                     servicer.ListMessages,
                     request_deserializer=agent__pb2.ConversationRequest.FromString,
@@ -535,6 +671,46 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.ListApprovals,
                     request_deserializer=agent__pb2.ApprovalListRequest.FromString,
                     response_serializer=agent__pb2.ApprovalList.SerializeToString,
+            ),
+            'GetApproval': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetApproval,
+                    request_deserializer=agent__pb2.ApprovalRequest.FromString,
+                    response_serializer=agent__pb2.Approval.SerializeToString,
+            ),
+            'GetTaskInspection': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTaskInspection,
+                    request_deserializer=agent__pb2.TaskRequest.FromString,
+                    response_serializer=agent__pb2.TaskInspection.SerializeToString,
+            ),
+            'ListQuestions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListQuestions,
+                    request_deserializer=agent__pb2.ApprovalListRequest.FromString,
+                    response_serializer=agent__pb2.QuestionList.SerializeToString,
+            ),
+            'AnswerQuestion': grpc.unary_stream_rpc_method_handler(
+                    servicer.AnswerQuestion,
+                    request_deserializer=agent__pb2.QuestionAnswerRequest.FromString,
+                    response_serializer=agent__pb2.AgentEvent.SerializeToString,
+            ),
+            'SubmitTaskInput': grpc.unary_unary_rpc_method_handler(
+                    servicer.SubmitTaskInput,
+                    request_deserializer=agent__pb2.TaskInputRequest.FromString,
+                    response_serializer=agent__pb2.TaskInput.SerializeToString,
+            ),
+            'ListTaskInputs': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListTaskInputs,
+                    request_deserializer=agent__pb2.TaskRequest.FromString,
+                    response_serializer=agent__pb2.TaskInputList.SerializeToString,
+            ),
+            'ListJobs': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListJobs,
+                    request_deserializer=agent__pb2.TaskListRequest.FromString,
+                    response_serializer=agent__pb2.JobList.SerializeToString,
+            ),
+            'StopJob': grpc.unary_unary_rpc_method_handler(
+                    servicer.StopJob,
+                    request_deserializer=agent__pb2.JobRequest.FromString,
+                    response_serializer=agent__pb2.Empty.SerializeToString,
             ),
             'DecideApproval': grpc.unary_stream_rpc_method_handler(
                     servicer.DecideApproval,
@@ -668,9 +844,9 @@ def add_AgentServiceServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'nanamigopher.agent.v1.AgentService', rpc_method_handlers)
+            'maigokite.agent.v1.AgentService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('nanamigopher.agent.v1.AgentService', rpc_method_handlers)
+    server.add_registered_method_handlers('maigokite.agent.v1.AgentService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -691,7 +867,7 @@ class AgentService:
         return grpc.experimental.unary_stream(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ProcessMessage',
+            '/maigokite.agent.v1.AgentService/ProcessMessage',
             agent__pb2.ProcessMessageRequest.SerializeToString,
             agent__pb2.AgentEvent.FromString,
             options,
@@ -718,7 +894,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/CreateConversation',
+            '/maigokite.agent.v1.AgentService/CreateConversation',
             agent__pb2.ConversationRequest.SerializeToString,
             agent__pb2.Conversation.FromString,
             options,
@@ -745,7 +921,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/GetConversation',
+            '/maigokite.agent.v1.AgentService/GetConversation',
             agent__pb2.ConversationRequest.SerializeToString,
             agent__pb2.Conversation.FromString,
             options,
@@ -772,7 +948,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListConversations',
+            '/maigokite.agent.v1.AgentService/ListConversations',
             agent__pb2.ListConversationsRequest.SerializeToString,
             agent__pb2.ConversationList.FromString,
             options,
@@ -799,7 +975,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/DeleteConversation',
+            '/maigokite.agent.v1.AgentService/DeleteConversation',
             agent__pb2.ConversationRequest.SerializeToString,
             agent__pb2.Empty.FromString,
             options,
@@ -826,7 +1002,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/UpdateConversationPermission',
+            '/maigokite.agent.v1.AgentService/UpdateConversationPermission',
             agent__pb2.ConversationPermissionRequest.SerializeToString,
             agent__pb2.Conversation.FromString,
             options,
@@ -853,9 +1029,90 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/UpdateConversationSettings',
+            '/maigokite.agent.v1.AgentService/UpdateConversationSettings',
             agent__pb2.ConversationSettingsRequest.SerializeToString,
             agent__pb2.Conversation.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListWorkspaceFolders(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/ListWorkspaceFolders',
+            agent__pb2.WorkspaceRequest.SerializeToString,
+            agent__pb2.WorkspaceFolderList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateWorkspaceFolder(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/CreateWorkspaceFolder',
+            agent__pb2.WorkspaceFolderRequest.SerializeToString,
+            agent__pb2.WorkspaceFolder.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetWorkspaceFolder(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/GetWorkspaceFolder',
+            agent__pb2.WorkspaceFolderRequest.SerializeToString,
+            agent__pb2.WorkspaceFolder.FromString,
             options,
             channel_credentials,
             insecure,
@@ -880,7 +1137,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListMessages',
+            '/maigokite.agent.v1.AgentService/ListMessages',
             agent__pb2.ConversationRequest.SerializeToString,
             agent__pb2.MessageList.FromString,
             options,
@@ -907,7 +1164,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/GetTask',
+            '/maigokite.agent.v1.AgentService/GetTask',
             agent__pb2.TaskRequest.SerializeToString,
             agent__pb2.Task.FromString,
             options,
@@ -934,7 +1191,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListTasks',
+            '/maigokite.agent.v1.AgentService/ListTasks',
             agent__pb2.TaskListRequest.SerializeToString,
             agent__pb2.TaskList.FromString,
             options,
@@ -961,7 +1218,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/CancelTask',
+            '/maigokite.agent.v1.AgentService/CancelTask',
             agent__pb2.TaskRequest.SerializeToString,
             agent__pb2.Task.FromString,
             options,
@@ -988,7 +1245,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListTaskEvents',
+            '/maigokite.agent.v1.AgentService/ListTaskEvents',
             agent__pb2.TaskEventListRequest.SerializeToString,
             agent__pb2.TaskEventList.FromString,
             options,
@@ -1015,9 +1272,225 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListApprovals',
+            '/maigokite.agent.v1.AgentService/ListApprovals',
             agent__pb2.ApprovalListRequest.SerializeToString,
             agent__pb2.ApprovalList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetApproval(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/GetApproval',
+            agent__pb2.ApprovalRequest.SerializeToString,
+            agent__pb2.Approval.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetTaskInspection(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/GetTaskInspection',
+            agent__pb2.TaskRequest.SerializeToString,
+            agent__pb2.TaskInspection.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListQuestions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/ListQuestions',
+            agent__pb2.ApprovalListRequest.SerializeToString,
+            agent__pb2.QuestionList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AnswerQuestion(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/AnswerQuestion',
+            agent__pb2.QuestionAnswerRequest.SerializeToString,
+            agent__pb2.AgentEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SubmitTaskInput(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/SubmitTaskInput',
+            agent__pb2.TaskInputRequest.SerializeToString,
+            agent__pb2.TaskInput.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListTaskInputs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/ListTaskInputs',
+            agent__pb2.TaskRequest.SerializeToString,
+            agent__pb2.TaskInputList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListJobs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/ListJobs',
+            agent__pb2.TaskListRequest.SerializeToString,
+            agent__pb2.JobList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StopJob(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/StopJob',
+            agent__pb2.JobRequest.SerializeToString,
+            agent__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1042,7 +1515,7 @@ class AgentService:
         return grpc.experimental.unary_stream(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/DecideApproval',
+            '/maigokite.agent.v1.AgentService/DecideApproval',
             agent__pb2.ApprovalDecisionRequest.SerializeToString,
             agent__pb2.AgentEvent.FromString,
             options,
@@ -1069,7 +1542,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/CheckWorkspaceAccess',
+            '/maigokite.agent.v1.AgentService/CheckWorkspaceAccess',
             agent__pb2.WorkspaceAccessRequest.SerializeToString,
             agent__pb2.WorkspaceAccessResponse.FromString,
             options,
@@ -1096,7 +1569,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListAuditEvents',
+            '/maigokite.agent.v1.AgentService/ListAuditEvents',
             agent__pb2.ListConversationsRequest.SerializeToString,
             agent__pb2.AuditEventList.FromString,
             options,
@@ -1123,7 +1596,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/RecordAuditEvent',
+            '/maigokite.agent.v1.AgentService/RecordAuditEvent',
             agent__pb2.AuditWriteRequest.SerializeToString,
             agent__pb2.Empty.FromString,
             options,
@@ -1150,7 +1623,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/GetChatModelSettings',
+            '/maigokite.agent.v1.AgentService/GetChatModelSettings',
             agent__pb2.WorkspaceRequest.SerializeToString,
             agent__pb2.ChatModelSettings.FromString,
             options,
@@ -1177,7 +1650,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/UpdateChatModelSettings',
+            '/maigokite.agent.v1.AgentService/UpdateChatModelSettings',
             agent__pb2.UpdateChatModelSettingsRequest.SerializeToString,
             agent__pb2.ChatModelSettings.FromString,
             options,
@@ -1204,7 +1677,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListChatModels',
+            '/maigokite.agent.v1.AgentService/ListChatModels',
             agent__pb2.WorkspaceRequest.SerializeToString,
             agent__pb2.ChatModelList.FromString,
             options,
@@ -1231,7 +1704,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/UpsertChatModel',
+            '/maigokite.agent.v1.AgentService/UpsertChatModel',
             agent__pb2.UpsertChatModelRequest.SerializeToString,
             agent__pb2.ChatModelSettings.FromString,
             options,
@@ -1258,7 +1731,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/DeleteChatModel',
+            '/maigokite.agent.v1.AgentService/DeleteChatModel',
             agent__pb2.ChatModelRequest.SerializeToString,
             agent__pb2.Empty.FromString,
             options,
@@ -1285,7 +1758,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/SetDefaultChatModel',
+            '/maigokite.agent.v1.AgentService/SetDefaultChatModel',
             agent__pb2.ChatModelRequest.SerializeToString,
             agent__pb2.ChatModelList.FromString,
             options,
@@ -1312,7 +1785,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ValidateChatModel',
+            '/maigokite.agent.v1.AgentService/ValidateChatModel',
             agent__pb2.ValidateChatModelRequest.SerializeToString,
             agent__pb2.ModelValidationResponse.FromString,
             options,
@@ -1339,7 +1812,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/SetChatModelCredential',
+            '/maigokite.agent.v1.AgentService/SetChatModelCredential',
             agent__pb2.SetChatModelCredentialRequest.SerializeToString,
             agent__pb2.Empty.FromString,
             options,
@@ -1366,7 +1839,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/SetToolCredential',
+            '/maigokite.agent.v1.AgentService/SetToolCredential',
             agent__pb2.SetToolCredentialRequest.SerializeToString,
             agent__pb2.Empty.FromString,
             options,
@@ -1393,7 +1866,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/GetUserPreferences',
+            '/maigokite.agent.v1.AgentService/GetUserPreferences',
             agent__pb2.UserPreferencesRequest.SerializeToString,
             agent__pb2.UserPreferences.FromString,
             options,
@@ -1420,7 +1893,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/UpdateUserPreferences',
+            '/maigokite.agent.v1.AgentService/UpdateUserPreferences',
             agent__pb2.UpdateUserPreferencesRequest.SerializeToString,
             agent__pb2.UserPreferences.FromString,
             options,
@@ -1447,7 +1920,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/GetPermissionSettings',
+            '/maigokite.agent.v1.AgentService/GetPermissionSettings',
             agent__pb2.WorkspaceRequest.SerializeToString,
             agent__pb2.PermissionSettings.FromString,
             options,
@@ -1474,7 +1947,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/UpdatePermissionSettings',
+            '/maigokite.agent.v1.AgentService/UpdatePermissionSettings',
             agent__pb2.UpdatePermissionSettingsRequest.SerializeToString,
             agent__pb2.PermissionSettings.FromString,
             options,
@@ -1501,7 +1974,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/GetToolSettings',
+            '/maigokite.agent.v1.AgentService/GetToolSettings',
             agent__pb2.WorkspaceRequest.SerializeToString,
             agent__pb2.ToolSettings.FromString,
             options,
@@ -1528,7 +2001,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/UpdateToolSettings',
+            '/maigokite.agent.v1.AgentService/UpdateToolSettings',
             agent__pb2.UpdateToolSettingsRequest.SerializeToString,
             agent__pb2.ToolSettings.FromString,
             options,
@@ -1555,7 +2028,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListMemories',
+            '/maigokite.agent.v1.AgentService/ListMemories',
             agent__pb2.MemoryListRequest.SerializeToString,
             agent__pb2.MemoryList.FromString,
             options,
@@ -1582,7 +2055,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/UpsertMemory',
+            '/maigokite.agent.v1.AgentService/UpsertMemory',
             agent__pb2.UpsertMemoryRequest.SerializeToString,
             agent__pb2.Memory.FromString,
             options,
@@ -1609,7 +2082,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/DeleteMemory',
+            '/maigokite.agent.v1.AgentService/DeleteMemory',
             agent__pb2.MemoryRequest.SerializeToString,
             agent__pb2.Empty.FromString,
             options,
@@ -1636,7 +2109,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/GetWorkspaceDataSummary',
+            '/maigokite.agent.v1.AgentService/GetWorkspaceDataSummary',
             agent__pb2.WorkspaceRequest.SerializeToString,
             agent__pb2.WorkspaceDataSummary.FromString,
             options,
@@ -1663,7 +2136,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListMCPServers',
+            '/maigokite.agent.v1.AgentService/ListMCPServers',
             agent__pb2.WorkspaceRequest.SerializeToString,
             agent__pb2.MCPServerList.FromString,
             options,
@@ -1690,7 +2163,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/ListSkills',
+            '/maigokite.agent.v1.AgentService/ListSkills',
             agent__pb2.WorkspaceRequest.SerializeToString,
             agent__pb2.SkillList.FromString,
             options,
@@ -1717,7 +2190,7 @@ class AgentService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/nanamigopher.agent.v1.AgentService/Health',
+            '/maigokite.agent.v1.AgentService/Health',
             agent__pb2.Empty.SerializeToString,
             agent__pb2.HealthResponse.FromString,
             options,

@@ -1,8 +1,8 @@
-# NanamiGopher Application Configuration
+# MaigoKite Application Configuration
 
 # App settings
 app:
-  name: "NanamiGopher"
+  name: "MaigoKite"
   version: "0.1.0"
   environment: "development"
 
@@ -18,7 +18,7 @@ models:
     max_tokens: 4096
     timeout_seconds: 60
 
-# Files shown in the Workspace sidebar. Override with NANAMI_WORKSPACE_ROOT.
+# Files shown in the Workspace sidebar. Override with MAIGOKITE_WORKSPACE_ROOT.
 workspace:
   root: "."
 
@@ -51,7 +51,7 @@ permissions:
       - "dd if="
 
 storage:
-  sqlite_path: "~/.nanamigopher/data/agent.db"
+  sqlite_path: "~/.maigokite/data/agent.db"
 
 # Credential management
 credentials:
@@ -61,7 +61,7 @@ credentials:
 skills:
   scan_directories:
     - "./skills/"
-    - "~/.nanamigopher/skills/"
+    - "~/.maigokite/skills/"
 
 # Explicitly configured Phase 1 stdio MCP servers. Secret values stay outside
 # YAML; env_allowlist only passes named variables from the parent environment.

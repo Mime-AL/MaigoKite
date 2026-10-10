@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nanamigopher/nanamigopher/gateway/internal/credentialstore"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
+	"maigokite/gateway/internal/credentialstore"
+	agentgrpc "maigokite/gateway/internal/grpc"
 
 	"github.com/gin-gonic/gin"
 )

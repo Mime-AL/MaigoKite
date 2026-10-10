@@ -7,7 +7,7 @@
 
 同一个人可以在电脑和手机上使用同一个智能体。电脑持有模型连接、浏览器、工作区文件和执行进程；手机负责发起任务、查看过程、处理审批和阅读结果。个人工作区提供项目或资料的上下文。手机是获准访问的设备，不是新的团队成员。
 
-参考 Codex Remote 的手机发起、查看和批准主机任务的交互方式；NanamiGopher 面向资料研究、文件整理、浏览器操作等通用任务。[OpenAI 官方介绍](https://developers.openai.com/blog/mastering-codex-remote-for-engineering)
+参考 Codex Remote 的手机发起、查看和批准主机任务的交互方式；MaigoKite 面向资料研究、文件整理、浏览器操作等通用任务。[OpenAI 官方介绍](https://developers.openai.com/blog/mastering-codex-remote-for-engineering)
 
 首个场景：在手机上要求智能体阅读指定文件并整理结果；电脑开始执行；手机锁屏后任务继续；重新打开手机，查看待写入内容并批准；电脑完成写入，手机和桌面显示同一结果。浏览器任务在所用运行时已支持并通过验收后复用这一入口。
 

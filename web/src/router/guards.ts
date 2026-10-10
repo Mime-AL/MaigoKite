@@ -11,7 +11,7 @@ export function setupGuards(router: Router) {
     // 更新页面标题
     const title = to.meta.title as string | undefined
     if (title) {
-      document.title = `${title} - 助手`
+      document.title = `${title} - MaigoKite`
     }
     next()
   })

@@ -36,7 +36,7 @@ describe('settings store', () => {
     expect(saved).toBe(true)
     expect(update).toHaveBeenCalledWith({ assistantName: '小七 Agent' })
     expect(store.profile.assistantName).toBe('小七 Agent')
-    expect(localStorage.getItem('nanamigopher_user_preferences')).toContain('小七 Agent')
+    expect(localStorage.getItem('maigokite_user_preferences')).toContain('小七 Agent')
   })
 
   it('loads persisted model settings from the application service', async () => {
@@ -91,6 +91,6 @@ describe('settings store', () => {
 
     expect(wrapper.text()).toContain('管理助手称呼、模型、联网工具和执行权限')
     expect(wrapper.text()).not.toContain('Phase 1')
-    expect(wrapper.text()).not.toContain('NanamiGopher')
+    expect(wrapper.text()).not.toContain('MaigoKite')
   })
 })

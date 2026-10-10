@@ -1,30 +1,32 @@
 {
-  "name": "nanamigopher-web",
+  "name": "maigokite-web",
+  "productName": "MaigoKite",
   "private": true,
   "version": "0.1.0",
+  "license": "GPL-3.0-only",
   "main": "dist-electron/main.cjs",
   "type": "module",
+  "build": {
+    "appId": "com.electron.maigokite-web"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build && vite build --config electron.vite.config.ts",
+    "build": "vue-tsc --noEmit && vite build && npm run electron:compile",
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "lint": "eslint . --ext .vue,.ts,.tsx --fix",
     "format": "prettier --write src/",
     "electron:dev": "npm run electron:compile && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:compile": "vite build --config electron.vite.config.ts",
+    "electron:compile": "vite build --config electron.vite.config.ts && vite build --config electron.vite.config.ts --mode preload",
     "electron:build": "npm run build && electron-builder",
     "electron:preview": "npm run build && electron .",
     "test:run": "vitest run"
   },
   "dependencies": {
-    "axios": "^1.6.0",
     "dompurify": "^3.4.15",
-    "element-plus": "^2.4.0",
-    "marked": "^18.0.13",
+    "markdown-it": "14.1.0",
     "pinia": "^2.1.0",
-    "tailwindcss": "^3.4.0",
     "vue": "^3.4.0",
     "vue-router": "^4.2.0"
   },

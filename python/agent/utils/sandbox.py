@@ -101,7 +101,7 @@ class SandboxExecutor:
         self._memory_mb = 0
 
     async def execute_command(
-        self, command: str, timeout: int = 30
+        self, command: str, timeout: int = 30, *, on_spawn: Any = None, on_exit: Any = None,
     ) -> SandboxExecutionResult:
         try:
             args = shlex.split(command)
@@ -124,6 +124,8 @@ class SandboxExecutor:
             )
             timed_out = False
             try:
+                if on_spawn is not None:
+                    on_spawn(process, stdout_file, stderr_file, self._kill_process_group)
                 await asyncio.wait_for(process.wait(), timeout)
             except asyncio.TimeoutError:
                 timed_out = True
@@ -133,6 +135,13 @@ class SandboxExecutor:
                 self._kill_process_group(process)
                 await process.wait()
                 raise
+            except Exception:
+                self._kill_process_group(process)
+                await process.wait()
+                raise
+            finally:
+                if on_exit is not None:
+                    on_exit()
 
             stdout_file.seek(0)
             stderr_file.seek(0)

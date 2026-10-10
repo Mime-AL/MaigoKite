@@ -20,15 +20,35 @@ const layoutStore = useLayoutStore()
   align-items: center;
   gap: 10px;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: 12.5px;
-  font-weight: 520;
-  transition: color 140ms ease, background 140ms ease, transform 140ms ease;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  transition:
+    color var(--motion-pulse) var(--ease),
+    background var(--motion-pulse) var(--ease),
+    transform var(--motion-pulse) var(--ease);
 }
-.nav-item:hover { color: var(--text-primary); background: var(--surface-strong); }
-.nav-item:active { transform: scale(0.98); }
-.nav-item.router-link-exact-active { color: var(--text-primary); background: rgba(255, 255, 255, 0.7); box-shadow: 0 1px 3px rgba(26, 33, 48, 0.08), inset 0 0 0 1px var(--border-color); }
-.nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (prefers-color-scheme: dark) { .nav-item.router-link-exact-active { background: rgba(255, 255, 255, 0.1); } }
+.nav-item:hover {
+  color: var(--text-primary);
+  background: var(--surface-strong);
+}
+.nav-item:active {
+  transform: scale(0.98);
+}
+.nav-item.router-link-exact-active {
+  color: var(--text-primary);
+  background: var(--paper-3);
+  box-shadow: var(--shadow-card);
+}
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-color-scheme: dark) {
+  .nav-item.router-link-exact-active {
+    background: var(--paper-3);
+  }
+}
 </style>

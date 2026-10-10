@@ -10,7 +10,7 @@ from aiohttp import web
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from agent.models.runtime import ChatModelSettings
-from agent.runtime_spike import NanamiRuntimeAdapter, build_chat_model
+from agent.runtime_spike import MaigoKiteRuntimeAdapter, build_chat_model
 
 
 def _chunk(delta: dict[str, Any], finish_reason: str | None = None) -> bytes:
@@ -110,7 +110,7 @@ async def test_real_openai_compatible_http_tool_loop(provider: str, tmp_path: Pa
                 _chunk(
                     {
                         "role": "assistant",
-                        "content": "NANAMI_HTTP_TOOL_OK",
+                        "content": "MAIGOKITE_HTTP_TOOL_OK",
                     },
                     "stop",
                 )
@@ -123,7 +123,7 @@ async def test_real_openai_compatible_http_tool_loop(provider: str, tmp_path: Pa
     model = _model(base_url, provider)
     (tmp_path / "provider-proof.txt").write_text("provider proof", encoding="utf-8")
     try:
-        async with NanamiRuntimeAdapter(
+        async with MaigoKiteRuntimeAdapter(
             model=model,
             workspace_root=tmp_path,
             checkpoint_path=tmp_path / "checkpoints.sqlite",
@@ -165,7 +165,7 @@ async def test_real_ollama_wire_protocol_runs_tool_loop(tmp_path: Path) -> None:
             "model": "local-spike",
             "created_at": "2026-09-27T00:00:00Z",
             "message": (
-                {"role": "assistant", "content": "NANAMI_OLLAMA_TOOL_OK"}
+                {"role": "assistant", "content": "MAIGOKITE_OLLAMA_TOOL_OK"}
                 if has_tool_result
                 else {
                     "role": "assistant",
@@ -211,7 +211,7 @@ async def test_real_ollama_wire_protocol_runs_tool_loop(tmp_path: Path) -> None:
     )
     (tmp_path / "provider-proof.txt").write_text("proof", encoding="utf-8")
     try:
-        async with NanamiRuntimeAdapter(
+        async with MaigoKiteRuntimeAdapter(
             model=model,
             workspace_root=tmp_path,
             checkpoint_path=tmp_path / "ollama-checkpoints.sqlite",
@@ -388,7 +388,7 @@ async def test_real_anthropic_wire_protocol_runs_tool_loop(
     )
     (tmp_path / "provider-proof.txt").write_text("proof", encoding="utf-8")
     try:
-        async with NanamiRuntimeAdapter(
+        async with MaigoKiteRuntimeAdapter(
             model=model,
             workspace_root=tmp_path,
             checkpoint_path=tmp_path / "anthropic-checkpoints.sqlite",
@@ -453,7 +453,7 @@ async def test_real_http_stream_is_disconnected_by_root_task_cancel(
     runner, base_url = await _start_server(completion)
     model = _model(base_url, provider)
     try:
-        async with NanamiRuntimeAdapter(
+        async with MaigoKiteRuntimeAdapter(
             model=model,
             workspace_root=tmp_path,
             checkpoint_path=tmp_path / "checkpoints.sqlite",

@@ -1,4 +1,4 @@
-# NanamiGopher Development Environment Configuration
+# MaigoKite Development Environment Configuration
 # This file overrides config.yaml for development.
 
 app:
@@ -14,7 +14,7 @@ models:
     timeout_seconds: 60
 
 storage:
-  sqlite_path: "~/.nanamigopher/data/agent-dev.db"
+  sqlite_path: "~/.maigokite/data/agent-dev.db"
 
 workspace:
   root: "."
@@ -27,7 +27,7 @@ browser:
 skills:
   scan_directories:
     - "./skills/"
-    - "~/.nanamigopher/skills/"
+    - "~/.maigokite/skills/"
 
 tools:
   default_tools: [file_read, file_write, file_edit, glob, grep, exec_command, web_search, web_fetch, browser, skill]

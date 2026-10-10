@@ -10,7 +10,7 @@
 | 路径 | 当前行为 | 边界 |
 | --- | --- | --- |
 | 默认 `legacy` | 自研模型循环、ExecutionEngine、TaskManager 与续接数据 | 保持回归，不再扩建执行框架 |
-| 显式 `langgraph` | LangChain `create_agent` + LangGraph 检查点/HITL | 已适配文件、搜索、命令、联网、浏览器、技能与已连接 MCP；显式 `/tool` 仍走旧入口，迁移未验收 |
+| 显式 `langgraph` | LangChain `create_agent` + LangGraph 检查点/HITL | 普通聊天与显式 `/tool` 均进入新路径；已适配文件、搜索、命令、联网、浏览器、技能与已连接 MCP，迁移未验收 |
 
 配置与删除迁移开关的条件只在 [运行时迁移说明](../development/RuntimeMigration.md) 维护。目标是删除旧主循环，不是长期双运行时。
 
@@ -21,26 +21,31 @@
 | 内容 | 所有者 / 查询来源 | 不承担的职责 |
 | --- | --- | --- |
 | 新路径执行状态与待审批调用 | LangGraph 检查点 | 不充当业务审计库 |
-| 任务、消息、工具调用、审批与安全审计 | Nanami Repository | 不驱动第二套新运行时状态机 |
+| 任务、消息、工具调用、审批与安全审计 | MaigoKite Repository | 不驱动第二套新运行时状态机 |
 | `task_events / messages` | UI / 产品投影 | 不是运行时恢复的输入事实 |
 | 根任务、模型提供方客户端、浏览器/MCP 资源 | 核心服务 / 运行时生命周期 | 单次运行实例不关闭其他运行实例的共享客户端 |
 
 恢复执行看检查点，查询界面看产品投影，审批安全看 Repository。当前部分状态和事件仍分步提交；这是持久化一致性债务，不意味着需要完整事件溯源框架。
 
-检查点当前按任务建立。新聊天回合从产品消息加载历史，尚未跨任务复用摘要和完整工具历史。内存 TaskManager 暂留给旧路径，新路径不以它作为执行事实来源。
+检查点仍按任务建立，避免改变既有审批恢复 ID。新回合优先从同会话最近创建、成功且已结束的任务 checkpoint 继承 LangGraph 保留的 messages（含摘要、工具调用和结果），不复制调用计数或待执行节点。同会话未完成任务阻止新回合启动；入口用原生 asyncio.Lock 防止并发提交。初次迁移、上一轮为 legacy 或失败/取消/中断时，只导入可见产品历史，不伪造工具结果或自动重放副作用。这是明确的上下文降级边界，不是任意失败点无损续接。内存 TaskManager 暂留给旧路径。
+
+`/tool <name> <json-object>` 是产品命令语法，不再选另一套执行器：公开 `awrap_model_call` 将显式请求返回为原生 AIMessage 工具调用，随后仍经过同一 HITL、PermissionPolicy、ToolNode 与事件投影。工具结果通过同一模型节点返回给用户，不调用 LLM 决定或改写命令；这类命令也跳过摘要模型调用。`bash` 仅映射为 `exec_command` 兼容名，不扩大权限。当前仍需可初始化的模型配置以创建既有 agent 图。
+
+原生模型由 `models/native_model.py` 创建，Core 持有缓存与客户端生命周期；ChatAdapter 和 Spike 兼容入口复用同一工厂，新路径不再通过 IChatProvider 创建模型。公开模型拦截能力见 [LangChain middleware](https://reference.langchain.com/python/langchain/agents/middleware/types/AgentMiddleware/wrap_model_call)。没有新增 Provider 协议、执行状态机或 continuation 数据。
 
 ## 3. 工具与审批
 
 ```mermaid
 flowchart TD
     A[create_agent 原生工具调用] --> B[公开 StructuredTool 转换]
-    B --> C[Nanami 参数规范化与 PermissionPolicy]
+    B --> C[MaigoKite 参数规范化与 PermissionPolicy]
     C -->|拒绝| D[工具失败投影]
     C -->|允许| E[执行现有工具]
     C -->|需要批准| F[LangGraph 人工介入 / 暂停检查点]
     F --> G[现有审批 API 与界面]
     G --> H[Repository 校验与审批审计]
-    H -->|完整批次决定已齐备| I[Command 恢复]
+    H -->|完整批次批准已齐备| I[Command 恢复]
+    H -->|拒绝任一项| K[取消回合并关闭剩余审批，不调用模型]
     I --> E
     E --> J[ToolMessage 与产品事件]
 ```
@@ -48,10 +53,11 @@ flowchart TD
 - ToolRegistry 负责发现、产品元数据和权限信息；新路径的调度由 LangChain/LangGraph 承担。通过公开转换入口接入，不依赖私有 `_structured` 字段。
 - 原生工具结构定义由 Pydantic/LangChain 表达。产品参数检查复用 `jsonschema`，保留现有错误 DTO、参数清理和显式属性默认值处理；引用解析不得联网或读外部文件。
 - 权限策略仍使用既有风险等级、规范化参数摘要值、审批版本、作用域、过期时间和审计。提示词、技能或模型声称“已获授权”没有效力。权威规则见 [工具权限](../agent-capabilities/security/tool-permission.md)。
-- 新路径保留 HITL 原始完整调用批次，UI 一次只展示一项审批；全部决定收齐后才恢复工具执行。拒绝任一项会拒绝该批。已经批准的记录不是已经执行的证明。
+- 新路径保留 HITL 原始完整调用批次，UI 一次只展示一项审批；全部批准收齐后才恢复工具执行。拒绝任一项结束该回合并关闭剩余待审批项，不再让模型确认拒绝、不恢复该 checkpoint 执行。已经批准的记录不是已经执行的证明。
+- 新聊天与批准后的审批续接共用 Gateway 的凭证同步，Core 重启后先从既有密钥存储补齐内存凭证。新路径消费批准前检查模型可初始化，并等待前一个 interrupt 根任务退出；拒绝仍等待旧根任务退出，但不依赖密钥链、模型配置或 Provider。凭证不会写入 checkpoint 或审批记录。决定与恢复启动间仍存在崩溃窗口，不声称通用 exactly-once。
 - 工具执行体使用每运行实例的 `asyncio.Lock` 串行化；这不提供跨运行实例的文件隔离，也不能终止同步线程。
 - 已删除截断调用列表的 `_SerialApprovalMiddleware`。完整批次审批改动尚未验收；相同名称/参数、多项不重复调用、部分审批后重启和拒绝投影都需要回归。旧版本已丢失的调用不能补回。
-- MCP 工具通过公开转换接入新运行时，`isError: true` 沿用 ToolResult.failure 并映射为错误 ToolMessage，保留原始结果与用户提示。协议客户端仍为现有 stdio 实现，并未完成官方 SDK 替换或远端取消确认。协议与生命周期见 [MCP](../agent-capabilities/mcp/mcp-integration.md)。
+- MCP 工具通过公开转换接入新运行时，`isError: true` 沿用 ToolResult.failure 并映射为错误 ToolMessage，保留原始结果与用户提示。stdio 已替换为官方 SDK 薄桥接，尚未验收生命周期或远端取消。协议与生命周期见 [MCP](../agent-capabilities/mcp/mcp-integration.md)。
 
 工具选择与权限分离：默认十项基础工具，todo_write/sleep 显式启用，bash 仅兼容历史调用而不交给模型。
 设置页控制已注册工具可见性，启动配置的停用列表是上限，执行前再检查选择与 PermissionPolicy。
@@ -64,13 +70,13 @@ flowchart TD
 
 ## 4. 用户可见事件
 
-前端只接收 Nanami DTO，不接收 LangGraph 类型。事件字段、名称与重放约定唯一来源为 [API 设计](API.md)。
+前端只接收 MaigoKite DTO，不接收 LangGraph 类型。事件字段、名称与重放约定唯一来源为 [API 设计](API.md)。
 
 - `message.*` 承载用户可见回答；模型提供方单独返回的公开过程字段或可识别的过程文本进入活动区，不暴露隐藏思维链。
 - 工具参数、结果与错误进入结构化 `tool.*`，默认不混入回答或输入框。
 - 审批事件使用现有 `approval.*`，任务终态使用现有协议（成功当前为 `task.succeeded`），不为新运行时重命名。
 - 摘要模型输出不投影到用户消息；ToolResult、网页和技能正文是不可信上下文，不能改变权限。
-- WebSocket 断线不取消任务。当前事件补拉仍有单页 1000 条及非原子订阅窗口限制，完整断线恢复不能仅凭界面可重连宣称完成。
+- WebSocket 断线不取消任务。聊天和审批流均透传持久化 event_id/sequence；前端补拉连续分页，并缓冲快照加载期间的事件后再应用。服务端仍没有原子快照/订阅游标协议，不能仅凭代码接线宣称完整断线恢复已验收。
 
 ## 5. 取消与客户端生命周期
 
@@ -123,9 +129,22 @@ flowchart TD
 
 后续先选择一个真实个人流程：输入、交付物、审批位置、失败处理可验证后再实现。能用顺序技能完成的，不升级为工作流引擎。
 
-确有独立、耗上下文且有并行收益的子任务时，先复用 [LangGraph 子图](https://docs.langchain.com/oss/python/langgraph/use-subgraphs) / [LangChain subagent 模式](https://docs.langchain.com/oss/python/langchain/multi-agent/subagents)，而非填充空壳 SubAgentManager。候选首版为显式委派、只读、单层、有限并发，独立执行状态，父任务只收摘要和产物引用；取消必须等待子任务退出。
+确有独立、耗上下文且有并行收益的子任务时，先复用 [LangGraph 子图](https://docs.langchain.com/oss/python/langgraph/use-subgraphs) / [LangChain subagent 模式](https://docs.langchain.com/oss/python/langchain/multi-agent/subagents)，不另建自研 SubAgentManager。候选首版为显式委派、只读、单层、有限并发，独立执行状态，父任务只收摘要和产物引用；取消必须等待子任务退出。
 
 持久确定性流程先评估现有检查点的组合，不另建工作流平台。缓存预热、复杂插件生命周期、版本化提示词/对照评测与自动重规划均非当前交付；只有实测需求和收益后才考虑。
+
+### 空骨架清理不取消能力需求
+
+2026-10-10 移除 `workflow/engine.py`、`workflow/hitl.py`、`workflow/__init__.py`、`sub_agent_manager.py`、`recovery.py` 五个文件。依据不只是“没有调用”：初始化和执行方法均为 `...`，没有生产或测试消费者，也没有需要保持的已用接口契约；其中预设的编排/HITL/恢复职责应优先由现有 Runtime 承担。源码可从 Git 历史恢复，不删除业务数据或真实执行入口。
+
+| 保留的能力 | 已有实现 / 事实 | 真实缺口与后续归属 |
+| --- | --- | --- |
+| 人工审批 / HITL | PermissionPolicy、Approval API/Repository、LangGraph HumanInTheLoopMiddleware | 保留风险/参数 hash/version/审计；补齐新路径多审批和重启语义，不恢复第二套 HITLCoordinator |
+| 状态恢复 / Recovery | LangGraph checkpoint、resume_approval/recover、Core 中断任务对账 | 恢复与投影一致性、副作用重放和浏览器/MCP 易失状态仍有缺口；复用检查点并按工具明确可恢复边界，不增加通用 rollback/retry 状态机 |
+| 个人工作流 | Skill 可读取声明步骤，当前不是持久执行图 | 保留流程复用目标；需要确定性分支/暂停/恢复时组合 LangGraph 图与现有审批，不把空 WorkflowEngine 计作实现 |
+| 子 Agent | 当前没有生产委派/汇总入口 | 保留隔离上下文与受控委派目标；采用子图/成熟 subagent 组合，MaigoKite 负责权限、预算和产品事件 |
+
+第一批不删除 legacy 主循环、TaskManager、ExecutionEngine、Provider 或 continuation 字段。后续删除条件与 KEEP/ADAPT/DELETE 清单仅在迁移说明维护；完成空壳清理不提升上述能力的完成度。
 
 ## 8. 文件副作用与验证状态
 
@@ -150,7 +169,7 @@ LangGraph 恢复是至少执行一次（at-least-once），不保证工具恰好
 
 主要参考仍为 Codex、Claude Code、DeepSeek Harness；按用户要求将 **pi** 纳入固定参考范围，重点对照轻量个人智能体的实现。纳入参考不等于引入依赖或重新选择运行时。
 
-| 项目 | 工作流与子智能体 | 上下文与缓存 | 对 Nanami 的取舍 |
+| 项目 | 工作流与子智能体 | 上下文与缓存 | 对 MaigoKite 的取舍 |
 | --- | --- | --- | --- |
 | DeepSeek Harness | 工作流通过 JS 脚本组合子智能体，提供顺序流水线、并行组合；当前实现不支持工作流进程重启续跑。子任务结果追加到父上下文，中间过程不整段回灌 | 压缩保持工具调用与结果配对；压力下可先裁剪工具结果，再摘要。稳定的请求前缀有利于服务端缓存 | 学习边界和故障语义，不移植 Cordis、JS VM 或能力插件体系 |
 | Codex | 技能承载可复用流程；子智能体隔离探索、测试等中间内容，父任务收集摘要 | 工具列表顺序、稳定指令和历史前缀影响缓存；公开架构说明中使用 Responses 上下文压缩管理长上下文 | 学习稳定前缀与按需加载，不将 OpenAI 专有压缩接口强加给 Ollama/兼容服务 |

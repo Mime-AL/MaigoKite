@@ -2,7 +2,7 @@
 
 from agent.runtime.langgraph_runtime import (
     LangGraphRuntime,
-    NanamiEvent,
+    MaigoKiteEvent,
     ProductToolSpec,
     RunHandle,
     RuntimeRunRequest,
@@ -10,7 +10,7 @@ from agent.runtime.langgraph_runtime import (
 
 __all__ = [
     "LangGraphRuntime",
-    "NanamiEvent",
+    "MaigoKiteEvent",
     "ProductToolSpec",
     "RunHandle",
     "RuntimeRunRequest",

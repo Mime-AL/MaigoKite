@@ -1,181 +1,205 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useLayoutStore } from '@/stores/layout'
 import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
+import { useUIStore } from '@/stores/ui'
+import WorkspaceSelector from '@/components/sidebar/WorkspaceSelector.vue'
+import SessionItem from '@/components/sidebar/SessionItem.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
-import NavMenu from '../sidebar/NavMenu.vue'
-import RecentChats from '../sidebar/RecentChats.vue'
-
-const layoutStore = useLayoutStore()
-const sessionStore = useSessionStore()
-const settingsStore = useSettingsStore()
-const router = useRouter()
-const isCreating = ref(false)
-const assistantName = computed(() => settingsStore.profile.assistantName)
-const assistantInitial = computed(() => Array.from(assistantName.value)[0]?.toUpperCase() || '助')
-
-onMounted(() => {
-  if (sessionStore.sessions.length === 0) void sessionStore.loadSessions()
+const session = useSessionStore(),
+  settings = useSettingsStore(),
+  ui = useUIStore(),
+  router = useRouter()
+const creating = ref(false)
+const groups = computed(() => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const week = new Date(today)
+  week.setDate(week.getDate() - ((week.getDay() + 6) % 7))
+  return [
+    { label: '今天', min: today.getTime(), max: Infinity },
+    { label: '本周', min: week.getTime(), max: today.getTime() },
+    { label: '更早', min: -Infinity, max: week.getTime() },
+  ].map((group) => ({
+    ...group,
+    sessions: session.visibleSessions
+      .slice()
+      .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+      .filter((s) => {
+        const time = Date.parse(s.updated_at)
+        return time >= group.min && time < group.max
+      }),
+  }))
 })
-
-async function createConversation() {
-  if (isCreating.value) return
-  isCreating.value = true
+async function create() {
+  if (creating.value) return
+  creating.value = true
   try {
-    const session = await sessionStore.createSession('新对话')
-    await router.push(`/chat/${session.id}`)
+    const item = await session.createSession('新对话')
+    await router.push('/chat/' + item.id)
+    closeOnNarrowScreen()
   } catch {
-    // Store 已向界面暴露可恢复的错误状态。
+    /* Store exposes the failure. */
   } finally {
-    isCreating.value = false
+    creating.value = false
   }
 }
+function closeOnNarrowScreen() {
+  if (window.innerWidth < 720 && !ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
+}
 </script>
-
 <template>
-  <div class="sidebar" :class="{ collapsed: layoutStore.sidebarCollapsed }">
-    <div class="window-chrome" aria-hidden="true">
-      <span class="traffic red" />
-      <span class="traffic amber" />
-      <span class="traffic green" />
+  <aside class="sidebar" :class="{ collapsed: ui.layout.sidebarCollapsed }">
+    <div class="identity">
+      <span class="avatar">{{ ui.appearance.avatar }}</span
+      ><strong v-if="!ui.layout.sidebarCollapsed">{{ settings.profile.assistantName }}</strong>
     </div>
-
-    <div class="brand-row">
-      <div class="brand-mark">{{ assistantInitial }}</div>
-      <div v-show="!layoutStore.sidebarCollapsed" class="brand-copy">
-        <strong>{{ assistantName }}</strong>
-        <span>个人空间</span>
-      </div>
-    </div>
-
-    <button
-      class="new-chat"
-      type="button"
-      :disabled="isCreating"
-      :title="layoutStore.sidebarCollapsed ? '新建对话' : undefined"
-      @click="createConversation"
-    >
-      <IconSymbol name="compose" :size="17" />
-      <span v-show="!layoutStore.sidebarCollapsed">{{ isCreating ? '正在创建…' : '新建对话' }}</span>
+    <WorkspaceSelector :collapsed="ui.layout.sidebarCollapsed" />
+    <button class="new-page" title="新页" :disabled="creating" :aria-busy="creating || undefined" @click="create">
+      <IconSymbol v-if="!creating" name="compose" :size="16" /><span v-if="!ui.layout.sidebarCollapsed">{{ creating ? '正在新建…' : '新页' }}</span>
     </button>
-
-    <NavMenu />
-
-    <section v-show="!layoutStore.sidebarCollapsed" class="recent-section">
-      <div class="section-label">
-        <span>最近对话</span>
-        <span>{{ sessionStore.sessions.length }}</span>
-      </div>
-      <RecentChats />
-    </section>
-
-    <div class="sidebar-footer">
-      <router-link to="/settings" class="workspace-card" title="设置">
-        <span class="avatar">{{ assistantInitial }}</span>
-        <span v-show="!layoutStore.sidebarCollapsed" class="workspace-copy">
-          <strong>个人空间</strong>
-          <small>本地优先</small>
-        </span>
-        <IconSymbol v-show="!layoutStore.sidebarCollapsed" name="settings" :size="16" />
-      </router-link>
+    <button class="search-page" title="搜索会话" @click="ui.commandOpen = true">
+      <IconSymbol name="search" :size="16" /><span v-if="!ui.layout.sidebarCollapsed">搜索</span>
+    </button>
+    <button class="search-page" :aria-pressed="session.showArchived" :title="session.showArchived ? '查看当前对话' : '查看归档对话'" @click="session.showArchived = !session.showArchived">
+      <IconSymbol name="archive" :size="16" /><span v-if="!ui.layout.sidebarCollapsed">{{ session.showArchived ? '返回对话' : '归档对话' }}</span>
+    </button>
+    <div class="session-groups">
+      <p v-if="!ui.layout.sidebarCollapsed && session.isLoading" class="empty-copy">
+        正在读取会话…
+      </p>
+      <p
+        v-else-if="!ui.layout.sidebarCollapsed && session.error && !session.sessions.length"
+        class="empty-copy"
+        role="alert"
+      >
+        {{ session.error }}
+        <button class="secondary-button" @click="session.loadSessions">重新连接</button>
+      </p>
+      <p v-else-if="!ui.layout.sidebarCollapsed && !session.visibleSessions.length" class="empty-copy">
+        {{ session.showArchived ? '这个工作区还没有归档对话。' : '这个工作区还没有对话。' }}
+      </p>
+      <section v-for="group in groups" :key="group.label">
+        <h2 v-if="group.sessions.length && !ui.layout.sidebarCollapsed">{{ group.label }}</h2>
+        <SessionItem
+          v-for="item in group.sessions"
+          :key="item.id"
+          :item="item"
+          :collapsed="ui.layout.sidebarCollapsed"
+          @select="closeOnNarrowScreen"
+        />
+      </section>
     </div>
-  </div>
+    <footer>
+      <router-link to="/memory" title="它记得" @click="closeOnNarrowScreen"
+        ><span>✦</span><span v-if="!ui.layout.sidebarCollapsed">它记得</span></router-link
+      >
+      <router-link to="/settings" title="设置" @click="closeOnNarrowScreen"
+        ><IconSymbol name="settings" :size="16" /><span v-if="!ui.layout.sidebarCollapsed"
+          >设置</span
+        ></router-link
+      >
+    </footer>
+  </aside>
 </template>
-
 <style scoped lang="scss">
+@use '@/styles/mixins' as mixins;
 .sidebar {
-  display: flex;
+  width: var(--sidebar-width);
   height: 100%;
-  min-width: 64px;
+  flex: none;
+  background: var(--paper-2);
+  border-right: 1px solid var(--rule);
+  display: flex;
   flex-direction: column;
-  padding: 0 11px 12px;
-  overflow: hidden;
-  background: rgba(245, 247, 251, 0.72);
+  padding: 22px 14px 16px;
+  transition: width var(--duration-slow) var(--ease);
 }
-
-.window-chrome {
-  display: flex;
-  height: 42px;
-  align-items: center;
-  gap: 7px;
-  padding: 3px 4px 0;
-  -webkit-app-region: drag;
+.sidebar.collapsed {
+  width: 56px;
+  padding-inline: 8px;
 }
-
-.traffic { width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12); }
-.traffic.red { background: #ff5f57; }
-.traffic.amber { background: #febc2e; }
-.traffic.green { background: #28c840; }
-
-.brand-row {
+.identity {
   display: flex;
-  min-height: 46px;
   align-items: center;
   gap: 10px;
-  padding: 2px 5px 10px;
+  margin: 0 4px 24px;
 }
-
-.brand-mark,
+.identity strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
 .avatar {
   display: grid;
-  flex: none;
-  place-items: center;
-  color: #fff;
-  background: linear-gradient(145deg, #222b42, #69789b);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.28), 0 4px 12px rgba(27, 39, 65, 0.18);
+  width: 26px;
+  height: 26px;
+  place-content: center;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
-
-.brand-mark { width: 32px; height: 32px; border-radius: 10px; font-size: 15px; font-weight: 750; }
-.brand-copy { min-width: 0; display: flex; flex-direction: column; }
-.brand-copy strong { font-size: 14px; letter-spacing: -0.01em; }
-.brand-copy span { margin-top: 1px; color: var(--text-tertiary); font-size: 10px; }
-
-.new-chat {
+.new-page,
+.search-page {
+  @include mixins.interactive-row;
   display: flex;
-  width: 100%;
-  height: 39px;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 5px 0 10px;
+  gap: 10px;
+  height: 36px;
+  padding: 8px;
+  margin-bottom: 4px;
+  background: var(--transparent);
   border: 0;
-  border-radius: 12px;
-  color: #fff;
-  background: linear-gradient(180deg, #1689f8, #0071e3);
-  box-shadow: 0 7px 16px rgba(0, 113, 227, 0.18), inset 0 1px rgba(255, 255, 255, 0.28);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 650;
-  transition: transform 150ms ease, filter 150ms ease;
+  text-align: left;
+  font-size: var(--text-sm);
 }
-.new-chat:hover:not(:disabled) { filter: brightness(1.04); transform: translateY(-1px); }
-.new-chat:active:not(:disabled) { transform: scale(0.98); }
-
-.recent-section { min-height: 0; flex: 1; margin-top: 10px; overflow: hidden; }
-.section-label { display: flex; justify-content: space-between; padding: 0 8px 7px; color: var(--text-tertiary); font-size: 10px; font-weight: 700; letter-spacing: 0.045em; text-transform: uppercase; }
-
-.sidebar-footer { margin-top: auto; padding-top: 9px; border-top: 1px solid var(--border-color); }
-.workspace-card { display: flex; height: 45px; align-items: center; gap: 9px; padding: 6px; border-radius: 13px; color: var(--text-secondary); transition: background 150ms ease; }
-.workspace-card:hover { background: var(--surface-strong); }
-.avatar { width: 31px; height: 31px; border-radius: 50%; font-size: 12px; font-weight: 750; }
-.workspace-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; }
-.workspace-copy strong { color: var(--text-primary); font-size: 12px; font-weight: 650; }
-.workspace-copy small { color: var(--text-tertiary); font-size: 10px; }
-
-.collapsed {
+.new-page {
+  color: var(--ink);
+}
+.search-page {
+  color: var(--ink-2);
+}
+.session-groups {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 20px;
+}
+h2 {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  color: var(--ink-3);
+  margin: 18px 8px 8px;
+}
+footer {
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+}
+footer a {
+  @include mixins.interactive-row;
+  display: flex;
+  gap: 10px;
   align-items: center;
-  padding-inline: 8px;
-  .window-chrome { width: 100%; justify-content: center; gap: 3px; }
-  .traffic { width: 6px; height: 6px; }
-  .brand-row { justify-content: center; padding-inline: 0; }
-  .new-chat { width: 42px; }
-  .sidebar-footer { width: 100%; }
-  .workspace-card { justify-content: center; padding: 6px 0; }
+  padding: 10px 8px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
 }
-
-@media (prefers-color-scheme: dark) {
-  .sidebar { background: rgba(27, 28, 33, 0.78); }
+footer a.router-link-active {
+  color: var(--accent);
+  background: var(--accent-selected);
+}
+@media (max-width: 720px) {
+  .sidebar {
+    position: fixed;
+    inset: var(--titlebar-height) auto 0 0;
+    z-index: 30;
+    box-shadow: var(--shadow-float);
+  }
+  .sidebar.collapsed {
+    display: none;
+  }
 }
 </style>

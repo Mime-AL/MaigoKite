@@ -13,7 +13,7 @@ import {
   type WorkspaceRuntimeStatus,
 } from '@/api/client'
 
-const PREFERENCES_CACHE_KEY = 'nanamigopher_user_preferences'
+const PREFERENCES_CACHE_KEY = import.meta.env.VITE_MOCK === '1' ? 'maigokite_user_preferences_demo' : 'maigokite_user_preferences'
 
 function cachedAssistantName(): string {
   try {
@@ -48,6 +48,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const validation = ref<{ ok: boolean; message: string } | null>(null)
 
   let profileRequest: Promise<void> | null = null
+  let runtimeRequest = 0
 
   async function loadPreferences() {
     if (profileLoaded.value) return
@@ -103,16 +104,19 @@ export const useSettingsStore = defineStore('settings', () => {
     } finally { saving.value = false }
   }
 
-  async function loadRuntimeStatus() {
-    if (runtimeLoading.value) return
+  async function loadRuntimeStatus(folderId = '') {
+    const request = ++runtimeRequest
     runtimeLoading.value = true
+    runtimeStatus.value = null
     runtimeError.value = null
     try {
-      runtimeStatus.value = await api.getWorkspaceRuntimeStatus()
+      const result = await api.getWorkspaceRuntimeStatus(folderId)
+      if (request === runtimeRequest) runtimeStatus.value = result
     } catch (reason) {
-      runtimeError.value = reason instanceof Error ? reason.message : String(reason)
+      if (request === runtimeRequest)
+        runtimeError.value = reason instanceof Error ? reason.message : String(reason)
     } finally {
-      runtimeLoading.value = false
+      if (request === runtimeRequest) runtimeLoading.value = false
     }
   }
 

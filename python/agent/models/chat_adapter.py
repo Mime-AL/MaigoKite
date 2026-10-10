@@ -7,14 +7,14 @@ the Agent Core never needs to import LangChain directly.
 
 from __future__ import annotations
 
-import ipaddress
-import inspect
-import os
 from typing import Any, AsyncIterator, Optional
-from urllib.parse import urlparse
 
-import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+
+from agent.models.native_model import (
+    build_chat_model, close_chat_models,
+    normalize_openai_compatible_base_url as normalize_openai_compatible_base_url,
+)
 
 from agent.models.chat_provider import (
     ChatMessage,
@@ -26,32 +26,6 @@ from agent.models.chat_provider import (
 )
 
 
-def _is_local_endpoint(value: Any) -> bool:
-    if not value:
-        return False
-    hostname = urlparse(str(value)).hostname or ""
-    if hostname == "localhost" or hostname.endswith(".local"):
-        return True
-    try:
-        address = ipaddress.ip_address(hostname)
-    except ValueError:
-        return False
-    return address.is_loopback or address.is_private
-
-
-def normalize_openai_compatible_base_url(provider: str, value: Any) -> str:
-    """Repair the legacy LM Studio default URL without changing custom gateways."""
-    base_url = str(value or "").strip().rstrip("/")
-    if provider.lower() != "openai_compatible" or not base_url:
-        return base_url
-    parsed = urlparse(base_url)
-    try:
-        port = parsed.port
-    except ValueError:
-        return base_url
-    if port == 1234 and parsed.path in {"", "/"}:
-        return parsed._replace(path="/v1").geturl().rstrip("/")
-    return base_url
 
 
 class ChatAdapter(IChatProvider):
@@ -76,16 +50,6 @@ class ChatAdapter(IChatProvider):
         adapter = ChatAdapter(provider="openai", model="gpt-4o-mini")
         response = await adapter.chat([ChatMessage(role="user", content="Hello")])
     """
-
-    # Mapping from provider string to the environment variable that holds
-    # the corresponding API key.  Used to surface a clear error when a
-    # key is missing.
-    _KEY_ENV: dict[str, str] = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openai_compatible": "",
-        "ollama": "",  # Ollama is typically local; no key required.
-    }
 
     def __init__(
         self,
@@ -116,97 +80,8 @@ class ChatAdapter(IChatProvider):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_llm(
-        provider: str,
-        model: str,
-        extra: dict[str, Any],
-    ) -> Any:
-        """Create a LangChain ``ChatModel`` instance for *provider* / *model*.
-
-        Raises:
-            ValueError: When *provider* is not recognised.
-            RuntimeError: When the required API key env-var is missing.
-        """
-        provider_lower = provider.lower()
-
-        # Validate API key for providers that need one.
-        env_key = ChatAdapter._KEY_ENV.get(provider_lower)
-        explicit_key = str(extra.get("api_key") or "")
-        if env_key and not (explicit_key or os.environ.get(env_key)):
-            raise RuntimeError(
-                f"Provider '{provider}' requires the environment variable "
-                f"'{env_key}' to be set."
-            )
-
-        if provider_lower in {"openai", "openai_compatible"}:
-            from langchain_openai import ChatOpenAI
-            openai_key = explicit_key or "local-no-key"
-            base_url = normalize_openai_compatible_base_url(
-                provider_lower, extra.get("base_url")
-            )
-            if provider_lower == "openai":
-                openai_key = explicit_key or os.environ.get("OPENAI_API_KEY") or ""
-            kwargs: dict[str, Any] = {
-                "model": model,
-                "temperature": extra.get("temperature", 0.7),
-                "api_key": openai_key,
-            }
-            if extra.get("max_tokens"):
-                kwargs["max_completion_tokens"] = extra["max_tokens"]
-            if base_url:
-                kwargs["base_url"] = base_url
-            if extra.get("timeout"):
-                kwargs["timeout"] = extra["timeout"]
-            if provider_lower == "openai_compatible" or _is_local_endpoint(base_url):
-                timeout = extra.get("timeout") or 60
-                kwargs["http_client"] = httpx.Client(timeout=timeout, trust_env=False)
-                kwargs["http_async_client"] = httpx.AsyncClient(timeout=timeout, trust_env=False)
-                kwargs["http_socket_options"] = ()
-            kwargs.update({k: v for k, v in extra.items() if k not in ("temperature", "max_tokens", "api_key", "base_url", "timeout")})
-            return ChatOpenAI(**kwargs)
-
-        if provider_lower == "anthropic":
-            from langchain_anthropic import ChatAnthropic
-            kwargs = {
-                "model": model,
-                "temperature": extra.get("temperature", 0.7),
-                "api_key": explicit_key or os.environ.get("ANTHROPIC_API_KEY"),
-            }
-            if extra.get("max_tokens"):
-                kwargs["max_tokens_to_sample"] = extra["max_tokens"]
-            if extra.get("base_url"):
-                kwargs["base_url"] = extra["base_url"]
-            if extra.get("timeout"):
-                kwargs["timeout"] = extra["timeout"]
-            kwargs.update({k: v for k, v in extra.items() if k not in ("temperature", "max_tokens", "api_key", "base_url", "timeout")})
-            return ChatAnthropic(**kwargs)
-
-        if provider_lower == "ollama":
-            try:
-                from langchain_ollama import ChatOllama
-            except ImportError as exc:
-                raise RuntimeError("Ollama support requires the langchain-ollama package") from exc
-            kwargs = {
-                "model": model,
-                "temperature": extra.get("temperature", 0.7),
-            }
-            if extra.get("max_tokens"):
-                kwargs["num_predict"] = extra["max_tokens"]
-            if extra.get("base_url"):
-                kwargs["base_url"] = extra["base_url"]
-            if extra.get("timeout"):
-                kwargs["client_kwargs"] = {"timeout": extra["timeout"], "trust_env": False}
-                kwargs["async_client_kwargs"] = {"timeout": extra["timeout"], "trust_env": False}
-            else:
-                kwargs["client_kwargs"] = {"trust_env": False}
-                kwargs["async_client_kwargs"] = {"trust_env": False}
-            kwargs.update({k: v for k, v in extra.items() if k not in ("temperature", "max_tokens", "api_key", "base_url", "timeout")})
-            return ChatOllama(**kwargs)
-
-        raise ValueError(
-            f"Unsupported chat provider '{provider}'. "
-            f"Supported: {list(ChatAdapter._KEY_ENV.keys())}"
-        )
+    def _build_llm(provider: str, model: str, extra: dict[str, Any]) -> Any:
+        return build_chat_model(provider, model, **extra)
 
     # ------------------------------------------------------------------
     # Message conversion
@@ -461,35 +336,4 @@ class ChatAdapter(IChatProvider):
         return self._llm
 
     async def aclose(self) -> None:
-        """Release HTTP clients owned by the wrapped LangChain models."""
-        closed: set[int] = set()
-        providers = (
-            (self._llm, self.provider),
-            (self._fallback_llm, None),
-        )
-        for llm, provider in providers:
-            if llm is None:
-                continue
-            module = type(llm).__module__
-            if provider in {"openai", "openai_compatible"} or module.startswith(
-                "langchain_openai"
-            ):
-                attributes = ("root_async_client", "root_client")
-            elif provider == "ollama" or module.startswith("langchain_ollama"):
-                attributes = ("_async_client", "_client")
-            else:
-                # ChatAnthropic 1.x caches its transports process-wide. Closing
-                # the private client poisons later instances in the same Core
-                # process, so its official cache owns that transport lifecycle.
-                continue
-            for attribute in attributes:
-                client = getattr(llm, attribute, None)
-                if client is None or id(client) in closed:
-                    continue
-                closed.add(id(client))
-                close = getattr(client, "aclose", None) or getattr(client, "close", None)
-                if close is None:
-                    continue
-                result = close()
-                if inspect.isawaitable(result):
-                    await result
+        await close_chat_models([self._llm, self._fallback_llm])

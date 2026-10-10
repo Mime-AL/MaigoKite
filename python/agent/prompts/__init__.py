@@ -1,4 +1,4 @@
-"""Prompt template registry and output parsers for NanamiGopher Agent."""
+"""Prompt template registry and output parsers for MaigoKite Agent."""
 
 from agent.prompts.templates import (
     agent_step_template,

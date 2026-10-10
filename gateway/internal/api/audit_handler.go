@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
+	agentgrpc "maigokite/gateway/internal/grpc"
 )
 
 type AuditHandler struct{ client *agentgrpc.AgentClient }

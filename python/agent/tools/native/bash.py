@@ -63,8 +63,16 @@ class ExecCommandTool(BaseTool):
         executor = SandboxExecutor(
             {"workspace_root": str(workspace_root), "workdir": str(workdir)}
         )
+        registry = context.metadata.get("process_registry")
+        def on_spawn(process, stdout, stderr, stop):
+            if registry is not None:
+                registry.attach(context.step_id, str(context.metadata.get("workspace_id", "personal")),
+                                context.task_id, process, stdout, stderr, stop)
+        def on_exit():
+            if registry is not None:
+                registry.detach(context.step_id)
         result = await executor.execute_command(
-            str(arguments["command"]), int(arguments.get("timeout", 30))
+            str(arguments["command"]), int(arguments.get("timeout", 30)), on_spawn=on_spawn, on_exit=on_exit,
         )
 
         parts = [f"Exit code {result.exit_code}"]

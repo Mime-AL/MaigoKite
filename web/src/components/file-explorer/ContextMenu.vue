@@ -1,8 +1,4 @@
-/**
- * 右键菜单组件
- *
- * 文件节点上的上下文菜单。
- */
+/** * 右键菜单组件 * * 文件节点上的上下文菜单。 */
 
 <script setup lang="ts">
 defineProps<{
@@ -20,11 +16,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div
-    v-if="visible"
-    class="context-menu"
-    :style="{ left: x + 'px', top: y + 'px' }"
-  >
+  <div v-if="visible" class="context-menu" :style="{ left: x + 'px', top: y + 'px' }">
     <ul>
       <li @click="emit('rename')">重命名</li>
       <li @click="emit('copy')">复制</li>
@@ -41,7 +33,7 @@ const emit = defineEmits<{
   min-width: 150px;
   padding: 5px;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--shadow-float);
   backdrop-filter: var(--blur);
@@ -55,9 +47,9 @@ ul {
 
 li {
   padding: 7px 11px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--text-xs);
   cursor: pointer;
 
   &:hover {
@@ -69,7 +61,7 @@ li {
     margin-top: 4px;
     padding-top: 8px;
     border-top: 1px solid var(--border-color);
-    border-radius: 0 0 8px 8px;
+    border-radius: var(--radius-none) var(--radius-none) var(--radius-sm) var(--radius-sm);
     color: var(--danger);
   }
 }

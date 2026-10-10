@@ -6,15 +6,17 @@ import (
 	"net/http"
 	"time"
 
+	"maigokite/gateway/internal/credentialstore"
+	agentgrpc "maigokite/gateway/internal/grpc"
+	ws "maigokite/gateway/internal/websocket"
+	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 	"github.com/gin-gonic/gin"
-	agentgrpc "github.com/nanamigopher/nanamigopher/gateway/internal/grpc"
-	ws "github.com/nanamigopher/nanamigopher/gateway/internal/websocket"
-	agentv1 "github.com/nanamigopher/nanamigopher/gateway/pkg/proto/agent/v1"
 )
 
 type ApprovalHandler struct {
 	client *agentgrpc.AgentClient
 	hub    *ws.Hub
+	mgr    *credentialstore.Manager
 }
 
 type approvalResponse struct {
@@ -30,6 +32,8 @@ type approvalResponse struct {
 	Status         string         `json:"status"`
 	Version        int32          `json:"version"`
 	ExpiresAt      string         `json:"expires_at"`
+	Note           string         `json:"note"`
+	DecidedAt      string         `json:"decided_at"`
 }
 
 func approvalValue(item *agentv1.Approval) approvalResponse {
@@ -40,7 +44,17 @@ func approvalValue(item *agentv1.Approval) approvalResponse {
 		TaskID: item.TaskId, ToolCallID: item.ToolCallId, ToolName: item.ToolName,
 		Arguments: arguments, ResourceScope: item.ResourceScope, RiskLevel: item.RiskLevel,
 		Status: item.Status, Version: item.Version, ExpiresAt: item.ExpiresAt,
+		Note: item.Note, DecidedAt: item.DecidedAt,
 	}
+}
+
+func (h *ApprovalHandler) Get(c *gin.Context) {
+	item, err := h.client.GetApproval(c.Request.Context(), c.Param("workspaceID"), c.Param("approvalID"))
+	if err != nil {
+		grpcError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, approvalValue(item))
 }
 
 func (h *ApprovalHandler) List(c *gin.Context) {
@@ -59,6 +73,7 @@ func (h *ApprovalHandler) List(c *gin.Context) {
 type approvalDecisionRequest struct {
 	Decision string `json:"decision" binding:"required,oneof=allow deny"`
 	Version  int32  `json:"version" binding:"required,min=1"`
+	Note     string `json:"note" binding:"max=2000"`
 }
 
 func (h *ApprovalHandler) Decide(c *gin.Context) {
@@ -67,10 +82,30 @@ func (h *ApprovalHandler) Decide(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "VALIDATION", "message": err.Error()}})
 		return
 	}
+	// Resolve the pending approval before accepting a decision. The Core remains
+	// authoritative for ownership, version and argument-hash validation.
+	pending, err := h.client.GetApproval(c.Request.Context(), c.Param("workspaceID"), c.Param("approvalID"))
+	if err != nil {
+		grpcError(c, err)
+		return
+	}
+	conversationID := pending.ConversationId
+	if pending.Status != "pending" || pending.Version != req.Version {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "APPROVAL_NOT_PENDING", "message": "approval is no longer pending; refresh its status"}})
+		return
+	}
+	// A refusal must work even if the model was removed or the keychain is locked.
+	if req.Decision == "allow" {
+		if err := prepareExecutionCredentials(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), conversationID); err != nil {
+			grpcError(c, err)
+			return
+		}
+	}
 	streamContext, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	events, errs := h.client.DecideApproval(streamContext, &agentv1.ApprovalDecisionRequest{
 		WorkspaceId: c.Param("workspaceID"), ApprovalId: c.Param("approvalID"),
 		PrincipalId: c.GetString("principal_id"), Decision: req.Decision, Version: req.Version,
+		Note: req.Note,
 	})
 	first, ok := <-events
 	if !ok {
@@ -82,12 +117,17 @@ func (h *ApprovalHandler) Decide(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "EMPTY_STREAM", "message": "agent returned no event"}})
 		return
 	}
+	if first.Type == "error" {
+		cancel()
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": first.Code, "message": first.Message}})
+		return
+	}
 	broadcast := func(event *agentv1.AgentEvent) {
 		payload := json.RawMessage(event.PayloadJson)
 		if len(payload) == 0 || !json.Valid(payload) {
 			payload, _ = json.Marshal(gin.H{"content": event.Content, "message": event.Message, "code": event.Code})
 		}
-		h.hub.BroadcastEvent(event.ConversationId, event.TaskId, event.Type, payload)
+		h.hub.BroadcastPersistedEvent(event.ConversationId, event.TaskId, event.Type, payload, event.EventId, uint64(event.Sequence), event.OccurredAt)
 	}
 	broadcast(first)
 	go func() {

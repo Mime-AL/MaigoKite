@@ -5,8 +5,8 @@ these names keep the original acceptance tests and opt-in provider probes.
 """
 
 from agent.runtime_spike.adapter import (
-    NanamiEvent,
-    NanamiRuntimeAdapter,
+    MaigoKiteEvent,
+    MaigoKiteRuntimeAdapter,
     ProductToolSpec,
     RunHandle,
     SpikeRunRequest,
@@ -14,8 +14,8 @@ from agent.runtime_spike.adapter import (
 from agent.runtime_spike.model_factory import build_chat_model
 
 __all__ = [
-    "NanamiEvent",
-    "NanamiRuntimeAdapter",
+    "MaigoKiteEvent",
+    "MaigoKiteRuntimeAdapter",
     "ProductToolSpec",
     "RunHandle",
     "SpikeRunRequest",

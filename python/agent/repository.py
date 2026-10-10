@@ -17,6 +17,22 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class ConversationBusyError(ValueError):
+    """A conversation with unfinished work cannot be moved or removed."""
+
+
+class MessageConflictError(ValueError):
+    """A submission key was reused for a different request."""
+
+
+class MessageReplay(Exception):
+    """Return an existing product task; never execute a submitted message twice."""
+
+    def __init__(self, task: dict[str, Any]) -> None:
+        self.task = task
+        super().__init__(str(task["id"]))
+
+
 class SQLiteRepository:
     TASK_STATUSES = {
         "created",
@@ -72,6 +88,11 @@ class SQLiteRepository:
               title TEXT NOT NULL, model_id TEXT NOT NULL DEFAULT '', permission_mode TEXT NOT NULL,
               response_mode TEXT NOT NULL DEFAULT 'balanced',
               created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS workspace_folders (
+              id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+              name TEXT NOT NULL, root_path TEXT NOT NULL, created_at TEXT NOT NULL,
+              UNIQUE(workspace_id, root_path)
             );
             CREATE TABLE IF NOT EXISTS workspace_memberships (
               workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -142,6 +163,20 @@ class SQLiteRepository:
               id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, text TEXT NOT NULL,
               done INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS questions (
+              id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+              task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+              tool_call_id TEXT NOT NULL UNIQUE REFERENCES tool_calls(id) ON DELETE CASCADE,
+              principal_id TEXT NOT NULL, title TEXT NOT NULL, options_json TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'pending', version INTEGER NOT NULL DEFAULT 1,
+              answer TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_questions_workspace_status ON questions(workspace_id,status);
+            CREATE TABLE IF NOT EXISTS task_inputs (
+              id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+              content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', created_at TEXT NOT NULL,
+              idempotency_key TEXT NOT NULL, UNIQUE(task_id,idempotency_key)
+            );
             CREATE INDEX IF NOT EXISTS idx_todos_workspace_created
               ON todos(workspace_id, created_at);
             CREATE TABLE IF NOT EXISTS user_memories (
@@ -165,14 +200,21 @@ class SQLiteRepository:
         }
         if "response_mode" not in conversation_columns:
             connection.execute("ALTER TABLE conversations ADD COLUMN response_mode TEXT NOT NULL DEFAULT 'balanced'")
+        for column, definition in (("folder_id", "TEXT NOT NULL DEFAULT ''"), ("archived", "INTEGER NOT NULL DEFAULT 0")):
+            if column not in conversation_columns:
+                connection.execute(f"ALTER TABLE conversations ADD COLUMN {column} {definition}")
         tool_call_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(tool_calls)").fetchall()}
         if "continuation_json" not in tool_call_columns:
             connection.execute("ALTER TABLE tool_calls ADD COLUMN continuation_json TEXT NOT NULL DEFAULT '{}'")
+        approval_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(approvals)").fetchall()}
+        if "note" not in approval_columns:
+            connection.execute("ALTER TABLE approvals ADD COLUMN note TEXT NOT NULL DEFAULT ''")
         task_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
         for column, definition in (
             ("input_text", "TEXT NOT NULL DEFAULT ''"),
             ("last_error", "TEXT NOT NULL DEFAULT ''"),
             ("version", "INTEGER NOT NULL DEFAULT 1"),
+            ("request_hash", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in task_columns:
                 connection.execute(f"ALTER TABLE tasks ADD COLUMN {column} {definition}")
@@ -224,16 +266,18 @@ class SQLiteRepository:
         model_id: str = "",
         permission_mode: str = "workspace",
         response_mode: str = "balanced",
+        folder_id: str = "",
     ) -> dict[str, Any]:
         conversation_id = f"conv_{uuid.uuid4().hex}"
         now = _now()
         title = title.strip() or "新对话"
         async with self._lock:
+            self._require_folder(workspace_id, folder_id)
             self._db().execute(
                 """INSERT INTO conversations(
-                     id,workspace_id,title,model_id,permission_mode,response_mode,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?,?,?)""",
-                (conversation_id, workspace_id, title, model_id, permission_mode, response_mode, now, now),
+                     id,workspace_id,title,model_id,permission_mode,response_mode,created_at,updated_at,folder_id
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (conversation_id, workspace_id, title, model_id, permission_mode, response_mode, now, now, folder_id),
             )
             self._db().commit()
         return await self.get_conversation(workspace_id, conversation_id)
@@ -280,8 +324,59 @@ class SQLiteRepository:
             raise KeyError(conversation_id)
         return dict(row)
 
-    async def delete_conversation(self, workspace_id: str, conversation_id: str) -> None:
+    def _require_folder(self, workspace_id: str, folder_id: str) -> None:
+        if folder_id and self._db().execute(
+            "SELECT id FROM workspace_folders WHERE workspace_id=? AND id=?", (workspace_id, folder_id),
+        ).fetchone() is None:
+            raise KeyError(folder_id)
+
+    def _require_idle_conversation(self, workspace_id: str, conversation_id: str) -> None:
+        active = self._db().execute(
+            """SELECT id FROM tasks WHERE workspace_id=? AND conversation_id=?
+               AND status IN ('created','queued','running','waiting_approval','retry_wait') LIMIT 1""",
+            (workspace_id, conversation_id),
+        ).fetchone()
+        if active:
+            raise ConversationBusyError("请先停止或完成此对话中的任务，再移动、归档或删除。")
+
+    async def list_workspace_folders(self, workspace_id: str) -> list[dict[str, Any]]:
         async with self._lock:
+            rows = self._db().execute(
+                "SELECT id,name,root_path FROM workspace_folders WHERE workspace_id=? ORDER BY created_at",
+                (workspace_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def get_workspace_folder(self, workspace_id: str, folder_id: str) -> dict[str, Any]:
+        async with self._lock:
+            row = self._db().execute(
+                "SELECT id,name,root_path FROM workspace_folders WHERE workspace_id=? AND id=?",
+                (workspace_id, folder_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(folder_id)
+        return dict(row)
+
+    async def create_workspace_folder(self, workspace_id: str, name: str, root_path: str) -> dict[str, Any]:
+        async with self._lock:
+            self._db().execute(
+                "INSERT OR IGNORE INTO workspace_folders(id,workspace_id,name,root_path,created_at) VALUES(?,?,?,?,?)",
+                (f"folder_{uuid.uuid4().hex}", workspace_id, name, root_path, _now()),
+            )
+            self._db().commit()
+            row = self._db().execute(
+                "SELECT id,name,root_path FROM workspace_folders WHERE workspace_id=? AND root_path=?",
+                (workspace_id, root_path),
+            ).fetchone()
+        assert row is not None
+        return dict(row)
+
+    async def delete_conversation(self, workspace_id: str, conversation_id: str) -> list[str]:
+        async with self._lock:
+            self._require_idle_conversation(workspace_id, conversation_id)
+            task_ids = [str(row[0]) for row in self._db().execute(
+                "SELECT id FROM tasks WHERE workspace_id=? AND conversation_id=?", (workspace_id, conversation_id),
+            ).fetchall()]
             self._db().execute(
                 "DELETE FROM tasks WHERE workspace_id=? AND conversation_id=?",
                 (workspace_id, conversation_id),
@@ -293,6 +388,7 @@ class SQLiteRepository:
             self._db().commit()
         if cursor.rowcount == 0:
             raise KeyError(conversation_id)
+        return task_ids
 
     async def update_conversation_permission(
         self, workspace_id: str, conversation_id: str, permission_mode: str
@@ -315,6 +411,9 @@ class SQLiteRepository:
         model_id: str | None = None,
         response_mode: str | None = None,
         permission_mode: str | None = None,
+        title: str | None = None,
+        folder_id: str | None = None,
+        archived: bool | None = None,
     ) -> dict[str, Any]:
         assignments: list[str] = []
         values: list[Any] = []
@@ -322,6 +421,9 @@ class SQLiteRepository:
             ("model_id", model_id),
             ("response_mode", response_mode),
             ("permission_mode", permission_mode),
+            ("title", title),
+            ("folder_id", folder_id),
+            ("archived", archived),
         ):
             if value is not None:
                 assignments.append(f"{column}=?")
@@ -331,6 +433,10 @@ class SQLiteRepository:
         assignments.append("updated_at=?")
         values.extend([_now(), workspace_id, conversation_id])
         async with self._lock:
+            if folder_id is not None:
+                self._require_folder(workspace_id, folder_id)
+            if folder_id is not None or archived is not None:
+                self._require_idle_conversation(workspace_id, conversation_id)
             cursor = self._db().execute(
                 f"UPDATE conversations SET {','.join(assignments)} WHERE workspace_id=? AND id=?",
                 values,
@@ -362,6 +468,12 @@ class SQLiteRepository:
             "created_at": _now(),
         }
         async with self._lock:
+            if role == "user":
+                self._db().execute(
+                    """UPDATE conversations SET title=? WHERE id=? AND title='新对话'
+                       AND NOT EXISTS(SELECT 1 FROM messages WHERE conversation_id=?)""",
+                    (content[:28], conversation_id, conversation_id),
+                )
             self._db().execute(
                 "INSERT INTO messages(id,conversation_id,role,content,created_at) VALUES(:id,:conversation_id,:role,:content,:created_at)",
                 message,
@@ -474,6 +586,13 @@ class SQLiteRepository:
         self._require_status(status, self.TASK_STATUSES, "task")
         now = _now()
         async with self._lock:
+            conversation = self._db().execute(
+                "SELECT archived FROM conversations WHERE workspace_id=? AND id=?", (workspace_id, conversation_id),
+            ).fetchone()
+            if conversation is None:
+                raise KeyError(conversation_id)
+            if conversation["archived"]:
+                raise ConversationBusyError("请先恢复归档对话，再发送消息。")
             self._db().execute(
                 """INSERT INTO tasks(
                      id,workspace_id,conversation_id,title,status,input_text,last_error,
@@ -482,6 +601,63 @@ class SQLiteRepository:
                 (task_id, workspace_id, conversation_id, title, status, input_text, "", 1, now, now),
             )
             self._db().commit()
+
+    async def check_message_replay(self, workspace_id: str, task_id: str, request_hash: str) -> None:
+        if not request_hash:
+            return
+        async with self._lock:
+            row = self._db().execute(
+                "SELECT * FROM tasks WHERE workspace_id=? AND id=?", (workspace_id, task_id),
+            ).fetchone()
+        if row is not None:
+            if not hmac.compare_digest(str(row["request_hash"]), request_hash):
+                raise MessageConflictError("Idempotency-Key was already used for a different message")
+            raise MessageReplay(dict(row))
+
+    async def start_chat_turn(
+        self, task_id: str, workspace_id: str, conversation_id: str, prompt: str, request_hash: str = "",
+    ) -> None:
+        """Atomically admit one turn and append its user message (not an execution checkpoint).
+
+        Keyed task IDs are deterministic at the API boundary. A committed admission
+        survives a crash; resubmitting that key only returns its task, including an
+        interrupted task. A new execution always needs a new submission key.
+        """
+        now = _now()
+        async with self._lock:
+            db = self._db()
+            with db:
+                existing = db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+                if existing is not None:
+                    if (existing["workspace_id"] != workspace_id or existing["conversation_id"] != conversation_id
+                            or not request_hash or not hmac.compare_digest(existing["request_hash"], request_hash)):
+                        raise MessageConflictError("submission conflicts with an existing task")
+                    raise MessageReplay(dict(existing))
+                conversation = db.execute(
+                    "SELECT archived FROM conversations WHERE workspace_id=? AND id=?", (workspace_id, conversation_id),
+                ).fetchone()
+                if conversation is None:
+                    raise KeyError(conversation_id)
+                if conversation["archived"]:
+                    raise ConversationBusyError("请先恢复归档对话，再发送消息。")
+                active = db.execute(
+                    """SELECT id FROM tasks WHERE workspace_id=? AND conversation_id=?
+                       AND status IN ('created','queued','running','waiting_approval','retry_wait') LIMIT 1""",
+                    (workspace_id, conversation_id),
+                ).fetchone()
+                if active is not None:
+                    raise ConversationBusyError("conversation has unfinished work; finish or cancel it first")
+                db.execute(
+                    """INSERT INTO tasks(id,workspace_id,conversation_id,title,status,input_text,request_hash,
+                       created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (task_id, workspace_id, conversation_id, prompt[:80] or "Agent task", "running", prompt,
+                     request_hash, now, now),
+                )
+                db.execute(
+                    "INSERT INTO messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?)",
+                    (f"msg_{uuid.uuid4().hex}", conversation_id, "user", prompt, now),
+                )
+                db.execute("UPDATE conversations SET updated_at=? WHERE id=?", (now, conversation_id))
 
     async def update_task_status(self, task_id: str, status: str, last_error: str = "") -> None:
         self._require_status(status, self.TASK_STATUSES, "task")
@@ -518,6 +694,15 @@ class SQLiteRepository:
         async with self._lock:
             rows = self._db().execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    async def latest_conversation_task(self, workspace_id: str, conversation_id: str) -> dict[str, Any] | None:
+        """Creation order, not updated_at: a resumed old task is not a new turn."""
+        async with self._lock:
+            row = self._db().execute(
+                "SELECT * FROM tasks WHERE workspace_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                (workspace_id, conversation_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
 
     async def append_task_event(self, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         task_id = str(payload.get("task_id") or "")
@@ -691,6 +876,10 @@ class SQLiteRepository:
                 (now, task_id),
             )
             self._db().execute(
+                "UPDATE questions SET status='cancelled',version=version+1 WHERE task_id=? AND status='pending'",
+                (task_id,),
+            )
+            self._db().execute(
                 """UPDATE tool_calls SET status='cancelled',updated_at=?
                    WHERE task_id=? AND status IN ('proposed','waiting_approval','running')""",
                 (now, task_id),
@@ -739,6 +928,236 @@ class SQLiteRepository:
         if row is None:
             raise KeyError(tool_call_id)
         return dict(row)
+
+    async def request_question(
+        self, workspace_id: str, conversation_id: str, task_id: str, tool_call_id: str,
+        principal_id: str, title: str, options: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        async with self._lock:
+            db = self._db()
+            with db:
+                db.execute(
+                    """INSERT OR IGNORE INTO questions(id,workspace_id,conversation_id,task_id,
+                       tool_call_id,principal_id,title,options_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (f"question_{uuid.uuid4().hex}", workspace_id, conversation_id, task_id,
+                     tool_call_id, principal_id, title, json.dumps(options, ensure_ascii=False), _now()),
+                )
+                # Keep the existing task-status DTO compatible with the GUI;
+                # question.requested distinguishes this wait from an approval.
+                db.execute("UPDATE tasks SET status='waiting_approval',updated_at=?,version=version+1 WHERE id=?",
+                           (_now(), task_id))
+                db.execute("UPDATE tool_calls SET status='waiting_approval',updated_at=? WHERE id=?",
+                           (_now(), tool_call_id))
+                row = db.execute("SELECT * FROM questions WHERE tool_call_id=?", (tool_call_id,)).fetchone()
+        return dict(row)
+
+    async def get_question(self, workspace_id: str, question_id: str) -> dict[str, Any]:
+        async with self._lock:
+            row = self._db().execute("SELECT * FROM questions WHERE workspace_id=? AND id=?",
+                                     (workspace_id, question_id)).fetchone()
+        if row is None:
+            raise KeyError(question_id)
+        return dict(row)
+
+    async def list_questions(self, workspace_id: str, conversation_id: str = "") -> list[dict[str, Any]]:
+        async with self._lock:
+            rows = self._db().execute(
+                """SELECT q.* FROM questions q JOIN tasks t ON t.id=q.task_id
+                   WHERE q.workspace_id=? AND q.status='pending' AND t.status='waiting_approval'
+                     AND (?='' OR q.conversation_id=?) ORDER BY q.created_at LIMIT 500""",
+                (workspace_id, conversation_id, conversation_id),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def task_questions(self, workspace_id: str, task_id: str) -> list[dict[str, Any]]:
+        async with self._lock:
+            rows = self._db().execute("SELECT * FROM questions WHERE workspace_id=? AND task_id=?",
+                                      (workspace_id, task_id)).fetchall()
+        return [dict(row) for row in rows]
+
+    async def submit_task_input(self, workspace_id: str, task_id: str, content: str,
+                                idempotency_key: str) -> dict[str, Any]:
+        if not content.strip() or len(content) > 10000 or not idempotency_key or len(idempotency_key) > 128:
+            raise ValueError("content and an idempotency key (up to 128 characters) are required")
+        async with self._lock:
+            db = self._db()
+            with db:
+                task = db.execute("SELECT status FROM tasks WHERE workspace_id=? AND id=?",
+                                  (workspace_id, task_id)).fetchone()
+                if task is None:
+                    raise KeyError(task_id)
+                existing = db.execute("SELECT * FROM task_inputs WHERE task_id=? AND idempotency_key=?",
+                                      (task_id, idempotency_key)).fetchone()
+                if existing is not None:
+                    if existing["content"] != content.strip():
+                        raise ValueError("idempotency key was already used for another message")
+                    return dict(existing)
+                if task["status"] != "running":
+                    raise ValueError("task is not running; resolve its pending interaction or send a new turn")
+                count = db.execute("SELECT COUNT(*) FROM task_inputs WHERE task_id=? AND status='queued'", (task_id,)).fetchone()[0]
+                if count >= 20:
+                    raise ValueError("too many pending messages")
+                item = {"id": f"input_{uuid.uuid4().hex}", "task_id": task_id, "content": content.strip(),
+                        "status": "queued", "created_at": _now()}
+                db.execute(
+                    "INSERT INTO task_inputs(id,task_id,content,status,created_at,idempotency_key) VALUES(?,?,?,?,?,?)",
+                    (item["id"], task_id, item["content"], item["status"], item["created_at"], idempotency_key),
+                )
+        return item
+
+    async def task_inputs(self, workspace_id: str, task_id: str, *, pending: bool = False) -> list[dict[str, Any]]:
+        await self.get_task(workspace_id, task_id)
+        async with self._lock:
+            rows = self._db().execute(
+                """SELECT i.*,t.status AS task_status FROM task_inputs i JOIN tasks t ON t.id=i.task_id
+                   WHERE t.workspace_id=? AND i.task_id=? AND (?=0 OR i.status='queued')
+                   ORDER BY i.created_at,i.id LIMIT 500""", (workspace_id, task_id, int(pending)),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            task_status = item.pop("task_status")
+            if item["status"] == "queued" and task_status not in {"running", "waiting_approval"}:
+                item["status"] = "not_consumed"
+            if not pending or item["status"] == "queued":
+                result.append(item)
+        return result
+
+    async def consume_task_inputs(self, workspace_id: str, task_id: str, message_ids: set[str]) -> list[dict[str, Any]]:
+        consumed = []
+        async with self._lock:
+            db = self._db()
+            with db:
+                rows = db.execute(
+                    """SELECT i.*,t.conversation_id FROM task_inputs i JOIN tasks t ON t.id=i.task_id
+                       WHERE t.workspace_id=? AND i.task_id=? AND i.status='queued'""",
+                    (workspace_id, task_id),
+                ).fetchall()
+                for row in rows:
+                    if row["id"] not in message_ids:
+                        continue
+                    db.execute("UPDATE task_inputs SET status='consumed' WHERE id=?", (row["id"],))
+                    db.execute("INSERT OR IGNORE INTO messages VALUES(?,?,?,?,?)",
+                               (row["id"], row["conversation_id"], "user", row["content"], row["created_at"]))
+                    consumed.append({**dict(row), "status": "consumed"})
+        return consumed
+
+    async def answer_question(self, workspace_id: str, question_id: str, principal_id: str,
+                              answer: str, version: int) -> dict[str, Any]:
+        if not answer.strip() or len(answer) > 10000:
+            raise ValueError("answer must contain 1 to 10000 characters")
+        async with self._lock:
+            db = self._db()
+            with db:
+                row = db.execute(
+                    """SELECT q.*,t.status AS task_status FROM questions q JOIN tasks t ON t.id=q.task_id
+                       WHERE q.workspace_id=? AND q.id=?""", (workspace_id, question_id),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(question_id)
+                if row["principal_id"] != principal_id:
+                    raise PermissionError("question belongs to another principal")
+                if row["status"] != "pending" or row["version"] != version or row["task_status"] != "waiting_approval":
+                    raise ValueError("question is no longer pending or its version changed")
+                db.execute("UPDATE questions SET answer=?,status='answered',version=version+1 WHERE id=?",
+                           (answer.strip(), question_id))
+                db.execute("UPDATE tasks SET status='running',updated_at=?,version=version+1 WHERE id=?",
+                           (_now(), row["task_id"]))
+                db.execute(
+                    "INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)",
+                    (f"audit_{uuid.uuid4().hex}", workspace_id, principal_id, "question.answered",
+                     question_id, "answered", json.dumps({"version": version}, ensure_ascii=False), _now()),
+                )
+                # Visible history must also retain answers if a later run imports
+                # product messages instead of a successfully completed checkpoint.
+                db.execute("INSERT INTO messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?)",
+                           (f"answer_{question_id}", row["conversation_id"], "user",
+                            f"{row['title']}\n{answer.strip()}", _now()))
+        return await self.get_question(workspace_id, question_id)
+
+    async def inspect_task(self, workspace_id: str, task_id: str) -> dict[str, Any]:
+        """Read one bounded GUI snapshot, scoped to the authenticated workspace.
+
+        No runtime continuation or checkpoint is exposed. All queries run under
+        the repository lock, so the projection cursor belongs to this snapshot.
+        """
+        async with self._lock:
+            db = self._db()
+            task = db.execute("SELECT * FROM tasks WHERE workspace_id=? AND id=?",
+                              (workspace_id, task_id)).fetchone()
+            if task is None:
+                raise KeyError(task_id)
+            calls = db.execute(
+                """SELECT id,task_id,tool_name,arguments_json,result_json,summary,status,
+                          risk_level,created_at,updated_at FROM tool_calls
+                   WHERE workspace_id=? AND task_id=? ORDER BY created_at,id LIMIT 51""",
+                (workspace_id, task_id),
+            ).fetchall()
+            approvals = db.execute(
+                """SELECT a.*,t.tool_name,t.arguments_json FROM approvals a
+                   JOIN tool_calls t ON t.id=a.tool_call_id
+                   WHERE a.workspace_id=? AND a.task_id=? ORDER BY a.created_at LIMIT 51""",
+                (workspace_id, task_id),
+            ).fetchall()
+            events = db.execute(
+                """SELECT event_type,payload_json,sequence FROM task_events
+                   WHERE workspace_id=? AND task_id=? AND event_type IN
+                     ('plan.updated','context.updated','file.changed','message.completed','task.completed','task.succeeded')
+                   ORDER BY sequence DESC LIMIT 101""",
+                (workspace_id, task_id),
+            ).fetchall()
+            last_sequence = db.execute("SELECT COALESCE(MAX(sequence),0) FROM task_events WHERE task_id=?",
+                                       (task_id,)).fetchone()[0]
+            questions = db.execute("SELECT id,tool_call_id,title,options_json,status,version,answer FROM questions WHERE task_id=?",
+                                   (task_id,)).fetchall()
+        projection: dict[str, Any] = {
+            "plan": None, "context": None, "changes": [], "summary": None,
+            "questions": [{**{key: row[key] for key in row.keys() if key != "options_json"},
+                           "options": json.loads(row["options_json"])} for row in questions],
+            "truncated": len(calls) > 50 or len(approvals) > 50 or len(events) > 100,
+        }
+        for event in reversed(events[:100]):
+            payload = json.loads(event["payload_json"])
+            if event["event_type"] == "plan.updated":
+                projection["plan"] = payload.get("items")
+            elif event["event_type"] == "context.updated":
+                projection["context"] = payload
+            elif event["event_type"] == "file.changed":
+                projection["changes"].append(payload)
+            elif event["event_type"] == "message.completed":
+                projection["summary"] = payload.get("content")
+            elif event["event_type"] in {"task.succeeded", "task.completed"} and payload.get("summary") is not None:
+                projection["summary"] = payload.get("summary")
+        # Bound the wire snapshot independently of the number of rows. Large
+        # evidence remains in event history; truncation is explicit to callers.
+        remaining = 900_000
+        def bounded(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            nonlocal remaining
+            accepted = []
+            for item in items:
+                size = len(json.dumps(item, ensure_ascii=False).encode("utf-8"))
+                if size > remaining:
+                    projection["truncated"] = True
+                    continue
+                remaining -= size
+                accepted.append(item)
+            return accepted
+        tool_calls = bounded([dict(row) for row in calls[:50]])
+        approval_values = bounded([self._approval_value(row) for row in approvals[:50]])
+        projection["changes"] = bounded(projection["changes"])
+        projection["questions"] = bounded(projection["questions"])
+        return {"task": dict(task), "tool_calls": tool_calls, "approvals": approval_values,
+                "projection": projection, "last_sequence": int(last_sequence)}
+
+    async def list_command_calls(self, workspace_id: str, conversation_id: str = "") -> list[dict[str, Any]]:
+        async with self._lock:
+            rows = self._db().execute(
+                """SELECT c.*,t.status AS task_status FROM tool_calls c JOIN tasks t ON t.id=c.task_id
+                   WHERE c.workspace_id=? AND c.tool_name IN ('exec_command','bash')
+                     AND (?='' OR c.conversation_id=?) ORDER BY c.created_at DESC LIMIT 100""",
+                (workspace_id, conversation_id, conversation_id),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     async def update_tool_call(
         self,
@@ -790,7 +1209,10 @@ class SQLiteRepository:
         arguments_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
         async with self._lock:
             self._db().execute(
-                """INSERT INTO approvals VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO approvals(
+                   id,workspace_id,conversation_id,principal_id,task_id,tool_call_id,
+                   arguments_hash,risk_level,status,version,expires_at,created_at,decided_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     approval_id,
                     workspace_id,
@@ -897,10 +1319,14 @@ class SQLiteRepository:
         return [self._approval_value(row) for row in rows]
 
     async def decide_approval(
-        self, workspace_id: str, approval_id: str, principal_id: str, decision: str, version: int
+        self, workspace_id: str, approval_id: str, principal_id: str, decision: str, version: int,
+        note: str = "",
     ) -> dict[str, Any]:
         if decision not in {"allow", "deny"}:
             raise ValueError("decision must be allow or deny")
+        if not isinstance(note, str) or len(note) > 2000:
+            raise ValueError("approval note must not exceed 2000 characters")
+        note = note.strip()
         now = datetime.now(timezone.utc)
         async with self._lock:
             row = (
@@ -920,6 +1346,11 @@ class SQLiteRepository:
                 raise ValueError("approval has already been decided")
             if int(item["version"]) != version:
                 raise ValueError("approval version conflict")
+            task = self._db().execute(
+                "SELECT status FROM tasks WHERE workspace_id=? AND id=?", (workspace_id, item["task_id"]),
+            ).fetchone()
+            if task is None or task["status"] != "waiting_approval":
+                raise ValueError("task is no longer waiting for approval")
             call = (
                 self._db()
                 .execute("SELECT arguments_json FROM tool_calls WHERE id=?", (item["tool_call_id"],))
@@ -963,19 +1394,45 @@ class SQLiteRepository:
             approval_status = "consumed" if decision == "allow" else "rejected"
             call_status = "running" if decision == "allow" else "denied"
             task_status = "running" if decision == "allow" else "cancelled"
-            self._db().execute(
-                "UPDATE approvals SET status=?,decided_at=?,version=version+1 WHERE id=?",
-                (approval_status, now.isoformat(), approval_id),
-            )
-            self._db().execute(
-                "UPDATE tool_calls SET status=?,updated_at=? WHERE id=?",
-                (call_status, now.isoformat(), item["tool_call_id"]),
-            )
-            self._db().execute(
-                "UPDATE tasks SET status=?,version=version+1,updated_at=? WHERE id=?",
-                (task_status, now.isoformat(), item["task_id"]),
-            )
-            self._db().commit()
+            with self._db() as db:
+                db.execute(
+                    "UPDATE approvals SET status=?,decided_at=?,note=?,version=version+1 WHERE id=?",
+                    (approval_status, now.isoformat(), note, approval_id),
+                )
+                db.execute(
+                    "UPDATE tool_calls SET status=?,updated_at=? WHERE id=?",
+                    (call_status, now.isoformat(), item["tool_call_id"]),
+                )
+                db.execute(
+                    "UPDATE tasks SET status=?,version=version+1,updated_at=? WHERE id=?",
+                    (task_status, now.isoformat(), item["task_id"]),
+                )
+                if decision == "deny":
+                    # Rejection ends this turn, not just the visible review
+                    # card. No sibling proposal may remain actionable later.
+                    db.execute(
+                        """UPDATE approvals SET status='rejected',decided_at=?,version=version+1
+                           WHERE task_id=? AND status='pending'""",
+                        (now.isoformat(), item["task_id"]),
+                    )
+                    db.execute(
+                        """UPDATE tool_calls SET status='cancelled',updated_at=? WHERE task_id=?
+                           AND status IN ('proposed','waiting_approval','running')""",
+                        (now.isoformat(), item["task_id"]),
+                    )
+                    db.execute(
+                        "UPDATE questions SET status='cancelled',version=version+1 WHERE task_id=? AND status='pending'",
+                        (item["task_id"],),
+                    )
+                # Decision and audit commit (or roll back) together.
+                db.execute(
+                    "INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)",
+                    (f"audit_{uuid.uuid4().hex}", workspace_id, principal_id, "approval.decided",
+                     approval_id, "approved" if decision == "allow" else "denied",
+                     json.dumps({"tool_call_id": item["tool_call_id"], "note": note,
+                                 "version": version, "arguments_hash": item["arguments_hash"]},
+                                ensure_ascii=False), now.isoformat()),
+                )
         return await self.get_approval(workspace_id, approval_id)
 
     @staticmethod

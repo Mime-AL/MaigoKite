@@ -1,8 +1,13 @@
-"""ToolPolicy implementation for phase one."""
+"""Three execution modes over shared tool and workspace safety boundaries.
+
+Risk labels are internal tool classifications, not configurable grants or a second
+authorization store. Both runtimes call this policy with trusted tool metadata.
+"""
 
 from __future__ import annotations
 import re
 import shlex
+from copy import copy
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -83,22 +88,15 @@ class PermissionManager:
             "|".join([f"(?:{self._CORE_HARD_DENY})", *extra]),
             re.I,
         )
-        self._grants: dict[str, set[str]] = {}
 
-    def grant(self, tool_name: str, permission: str) -> None:
-        self._grants.setdefault(tool_name, set()).add(permission)
-
-    def revoke(self, tool_name: str, permission: str) -> None:
-        self._grants.get(tool_name, set()).discard(permission)
-
-    def check(self, tool_name: str, permission: str) -> bool:
-        return permission in self._grants.get(tool_name, set())
-
-    def set_scope(self, tool_name: str, scope: dict[str, Any]) -> None:
-        self._grants.setdefault(tool_name, set()).add(f"scope:{scope}")
-
-    def get_permissions(self, tool_name: str) -> set[str]:
-        return set(self._grants.get(tool_name, set()))
+    def for_workspace(self, root: str | Path) -> PermissionManager:
+        """Keep shared rules, but never mutate another run's filesystem boundary."""
+        resolved = Path(root).expanduser().resolve()
+        if resolved == Path(resolved.anchor):
+            raise ValueError("workspace root must not be a filesystem root")
+        policy = copy(self)
+        policy.workspace_root = resolved
+        return policy
 
     def evaluate(
         self,

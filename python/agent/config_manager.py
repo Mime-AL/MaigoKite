@@ -61,13 +61,13 @@ class ConfigManager:
 
     def _apply_environment(self) -> None:
         mapping = {
-            "NANAMI_DB_PATH": "storage.sqlite_path",
-            "NANAMI_WORKSPACE_ROOT": "workspace.root",
-            "NANAMI_PERMISSION_MODE": "permissions.default_mode",
-            "NANAMI_MODEL_PROVIDER": "models.chat.provider",
-            "NANAMI_MODEL_NAME": "models.chat.default",
-            "NANAMI_MODEL_BASE_URL": "models.chat.base_url",
-            "NANAMI_AGENT_RUNTIME": "agent.runtime",
+            "MAIGOKITE_DB_PATH": "storage.sqlite_path",
+            "MAIGOKITE_WORKSPACE_ROOT": "workspace.root",
+            "MAIGOKITE_PERMISSION_MODE": "permissions.default_mode",
+            "MAIGOKITE_MODEL_PROVIDER": "models.chat.provider",
+            "MAIGOKITE_MODEL_NAME": "models.chat.default",
+            "MAIGOKITE_MODEL_BASE_URL": "models.chat.base_url",
+            "MAIGOKITE_AGENT_RUNTIME": "agent.runtime",
         }
         for env_name, key in mapping.items():
             if value := os.getenv(env_name):
