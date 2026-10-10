@@ -12,7 +12,7 @@ defineProps<{
 </script>
 
 <template>
-  <CollapseCard v-if="task" title="当前任务" icon="bolt" default-expanded>
+  <CollapseCard v-if="task" :title="$t('当前任务')" icon="bolt" default-expanded>
     <div class="task-row">
       <div>
         <strong>{{ task.title }}</strong

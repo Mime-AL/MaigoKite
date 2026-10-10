@@ -18,6 +18,35 @@ export interface PlanItem {
   content: string
   status: 'pending' | 'in_progress' | 'completed'
 }
+export interface TokenUsage {
+  input_tokens?: number
+  output_tokens?: number
+  total_tokens?: number
+  cache_read_tokens?: number
+  cache_creation_tokens?: number
+  cache_miss_tokens?: number
+  reasoning_tokens?: number
+}
+export interface ModelTiming {
+  durationMs?: number
+  firstTokenMs?: number
+  decodeMs?: number
+}
+export interface ModelCall extends ModelTiming {
+  id: string
+  purpose: string
+  seq: number
+  usage?: TokenUsage
+  failed?: boolean
+}
+export interface ContextUsage {
+  seq: number
+  callId: string
+  modelName: string
+  usedTokens: number | null
+  windowTokens: number | null
+  measurement: 'estimate' | 'provider'
+}
 export type GatewayEvent = {
   seq: number
   eventId?: string
@@ -25,6 +54,10 @@ export type GatewayEvent = {
   turnId: string
   time?: string
 } & (
+  | { type: 'model_start' | 'model_failed'; callId: string; purpose: string }
+  | ({ type: 'model_end'; callId: string; purpose: string; usage?: TokenUsage } & ModelTiming)
+  | { type: 'context_update'; context: ContextUsage }
+  | { type: 'thinking_started' }
   | { type: 'text_delta' | 'thinking_delta' | 'thinking_completed'; text: string }
   | {
       type: 'step_start'
@@ -57,10 +90,12 @@ export type GatewayEvent = {
       version?: number
     }
   | { type: 'await_resolved'; awaitId: string; verdict: Verdict; note?: string }
+  | { type: 'question_answered'; awaitId: string; answer: string }
   | { type: 'file_change'; path: string; diff: string }
   | { type: 'plan_update'; items: PlanItem[] }
   | { type: 'memory_added'; memoryId: string; text: string }
   | { type: 'job_update'; jobId: string; status: string; logTail: string }
+  | { type: 'turn_resumed' }
   | { type: 'turn_end'; summary?: TurnSummary; status?: 'completed' | 'failed' | 'cancelled' }
   | { type: 'error'; message: string }
 )
@@ -90,6 +125,7 @@ export interface AwaitItem {
   options?: { label: string; recommended?: boolean }[]
   version: number
   verdict?: Verdict
+  answer?: string
   note?: string
   closed?: boolean
 }
@@ -110,6 +146,7 @@ export interface Turn {
   endedAt?: number
   text: string
   thinking: string
+  thinkingStatus?: 'running' | 'completed'
   userText?: string
   messageId?: string
   steps: Step[]
@@ -121,4 +158,6 @@ export interface Turn {
   jobs: { id: string; status: string; logTail: string }[]
   error?: string
   summary?: TurnSummary
+  modelCalls?: Record<string, ModelCall>
+  context?: ContextUsage
 }

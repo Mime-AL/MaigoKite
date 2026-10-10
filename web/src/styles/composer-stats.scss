@@ -1,0 +1,30 @@
+.composer-dock {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding-top: 6px;
+}
+.stat-rows {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.stat-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+}
+.stat-rows dt {
+  color: var(--ink-2);
+}
+.stat-rows dd {
+  margin: 0;
+  color: var(--ink);
+  text-align: right;
+}
+.stat-note {
+  margin: 12px 0 0;
+  color: var(--ink-2);
+}

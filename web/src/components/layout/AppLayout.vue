@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
@@ -11,13 +11,34 @@ import Drawer from '@/components/shell/Drawer.vue'
 import InboxPopover from '@/components/interact/InboxPopover.vue'
 import CommandPalette from '@/components/common/CommandPalette.vue'
 import Sidebar from './Sidebar.vue'
+import { panelWidths } from '@/stores/layout'
 const session = useSessionStore(),
   settings = useSettingsStore(),
   ui = useUIStore(),
   inbox = useInboxStore()
+const viewportWidth = ref(window.innerWidth)
+const sidebarMaximum = computed(() => Math.min(panelWidths.left.max, viewportWidth.value - 24))
+const sidebarWidth = computed(() => Math.min(ui.layout.sidebarWidth, sidebarMaximum.value))
+const drawerMaximum = computed(() =>
+  Math.max(
+    panelWidths.right.min,
+    viewportWidth.value < 1100
+      ? viewportWidth.value - 16
+      : viewportWidth.value - (ui.layout.sidebarCollapsed ? 56 : sidebarWidth.value) - 420,
+  ),
+)
+const panelStyle = computed(() => ({
+  '--sidebar-width': sidebarWidth.value + 'px',
+  '--drawer-width': Math.min(ui.layout.fileExplorerWidth, drawerMaximum.value) + 'px',
+  '--drawer-maximum-width': drawerMaximum.value + 'px',
+}))
+function updateViewport() {
+  viewportWidth.value = window.innerWidth
+}
 useShortcuts()
 useDesktopBridge()
 onMounted(() => {
+  window.addEventListener('resize', updateViewport)
   void session.loadSessions()
   void settings.loadPreferences()
   if (!settings.loaded) void settings.loadSettings()
@@ -25,6 +46,7 @@ onMounted(() => {
   if (window.innerWidth < 720 && !ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
 })
 onUnmounted(() => {
+  window.removeEventListener('resize', updateViewport)
   inbox.stop()
   session.disconnect()
 })
@@ -32,11 +54,15 @@ onUnmounted(() => {
 <template>
   <div class="app-layout">
     <TitleBar />
-    <div class="app-body">
-      <div v-if="!ui.layout.sidebarCollapsed" class="sidebar-shade" @click="ui.layout.toggleSidebar()" />
-      <Sidebar />
+    <div class="app-body" :style="panelStyle">
+      <div
+        v-if="!ui.layout.sidebarCollapsed"
+        class="sidebar-shade"
+        @click="ui.layout.toggleSidebar()"
+      />
+      <Sidebar :maximum-width="sidebarMaximum" />
       <main class="main-content"><router-view /></main>
-      <Drawer />
+      <Drawer :maximum-width="drawerMaximum" />
     </div>
     <InboxPopover /><CommandPalette />
   </div>

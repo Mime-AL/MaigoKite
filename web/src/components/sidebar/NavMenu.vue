@@ -15,13 +15,13 @@ const dataItems = [
 </script>
 
 <template>
-  <nav class="nav-menu" aria-label="主导航">
+  <nav class="nav-menu" :aria-label="$t('主导航')">
     <div class="nav-group">
-      <p v-show="!layoutStore.sidebarCollapsed" class="group-label">工作区</p>
+      <p v-show="!layoutStore.sidebarCollapsed" class="group-label">{{ $t('工作区') }}</p>
       <NavItem v-for="item in workspaceItems" :key="item.to" v-bind="item" />
     </div>
     <div class="nav-group">
-      <p v-show="!layoutStore.sidebarCollapsed" class="group-label">数据</p>
+      <p v-show="!layoutStore.sidebarCollapsed" class="group-label">{{ $t('数据') }}</p>
       <NavItem v-for="item in dataItems" :key="item.to" v-bind="item" />
     </div>
   </nav>

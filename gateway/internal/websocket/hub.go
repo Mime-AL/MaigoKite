@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	gorilla "github.com/gorilla/websocket"
@@ -27,15 +26,13 @@ type Client struct {
 	send chan []byte
 }
 type Hub struct {
-	mu        sync.Mutex
-	clients   map[string]map[*Client]struct{}
-	sequences map[string]*atomic.Uint64
+	mu      sync.Mutex
+	clients map[string]map[*Client]struct{}
 }
 
 func NewHub() *Hub {
-	return &Hub{clients: map[string]map[*Client]struct{}{}, sequences: map[string]*atomic.Uint64{}}
+	return &Hub{clients: map[string]map[*Client]struct{}{}}
 }
-func (h *Hub) Run() {}
 
 var upgrader = gorilla.Upgrader{CheckOrigin: func(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
@@ -68,9 +65,13 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, conversationID str
 		h.clients[conversationID] = map[*Client]struct{}{}
 	}
 	h.clients[conversationID][client] = struct{}{}
+	// Sent under the registration lock before any live event. This is a
+	// transport control frame, never a fabricated durable event/cursor.
+	client.send <- []byte(`{"type":"stream.ready","payload":{}}`)
 	h.mu.Unlock()
 	go func() {
 		for data := range client.send {
+			_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(gorilla.TextMessage, data); err != nil {
 				h.remove(conversationID, client)
 				return
@@ -100,33 +101,26 @@ func (h *Hub) remove(id string, c *Client) {
 		delete(h.clients, id)
 	}
 }
-func (h *Hub) Broadcast(conversationID, eventType string, data json.RawMessage) {
-	h.BroadcastEvent(conversationID, "", eventType, data)
-}
-func (h *Hub) BroadcastEvent(conversationID, taskID, eventType string, data json.RawMessage) {
-	h.BroadcastPersistedEvent(conversationID, taskID, eventType, data, "", 0, "")
-}
-func (h *Hub) BroadcastPersistedEvent(conversationID, taskID, eventType string, data json.RawMessage, eventID string, sequence uint64, occurredAt string) {
+
+// Disconnect forces subscribers to reconnect and catch up from persisted events.
+// It does not cancel or change the task executing in the Core.
+func (h *Hub) Disconnect(conversationID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	counter := h.sequences[conversationID]
-	if counter == nil {
-		counter = &atomic.Uint64{}
-		h.sequences[conversationID] = counter
+	for client := range h.clients[conversationID] {
+		close(client.send)
+		_ = client.conn.Close()
 	}
-	seq := sequence
-	if seq == 0 {
-		seq = counter.Add(1)
-	} else if seq > counter.Load() {
-		counter.Store(seq)
+	delete(h.clients, conversationID)
+}
+func (h *Hub) BroadcastPersistedEvent(conversationID, taskID, eventType string, data json.RawMessage, eventID string, sequence uint64, occurredAt string) {
+	if eventID == "" || sequence == 0 || occurredAt == "" {
+		// Core's journal is the only authority for product event identity.
+		return
 	}
-	if eventID == "" {
-		eventID = conversationID + "-" + time.Now().UTC().Format("20060102150405.000000000")
-	}
-	if occurredAt == "" {
-		occurredAt = time.Now().UTC().Format(time.RFC3339Nano)
-	}
-	event := StreamEvent{SchemaVersion: 1, EventID: eventID, Sequence: seq, Type: eventType, OccurredAt: occurredAt, ConversationID: conversationID, TaskID: taskID, Payload: data}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	event := StreamEvent{SchemaVersion: 1, EventID: eventID, Sequence: sequence, Type: eventType, OccurredAt: occurredAt, ConversationID: conversationID, TaskID: taskID, Payload: data}
 	encoded, _ := json.Marshal(event)
 	for client := range h.clients[conversationID] {
 		select {

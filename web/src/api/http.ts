@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 export const apiBase =
   import.meta.env.VITE_API_BASE_URL || (location.protocol === 'file:' ? 'http://127.0.0.1:8080' : '')
 export const workspacePath = '/api/v1/workspaces/personal'
@@ -37,8 +38,8 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
           : typeof detail.message === 'string'
             ? detail.message
             : response.status === 404
-              ? '当前应用版本缺少所需功能，请重启应用；若问题仍然存在，请更新或重新安装。'
-              : `请求失败（${response.status}）`
+              ? t("此操作不可用，请重启或更新应用。")
+              : t("请求失败（{0}）", [response.status])
       throw new GatewayError(message, response.status, String(detail.code || 'HTTP'))
     }
     return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
@@ -46,10 +47,10 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
     if (reason instanceof GatewayError) throw reason
     throw new GatewayError(
       controller.signal.aborted
-        ? '请求超时或已取消，请重试。'
+        ? t("请求超时或已取消，请重试。")
         : reason instanceof Error
           ? reason.message
-          : '无法连接服务',
+          : t("无法连接服务"),
     )
   } finally {
     clearTimeout(timeout)

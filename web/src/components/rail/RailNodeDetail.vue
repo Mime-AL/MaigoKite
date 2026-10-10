@@ -4,6 +4,7 @@ import type { Step } from '@/api/events'
 import { formatDuration } from '@/utils/format'
 defineProps<{ steps: Step[] }>()
 const all = ref<Record<string, boolean>>({})
+const statusLabels = { pending: '等待执行', running: '进行中', completed: '完成', failed: '失败' }
 function lines(step: Step) {
   const list = step.output.split('\n')
   return (all.value[step.id] ? list.slice(-200) : list.slice(0, 20))
@@ -20,16 +21,14 @@ function argumentsText(input: unknown) {
       <header>
         <span>{{ step.title }}</span
         ><small
-          >{{ formatDuration(step.durationMs)
-          }}<template v-if="step.exitCode !== undefined">
-            · 退出码 {{ step.exitCode }}</template
+          >{{ $t(statusLabels[step.status]) }} · {{ formatDuration(step.durationMs)
+          }}<template v-if="step.exitCode !== undefined">{{ $t('· 退出码 {0}', [step.exitCode]) }}</template
           ></small
         >
       </header>
       <details>
-        <summary>参数</summary>
-        <p v-if="step.errorCode">
-          错误代码：<code>{{ step.errorCode }}</code>
+        <summary>{{ $t('参数') }}</summary>
+        <p v-if="step.errorCode">{{ $t('错误代码：') }}<code>{{ step.errorCode }}</code>
         </p>
         <pre>{{ argumentsText(step.input) }}</pre>
       </details>
@@ -39,9 +38,8 @@ function argumentsText(input: unknown) {
         class="output-more"
         @click="all[step.id] = !all[step.id]"
       >
-        {{ all[step.id] ? '收起' : '全部'
-        }}<template v-if="all[step.id] && step.output.split('\n').length > 200">
-          · 仅渲染末尾 200 行</template
+        {{ all[step.id] ? $t('收起') : $t('展开输出')
+        }}<template v-if="all[step.id] && step.output.split('\n').length > 200">{{ $t('· 显示最后 200 行') }}</template
         >
       </button>
       <p v-if="step.hint || step.action" class="hint" role="status">

@@ -75,7 +75,12 @@ MaigoKite 支持两种扩展方式。
 
 **Skill** 用来告诉 Agent 某类任务应该怎么做。Skill 是本地声明文件，本身不会直接执行其中的代码。
 
-**MCP** 用来接入外部工具。目前支持已经配置好的 stdio MCP Server。
+**MCP** 用来接入外部工具。目前支持本地 stdio MCP Server，协议与子进程通信复用官方 SDK。
+
+从侧栏“扩展”进入管理页：添加 MCP 的启动程序、参数和凭证，或导入/编辑 `SKILL.md`、设置本地技能目录。
+保存后点击“应用并检查连接”生效；有运行中的任务或待处理审批时会拒绝应用，不替换它们正在使用的工具。
+Core 重启沿用上次生效配置；“恢复已有连接”可在待审批时重新注入 MCP 凭证，不应用新编辑。批准 MCP 调用前也会尝试恢复所需连接，失败不消费审批。
+配置与实际加载状态分开显示，停用或移除不会删除本地源目录。详细边界见 [配置指南](docs/user-guide/Configuration.md#8-技能与-mcp)。
 
 ## 运行
 
@@ -207,23 +212,17 @@ Go 使用本地模块路径 `maigokite/gateway`，不依赖 GitHub 仓库地址�
 
 项目还没有进入稳定发布阶段。
 
-目前默认使用 legacy runtime。
+执行内核统一使用 LangChain `create_agent` + LangGraph；普通聊天、`/tool`、审批、
+提问、取消和文件任务恢复共用这一条路径。旧 Runtime 和切换开关已移除，无需额外启用。
 
-新的 LangGraph runtime 可以通过：
+历史聊天、任务和审批数据保留；没有 LangGraph checkpoint 的历史待审批任务不能继续执行，
+可以拒绝或取消，再发起新任务。当前切换按要求暂未运行回归，不代表已经完成发布验收。
 
-```bash
-MAIGOKITE_AGENT_RUNTIME=langgraph
-```
-
-启用。
-
-关于两个 runtime 当前的差异和迁移进度：
-
-[RuntimeMigration.md](docs/development/RuntimeMigration.md)
+变更与历史验证记录：[RuntimeMigration.md](docs/development/RuntimeMigration.md)
 
 目前还有一些已知限制：
 
-- 新 UI 和 LangGraph runtime 仍在继续回归测试
+- 单 Runtime 切换和新 UI 尚待后续回归验证
 - 任务停止和恢复不是所有情况下都能继续原来的执行位置
 - 远程 MCP 操作不一定能被本地取消立即终止
 - 浏览器会话不能跨 Core 重启恢复

@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
+	"github.com/gin-gonic/gin"
 	"maigokite/gateway/internal/credentialstore"
 	agentgrpc "maigokite/gateway/internal/grpc"
 	ws "maigokite/gateway/internal/websocket"
 	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
-	"github.com/gin-gonic/gin"
 )
 
 type QuestionHandler struct {
@@ -63,11 +62,11 @@ func (h *QuestionHandler) Answer(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "QUESTION_NOT_PENDING", "message": "question is no longer pending; refresh its status"}})
 		return
 	}
-	if err := prepareExecutionCredentials(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), pending.ConversationId); err != nil {
+	if err := prepareExecutionCredentials(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), pending.ConversationId, pending.TaskId); err != nil {
 		grpcError(c, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
 	events, errs := h.client.AnswerQuestion(ctx, &agentv1.QuestionAnswerRequest{
 		WorkspaceId: c.Param("workspaceID"), QuestionId: pending.Id, PrincipalId: c.GetString("principal_id"),
 		Answer: req.Answer, Version: req.Version,
@@ -87,17 +86,6 @@ func (h *QuestionHandler) Answer(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": first.Code, "message": first.Message}})
 		return
 	}
-	broadcast := func(event *agentv1.AgentEvent) {
-		h.hub.BroadcastPersistedEvent(event.ConversationId, event.TaskId, event.Type, json.RawMessage(event.PayloadJson), event.EventId, uint64(event.Sequence), event.OccurredAt)
-	}
-	broadcast(first)
-	go func() {
-		defer cancel()
-		for event := range events {
-			broadcast(event)
-		}
-		for range errs {
-		}
-	}()
+	forwardExecutionEvents(h.hub, first, events, errs, cancel)
 	c.JSON(http.StatusAccepted, gin.H{"question_id": pending.Id, "task_id": first.TaskId, "status": "processing"})
 }

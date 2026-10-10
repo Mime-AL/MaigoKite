@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from typing import Any
 
 from langchain_core.tools import StructuredTool
@@ -24,6 +25,23 @@ class FileWriteParams(BaseModel):
     )
 
 
+def _has_content(path: str, expected: bytes) -> bool:
+    """Compare bounded binary chunks; text-mode reads normalize line endings."""
+    try:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return False
+        with open(path, "rb") as stream:
+            if os.fstat(stream.fileno()).st_size != len(expected):
+                return False
+            for offset in range(0, len(expected), 65536):
+                chunk = expected[offset:offset + 65536]
+                if stream.read(len(chunk)) != chunk:
+                    return False
+            return not stream.read(1)
+    except OSError:
+        return False
+
+
 def _file_write_impl(
     path: str,
     content: str,
@@ -39,9 +57,17 @@ def _file_write_impl(
         create_dirs: Whether to create parent directories if missing.
 
     Returns:
-        A dict with keys path, bytes_written, and created_dirs.
+        A write receipt, or reconciled=True when the requested bytes already exist.
     """
     abs_path = os.path.abspath(path)
+    # Match the previous text-mode newline behavior, but finish encoding before
+    # opening/truncating the target. Invalid encodings must not destroy a file.
+    encoded = content.replace("\n", os.linesep).encode(encoding)
+    if _has_content(abs_path, encoded):
+        return {
+            "path": path, "bytes_written": 0, "size_bytes": len(encoded),
+            "created_dirs": [], "reconciled": True,
+        }
     if create_dirs:
         parent = os.path.dirname(abs_path)
         created_dirs: list[str] = []
@@ -53,10 +79,9 @@ def _file_write_impl(
     else:
         created_dirs = []
 
-    with open(abs_path, "w", encoding=encoding) as f:
-        f.write(content)
+    with open(abs_path, "wb") as f:
+        bytes_written = f.write(encoded)
 
-    bytes_written = len(content.encode(encoding))
     return {
         "path": path,
         "bytes_written": bytes_written,
@@ -101,19 +126,25 @@ class FileWriteTool(BaseTool):
         result = _file_write_impl(**arguments)
         write_path = result.get("path", arguments.get("path", ""))
         created = result.get("created_dirs", [])
-        parts = [f"Wrote {result['bytes_written']} bytes to {write_path}"]
+        reconciled = bool(result.get("reconciled"))
+        parts = [
+            f"File already contains the requested bytes; no write performed: {write_path}"
+            if reconciled else f"Wrote {result['bytes_written']} bytes to {write_path}"
+        ]
         if created:
             parts.append(f"Created directories: {', '.join(created)}")
+        change = file_change(
+            str(write_path), None if reconciled else before,
+            str(arguments.get("encoding", "utf-8")),
+            str(context.metadata.get("workspace_root") or ""),
+        )
+        if reconciled:
+            # This can be the first UI receipt after a crash. The original
+            # before-image is unknown; never manufacture an empty/successful diff.
+            change["reconciled"] = True
         return ToolResult(
-            data={
-                "path": write_path,
-                "bytes_written": result["bytes_written"],
-                "created_dirs": created,
-            },
+            data=result,
             summary="; ".join(parts),
             raw="",
-            metadata={"tool": "file_write", "type": "file", "file_change": file_change(
-                str(write_path), before, str(arguments.get("encoding", "utf-8")),
-                str(context.metadata.get("workspace_root") or ""),
-            )},
+            metadata={"tool": "file_write", "type": "file", "file_change": change},
         )

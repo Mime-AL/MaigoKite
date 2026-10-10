@@ -14,7 +14,6 @@ const text = ref(''),
   input = ref<HTMLInputElement | null>(null),
   sending = ref(false),
   error = ref('')
-const demo = import.meta.env.VITE_MOCK === '1'
 onMounted(async () => {
   await nextTick()
   input.value?.focus()
@@ -58,12 +57,12 @@ function drop(event: DragEvent) {
     <Pulse :state="sending ? 'thinking' : 'idle'" /><input
       ref="input"
       v-model="text"
-      :placeholder="error || (demo ? '演示模式 · 随手写下…' : '随手写下，交给它…')"
+      :placeholder="error || $t('输入消息…')"
       maxlength="10000"
-      aria-label="速记内容"
+      :aria-label="$t('速记内容')"
       :title="error"
       @keydown="keydown"
-    /><button :disabled="!text.trim() || sending" title="Enter 发送 · Ctrl/⌘+Enter 新页">↵</button>
+    /><button :disabled="!text.trim() || sending" :title="$t('Enter 发送 · Ctrl/⌘+Enter 新页')">↵</button>
   </form>
 </template>
 <style scoped lang="scss">

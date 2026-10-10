@@ -3,6 +3,7 @@ import { useRouter } from 'vue-router'
 import { useUIStore } from '@/stores/ui'
 import { useSessionStore } from '@/stores/session'
 import { useInboxStore } from '@/stores/inbox'
+import { revealRailNode } from '@/utils/rail-navigation'
 
 export function useShortcuts() {
   const ui = useUIStore(),
@@ -74,8 +75,7 @@ export function useShortcuts() {
     if (key === '[' || key === ']') {
       const nodes = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-rail-node]'))
       nodeIndex = Math.max(0, Math.min(nodes.length - 1, nodeIndex + (key === ']' ? 1 : -1)))
-      nodes[nodeIndex]?.focus({ preventScroll: true })
-      nodes[nodeIndex]?.scrollIntoView({ block: 'center' })
+      revealRailNode(nodes[nodeIndex] || null)
       event.preventDefault()
     }
   }

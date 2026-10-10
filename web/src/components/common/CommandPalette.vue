@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '@/stores/ui'
@@ -24,7 +25,7 @@ const shortcuts = [
   [`${mod}+N`, '新页'],
   [`${mod}+B`, '侧栏'],
   [`${mod}+.`, '抽屉'],
-  [`${mod}+J`, '等你'],
+  [`${mod}+J`, '通知'],
   [`${mod}+/`, '快捷键表'],
   ['[ / ]', '跳转墨线节点'],
   ['Y / N', '允许 / 驳回'],
@@ -32,14 +33,13 @@ const shortcuts = [
 ]
 const items = computed(() =>
   [
-    { id: 'new', label: '新页', to: '/chat', kind: '命令' },
-    { id: 'settings', label: '设置', to: '/settings', kind: '命令' },
-    { id: 'memory', label: '它记得', to: '/memory', kind: '命令' },
-    { id: 'overview', label: '概览', to: '/overview', kind: '命令' },
-    { id: 'integrations', label: '扩展', to: '/integrations', kind: '命令' },
-    { id: 'audit', label: '审计日志', to: '/audit', kind: '命令' },
-    { id: 'data', label: '数据概览', to: '/data', kind: '命令' },
-    { id: 'indexes', label: '知识库', to: '/embedding-indexes', kind: '命令' },
+    { id: 'new', label: t("新页"), to: '/chat', kind: '命令' },
+    { id: 'settings', label: t("设置"), to: '/settings', kind: '命令' },
+    { id: 'memory', label: t("它记得"), to: '/memory', kind: '命令' },
+    { id: 'overview', label: t("概览"), to: '/overview', kind: '命令' },
+    { id: 'integrations', label: t("扩展"), to: '/integrations', kind: '命令' },
+    { id: 'audit', label: t("审计日志"), to: '/audit', kind: '命令' },
+    { id: 'data', label: t("数据概览"), to: '/data', kind: '命令' },
     ...session.sessions.map((s) => ({
       id: s.id,
       label: s.title,
@@ -95,7 +95,7 @@ function onKey(event: KeyboardEvent) {
   <dialog
     ref="dialog"
     class="palette-shade"
-    :aria-label="ui.commandOpen ? '万能面板' : '快捷键表'"
+    :aria-label="ui.commandOpen ? $t('万能面板') : $t('快捷键表')"
     @cancel.prevent="close"
     @keydown.esc.stop
     @click.self="close"
@@ -104,8 +104,8 @@ function onKey(event: KeyboardEvent) {
       <input
         ref="input"
         v-model="query"
-        placeholder="找会话、命令、记忆…"
-        aria-label="搜索"
+        :placeholder="$t('找会话、命令、记忆…')"
+        :aria-label="$t('搜索')"
         @keydown="onKey"
       />
       <div class="results">
@@ -115,18 +115,17 @@ function onKey(event: KeyboardEvent) {
           :class="{ selected: selected === index }"
           @click="choose(item.to)"
         >
-          <small>{{ item.kind }}</small
+          <small>{{ $t(item.kind) }}</small
           ><span>{{ item.label }}</span>
         </button>
-        <p v-if="!items.length" class="empty-copy">没有找到相关内容。</p>
+        <p v-if="!items.length" class="empty-copy">{{ $t('没有找到相关内容。') }}</p>
       </div>
     </section>
     <section v-else class="palette shortcut-sheet">
-      <header>
-        快捷键<button class="icon-button" aria-label="关闭快捷键表" @click="close">×</button>
+      <header>{{ $t('快捷键') }}<button class="icon-button" :aria-label="$t('关闭快捷键表')" @click="close">×</button>
       </header>
       <p v-for="[keys, label] in shortcuts" :key="keys">
-        <span>{{ label }}</span
+        <span>{{ $t(label) }}</span
         ><Kbd :keys="keys" />
       </p>
     </section>

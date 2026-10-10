@@ -12,7 +12,7 @@ const props = defineProps<{
   loading?: boolean
   loadError?: string | null
 }>()
-defineEmits<{ (event: 'retry'): void }>()
+defineEmits<{ (event: 'retry' | 'close'): void }>()
 const isElectron = Boolean(desktopEffects),
   error = ref(''),
   opening = ref(false)
@@ -43,30 +43,31 @@ async function openFile() {
       <span><IconSymbol :name="node.type === 'directory' ? 'folder' : 'file'" :size="16" /></span>
       <div>
         <strong>{{ node.name }}</strong
-        ><small>{{ node.type === 'directory' ? '文件夹' : '只读预览' }}</small>
+        ><small>{{ node.type === 'directory' ? $t('文件夹') : $t('只读预览') }}</small>
       </div>
+      <button class="icon-button preview-close" :aria-label="$t('关闭预览')" :title="$t('关闭预览')" @click="$emit('close')"><IconSymbol name="close" :size="16" /></button>
     </header>
-    <button v-if="isElectron" class="secondary-button" :disabled="opening" :aria-busy="opening || undefined" @click="openFile">{{ opening ? '正在打开…' : '在本机打开' }}</button>
+    <button v-if="isElectron" class="secondary-button" :disabled="opening" :aria-busy="opening || undefined" @click="openFile">{{ opening ? $t('正在打开…') : $t('在本机打开') }}</button>
     <p v-if="error" role="alert">{{ error }}</p>
     <dl>
-      <dt>路径</dt>
+      <dt>{{ $t('路径') }}</dt>
       <dd>{{ node.path }}</dd>
       <template v-if="node.size != null"
-        ><dt>大小</dt>
+        ><dt>{{ $t('大小') }}</dt>
         <dd>{{ node.size }} bytes</dd></template
       ><template v-if="node.modified_at"
-        ><dt>修改</dt>
-        <dd>{{ new Date(node.modified_at).toLocaleString('zh-CN') }}</dd></template
+        ><dt>{{ $t('修改') }}</dt>
+        <dd>{{ new Date(node.modified_at).toLocaleString($i18n.locale) }}</dd></template
       >
     </dl>
     <div v-if="node.type === 'file'" class="content">
-      <p v-if="loading">正在加载…</p>
+      <p v-if="loading">{{ $t('正在加载…') }}</p>
       <p v-else-if="loadError" role="alert">
-        {{ loadError }} <button class="secondary-button" @click="$emit('retry')">重试</button>
+        {{ loadError }} <button class="secondary-button" @click="$emit('retry')">{{ $t('重试') }}</button>
       </p>
-      <p v-else-if="content?.binary">二进制文件无法预览</p>
+      <p v-else-if="content?.binary">{{ $t('二进制文件无法预览') }}</p>
       <pre v-else-if="content">{{ content.content }}</pre>
-      <small v-if="content?.truncated">文件较大，仅显示前 512 KiB。</small>
+      <small v-if="content?.truncated">{{ $t('文件较大，仅显示前 512 KiB。') }}</small>
     </div>
   </section>
 </template>
@@ -94,10 +95,12 @@ header > span {
   background: var(--primary-soft);
 }
 header div {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
+.preview-close { flex: none; width: 32px; min-height: 32px; }
 header strong {
   overflow: hidden;
   font-size: var(--text-xs);

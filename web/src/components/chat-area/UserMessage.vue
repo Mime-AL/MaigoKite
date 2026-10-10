@@ -4,7 +4,7 @@ defineProps<{ content: string; timestamp?: Date }>()
 <template>
   <article class="user-message">
     <p>{{ content }}</p>
-    <time v-if="timestamp">{{ timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time>
+    <time v-if="timestamp">{{ timestamp.toLocaleTimeString($i18n.locale, { hour: '2-digit', minute: '2-digit' }) }}</time>
   </article>
 </template>
 <style scoped lang="scss">

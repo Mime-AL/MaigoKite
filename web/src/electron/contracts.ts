@@ -9,6 +9,8 @@ export function appearanceValue(value: unknown): value is Appearance {
     ['system', 'light', 'dark'].includes(String(p.theme)) &&
     ['stone', 'blue', 'green', 'earth', 'lotus', 'ink'].includes(String(p.accent)) &&
     typeof p.texture === 'boolean' &&
+    (p.language === undefined || ['zh-CN', 'en', 'system'].includes(String(p.language))) &&
+    (p.showContextUsage === undefined || typeof p.showContextUsage === 'boolean') &&
     string(p.greetingName, 32) &&
     string(p.avatar, 4) &&
     Array.from(p.avatar).length === 1 &&

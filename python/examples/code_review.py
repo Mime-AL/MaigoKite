@@ -5,11 +5,13 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from agent.models.chat_adapter import ChatAdapter
-from agent.models.chat_provider import ChatMessage, IChatProvider
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import HumanMessage
+
+from agent.models.native_model import build_chat_model, close_chat_models
 
 
-async def review_file(path: str | Path, provider: IChatProvider) -> str:
+async def review_file(path: str | Path, provider: BaseChatModel) -> str:
     source_path = Path(path).expanduser().resolve()
     source = source_path.read_text(encoding="utf-8")
     prompt = (
@@ -17,18 +19,18 @@ async def review_file(path: str | Path, provider: IChatProvider) -> str:
         "Give concrete findings with line references; say clearly when no issue is found.\n\n"
         f"```python\n{source}\n```"
     )
-    return (await provider.chat([ChatMessage("user", prompt)])).content
+    return (await provider.ainvoke([HumanMessage(content=prompt)])).text
 
 
 async def run(args: argparse.Namespace) -> None:
-    provider = ChatAdapter(
+    provider = build_chat_model(
         provider=args.provider, model=args.model, base_url=args.base_url or None,
         api_key=args.api_key or None, temperature=0.1,
     )
     try:
         print(await review_file(args.path, provider))
     finally:
-        await provider.aclose()
+        await close_chat_models([provider])
 
 
 def main() -> None:

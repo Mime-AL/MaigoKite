@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
@@ -30,7 +31,7 @@ export function useDesktopBridge() {
         if (!document.hasFocus())
           void desktop
             .notify({
-              title: `${settings.profile.assistantName} · 等你`,
+              title: t("{0} · 等你", [settings.profile.assistantName]),
               body: item.title,
               sessionId: item.sessionId,
               approvalId: item.mode === 'approval' ? item.id : undefined,
@@ -68,10 +69,10 @@ export function useDesktopBridge() {
                 title: settings.profile.assistantName,
                 body:
                   turn.status === 'completed'
-                    ? '这一回完成了。'
+                    ? t("任务已完成。")
                     : turn.status === 'failed'
-                      ? '这回遇到了问题。'
-                      : '任务已停止。',
+                      ? t("任务失败。")
+                      : t("任务已停止。"),
                 sessionId: turn.sessionId,
               })
               .catch(() => undefined)
@@ -101,7 +102,7 @@ export function useDesktopBridge() {
           void api
             .notify({
               title: settings.profile.assistantName,
-              body: '速记未能发送，请打开主窗口重试。',
+              body: t("速记未能发送，请打开主窗口重试。"),
             })
             .catch(() => undefined)
         }

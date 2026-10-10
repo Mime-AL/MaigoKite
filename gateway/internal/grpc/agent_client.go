@@ -79,6 +79,9 @@ func (c *AgentClient) CreateConversation(ctx context.Context, req *agentv1.Conve
 func (c *AgentClient) GetConversation(ctx context.Context, req *agentv1.ConversationRequest) (*agentv1.Conversation, error) {
 	return c.client.GetConversation(ctx, req)
 }
+func (c *AgentClient) GetConversationSnapshot(ctx context.Context, req *agentv1.ConversationRequest) (*agentv1.ConversationSnapshot, error) {
+	return c.client.GetConversationSnapshot(ctx, req)
+}
 func (c *AgentClient) ListConversations(ctx context.Context, workspaceID string) (*agentv1.ConversationList, error) {
 	return c.client.ListConversations(ctx, &agentv1.ListConversationsRequest{WorkspaceId: workspaceID})
 }
@@ -218,6 +221,10 @@ func (c *AgentClient) AnswerQuestion(ctx context.Context, request *agentv1.Quest
 	return receiveInteraction(ctx, func() (agentEventStream, error) { return c.client.AnswerQuestion(ctx, request) })
 }
 
+func (c *AgentClient) ResumeTask(ctx context.Context, request *agentv1.ResumeTaskRequest) (<-chan *agentv1.AgentEvent, <-chan error) {
+	return receiveInteraction(ctx, func() (agentEventStream, error) { return c.client.ResumeTask(ctx, request) })
+}
+
 type agentEventStream interface {
 	Recv() (*agentv1.AgentEvent, error)
 }
@@ -298,4 +305,16 @@ func (c *AgentClient) ListMCPServers(ctx context.Context, workspaceID string) (*
 
 func (c *AgentClient) ListSkills(ctx context.Context, workspaceID string) (*agentv1.SkillList, error) {
 	return c.client.ListSkills(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
+}
+
+func (c *AgentClient) GetExtensions(ctx context.Context, workspaceID string) (*agentv1.ExtensionSettings, error) {
+	return c.client.GetExtensions(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
+}
+
+func (c *AgentClient) UpdateExtensions(ctx context.Context, workspaceID, configJSON string) (*agentv1.ExtensionSettings, error) {
+	return c.client.UpdateExtensions(ctx, &agentv1.ExtensionUpdateRequest{WorkspaceId: workspaceID, ConfigJson: configJSON})
+}
+
+func (c *AgentClient) ReloadExtensions(ctx context.Context, workspaceID string, revision int64, credentialsJSON string, restoreOnly bool) (*agentv1.ExtensionSettings, error) {
+	return c.client.ReloadExtensions(ctx, &agentv1.ExtensionReloadRequest{WorkspaceId: workspaceID, Revision: revision, CredentialsJson: credentialsJSON, RestoreOnly: restoreOnly})
 }

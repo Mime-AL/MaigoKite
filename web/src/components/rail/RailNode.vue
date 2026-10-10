@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { RailNode } from '@/api/events'
 import RailNodeDetail from './RailNodeDetail.vue'
 import SealMark from './SealMark.vue'
@@ -8,22 +8,25 @@ import QuestionCard from '@/components/interact/QuestionCard.vue'
 import { useMemoryStore } from '@/stores/memory'
 import { useRunStore } from '@/stores/run'
 const props = defineProps<{ node: RailNode; turnId: string }>()
-const expanded = ref(
-  props.node.kind === 'failed' || (props.node.kind === 'await' && !props.node.await?.verdict),
-)
+const needsAttention = computed(() => props.node.kind === 'failed' || Boolean(
+  props.node.await && !props.node.await.verdict && !props.node.await.closed &&
+  props.node.await.answer === undefined,
+))
+const expanded = ref(needsAttention.value)
 const glyphs = { read: '○', act: '●', await: '◇', end: '◆', failed: '×', memory: '✦' }
 const memory = useMemoryStore(),
   run = useRunStore()
 watch(
-  () => props.node.kind,
-  (kind) => {
-    if (kind === 'failed') expanded.value = true
+  needsAttention,
+  (attention) => {
+    if (attention) expanded.value = true
   },
 )
 watch(
-  () => props.node.await?.verdict,
-  (verdict) => {
-    if (verdict) expanded.value = false
+  () => Boolean(props.node.await && (props.node.await.verdict || props.node.await.closed ||
+    props.node.await.answer !== undefined)),
+  (resolved) => {
+    if (resolved) expanded.value = false
   },
 )
 async function undoMemory() {
@@ -61,11 +64,10 @@ async function undoMemory() {
         v-if="node.await?.mode === 'question' && !node.await.verdict && !node.await.closed"
         :item="node.await"
       />
-      <p v-if="node.await?.closed && !node.await.verdict">任务已结束，此请求不再等待处理。</p>
+      <p v-if="node.await?.answer !== undefined">{{ $t('已回答：{0}', [node.await.answer]) }}</p>
+      <p v-else-if="node.await?.closed && !node.await.verdict">{{ $t('已关闭') }}</p>
       <p v-if="node.await?.note">{{ node.await.note }}</p>
-      <button v-if="node.memoryId" class="secondary-button" @click="undoMemory">
-        撤销这条记忆
-      </button>
+      <button v-if="node.memoryId" class="secondary-button" @click="undoMemory">{{ $t('撤销这条记忆') }}</button>
     </div>
   </div>
 </template>

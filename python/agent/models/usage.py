@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
@@ -12,22 +13,87 @@ def message_usage(message: Any) -> dict[str, int]:
     request. Missing counters remain absent, not a fabricated zero cache hit.
     """
     metadata = getattr(message, "response_metadata", {}) or {}
-    raw = getattr(message, "usage_metadata", None) or metadata.get("token_usage") or {}
-    if not isinstance(raw, dict):
-        return {}
+    provider = metadata.get("token_usage") or metadata.get("usage") or {}
+    normalized = getattr(message, "usage_metadata", None) or {}
+    provider = provider if isinstance(provider, dict) else {}
+    normalized = normalized if isinstance(normalized, dict) else {}
+    # Normalized counters win, but must not discard provider-only cache fields.
+    raw = {**provider, **normalized}
     usage = {
         str(key): int(value)
         for key, value in raw.items()
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
     }
+    for source, target in (("prompt_tokens", "input_tokens"), ("completion_tokens", "output_tokens"),
+                           ("prompt_cache_hit_tokens", "cache_read_tokens"),
+                           ("prompt_cache_miss_tokens", "cache_miss_tokens"),
+                           ("cache_read_input_tokens", "cache_read_tokens"),
+                           ("cache_creation_input_tokens", "cache_creation_tokens")):
+        if source in usage:
+            usage.setdefault(target, usage[source])
     for details_key, field, target in (
         ("input_token_details", "cache_read", "cache_read_tokens"),
         ("input_token_details", "cache_creation", "cache_creation_tokens"),
         ("output_token_details", "reasoning", "reasoning_tokens"),
         ("prompt_tokens_details", "cached_tokens", "cache_read_tokens"),
     ):
-        details = raw.get(details_key)
+        provider_details = provider.get(details_key)
+        normalized_details = normalized.get(details_key)
+        details = {**(provider_details if isinstance(provider_details, dict) else {}),
+                   **(normalized_details if isinstance(normalized_details, dict) else {})}
         value = details.get(field) if isinstance(details, dict) else None
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
             usage[target] = int(value)
+    for detail_key, field, target in (
+        ("input_token_details", "cache_read", "cache_read_tokens"),
+        ("input_token_details", "cache_creation", "cache_creation_tokens"),
+        ("output_token_details", "reasoning", "reasoning_tokens"),
+    ):
+        details = normalized.get(detail_key) or {}
+        if isinstance(details, dict) and field not in details:
+            tier_values = [value for key, value in details.items() if key.endswith("_" + field)
+                           and isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0]
+            if tier_values:
+                usage[target] = int(sum(tier_values))
     return usage
+
+
+def aggregate_usage_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Read-only product projection. Cached/reasoning tokens are subsets, not extra totals."""
+    purposes: dict[str, dict[str, Any]] = {}
+    seen: set[tuple[str, str]] = set()
+    incomplete_counts: set[str] = set()
+    compactions = 0
+    for event in events:
+        kind = event["event_type"]
+        if kind == "context.compacted":
+            compactions += 1
+            continue
+        payload = json.loads(event["payload_json"])
+        purpose = str(payload.get("purpose") or "response")
+        identity = (kind, str(payload.get("call_id") or event["id"]))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        item = purposes.setdefault(purpose, {"calls": 0, "failed_calls": 0, "reported_calls": 0, "tokens": {}})
+        if kind != "model.call.started" and (
+            not payload.get("call_id") or ("model.call.started", str(payload["call_id"])) not in seen
+        ):
+            # Legacy usage events have no call-start receipts. Zero would claim
+            # no model work occurred; totals below remain reported-only subtotals.
+            incomplete_counts.add(purpose)
+        if kind == "model.call.started":
+            item["calls"] += 1
+        elif kind == "model.call.failed":
+            item["failed_calls"] += 1
+        elif kind == "model.usage":
+            item["reported_calls"] += 1
+            for name in ("input_tokens", "output_tokens", "total_tokens", "cache_read_tokens",
+                         "cache_creation_tokens", "cache_miss_tokens", "reasoning_tokens"):
+                value = payload.get("usage", {}).get(name)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    item["tokens"][name] = item["tokens"].get(name, 0) + value
+    for purpose in incomplete_counts:
+        purposes[purpose]["calls"] = None
+        purposes[purpose]["failed_calls"] = None
+    return {"purposes": purposes, "compactions": compactions, "measurement": "provider_reported_only"}

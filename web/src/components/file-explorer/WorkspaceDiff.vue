@@ -85,15 +85,15 @@ defineExpose({ load })
 <template>
   <section class="workspace-diff">
     <header>
-      <span>{{ changes.length }}<template v-if="changesTruncated">+</template> 个变更</span
-      ><button class="icon-button" type="button" title="刷新变更" @click="load">
+      <span>{{ changes.length }}<template v-if="changesTruncated">+</template>{{ $t('个变更') }}</span
+      ><button class="icon-button" type="button" :disabled="loading" :aria-busy="loading || undefined" :aria-label="$t('刷新变更')" :title="$t('刷新变更')" @click="load">
         <IconSymbol name="refresh" :size="14" />
       </button>
     </header>
-    <p v-if="loading && !changes.length" class="state">正在读取 Git 变更…</p>
+    <p v-if="loading && !changes.length" class="state">{{ $t('正在读取 Git 变更…') }}</p>
     <p v-else-if="error" class="state error" role="alert">{{ error }}</p>
-    <p v-else-if="!gitAvailable" class="state">当前工作区不是 Git 仓库。</p>
-    <p v-else-if="!changes.length" class="state">工作区没有未提交变更。</p>
+    <p v-else-if="!gitAvailable" class="state">{{ $t('当前工作区不是 Git 仓库。') }}</p>
+    <p v-else-if="!changes.length" class="state">{{ $t('工作区没有未提交变更。') }}</p>
     <template v-else>
       <div class="change-list">
         <button
@@ -114,19 +114,19 @@ defineExpose({ load })
           <strong>{{ selected.path }}</strong
           ><small
             >{{ selected.status
-            }}<template v-if="selected.diff_truncated"> · 预览已截断</template></small
+            }}<template v-if="selected.diff_truncated">{{ $t('· 预览已截断') }}</template></small
           >
         </header>
-        <p v-if="diffLoading">正在生成差异…</p>
+        <p v-if="diffLoading">{{ $t('正在生成差异…') }}</p>
         <p v-else-if="diffError" role="alert">
           {{ diffError }}
-          <button class="secondary-button" @click="selectChange(selectedPath)">重试</button>
+          <button class="secondary-button" @click="selectChange(selectedPath)">{{ $t('重试') }}</button>
         </p>
         <pre
           v-else-if="selected.diff"
         ><code v-for="(line, index) in selected.diff.split('\n')" :key="index" :class="lineClass(line)">{{ line || ' ' }}
 </code></pre>
-        <p v-else>该变更没有可显示的文本差异。</p>
+        <p v-else>{{ $t('该变更没有可显示的文本差异。') }}</p>
       </article>
     </template>
   </section>

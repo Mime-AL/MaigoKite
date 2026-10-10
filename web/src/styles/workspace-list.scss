@@ -1,0 +1,114 @@
+@use '@/styles/mixins' as mixins;
+.recent-chats {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding-top: 4px;
+}
+.workspace-group {
+  margin-bottom: 8px;
+}
+.workspace-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+}
+.group-toggle,
+.workspace-new {
+  @include mixins.interactive-row;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--transparent);
+  color: var(--ink-3);
+}
+.group-toggle {
+  width: 20px;
+}
+.group-toggle .icon-symbol {
+  transition: transform var(--motion-fast) var(--ease);
+}
+.group-toggle .expanded {
+  transform: rotate(90deg);
+}
+.group-toggle:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.workspace-name {
+  @include mixins.interactive-row;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  gap: 6px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--transparent);
+  color: var(--ink-2);
+  text-align: left;
+  font-size: var(--text-sm);
+}
+.workspace-name span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-semibold);
+}
+.workspace-name small {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.current > .workspace-row {
+  background: var(--accent-selected);
+}
+.current .workspace-name {
+  color: var(--accent);
+}
+.workspace-new {
+  opacity: 0.55;
+}
+.workspace-row:hover .workspace-new,
+.workspace-row:focus-within .workspace-new {
+  opacity: 1;
+}
+.workspace-sessions {
+  margin-left: 10px;
+  padding-left: 6px;
+  border-left: 1px solid var(--rule);
+}
+.workspace-empty {
+  margin: 6px 8px 10px;
+  font-size: var(--text-xs);
+}
+.show-more {
+  @include mixins.interactive-row;
+  min-height: 30px;
+  width: 100%;
+  padding: 4px 8px;
+  text-align: left;
+  background: var(--transparent);
+  color: var(--ink-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+.recent-chats::-webkit-scrollbar-thumb {
+  background: var(--transparent);
+}
+.recent-chats:hover::-webkit-scrollbar-thumb,
+.recent-chats:focus-within::-webkit-scrollbar-thumb {
+  background: var(--rule);
+}

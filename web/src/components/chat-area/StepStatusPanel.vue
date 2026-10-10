@@ -6,7 +6,7 @@ defineProps<{ steps?: Array<{ id: string; title: string; status: 'todo' | 'runni
 </script>
 
 <template>
-  <CollapseCard v-if="steps?.length" title="执行步骤" icon="activity" default-expanded>
+  <CollapseCard v-if="steps?.length" :title="$t('执行步骤')" icon="activity" default-expanded>
     <div class="step-list">
       <div v-for="step in steps" :key="step.id" class="step-item" :class="step.status">
         <StatusIcon :status="step.status" />

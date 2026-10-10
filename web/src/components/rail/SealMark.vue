@@ -3,8 +3,8 @@ import type { Verdict } from '@/api/events'
 defineProps<{ verdict: Verdict }>()
 </script>
 <template>
-  <span class="seal-mark" :class="{ denied: verdict === 'deny' }" :title="verdict === 'deny' ? '已驳回' : '已批准'">{{
-    verdict === 'deny' ? '驳' : '准'
+  <span class="seal-mark" :class="{ denied: verdict === 'deny' }" :title="verdict === 'deny' ? $t('已驳回') : $t('已批准')">{{
+    verdict === 'deny' ? $t('驳') : $t('准')
   }}</span>
 </template>
 <style scoped lang="scss">

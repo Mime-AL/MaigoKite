@@ -12,12 +12,12 @@ const buckets = computed(() => {
 })
 </script>
 <template>
-  <nav v-if="nodes.length" class="rail-minimap" aria-label="墨线缩略图">
+  <nav v-if="nodes.length" class="rail-minimap" :aria-label="$t('墨线缩略图')">
     <button
       v-for="(bucket, index) in buckets"
       :key="index"
       :style="{ top: `${bucket.top}%`, opacity: bucket.density }"
-      :aria-label="`跳到步骤 ${index + 1}`"
+      :aria-label="$t('跳到步骤 {0}', [index + 1])"
       @click="emit('jump', bucket.node)"
     />
   </nav>

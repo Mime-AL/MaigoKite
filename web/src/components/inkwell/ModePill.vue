@@ -3,21 +3,21 @@ defineProps<{ modelValue: 'ask' | 'plan' | 'auto'; disabled?: boolean }>()
 const emit = defineEmits<{ (event: 'update:modelValue', mode: 'ask' | 'plan' | 'auto'): void }>()
 const modes = [
   { id: 'ask', label: '问', title: '只读：回答问题' },
-  { id: 'plan', label: '谋', title: '只读：先列出计划' },
+  { id: 'plan', label: '谋', title: '只读：列出计划，不执行修改' },
   { id: 'auto', label: '做', title: '在工作区执行任务' },
 ] as const
 </script>
 <template>
-  <div class="mode-pill" aria-label="工作方式">
+  <div class="mode-pill" :aria-label="$t('工作方式')">
     <button
       v-for="mode in modes"
       :key="mode.id"
-      :title="mode.title"
+      :title="$t(mode.title)"
       :aria-pressed="modelValue === mode.id"
       :disabled="disabled"
       @click="emit('update:modelValue', mode.id)"
     >
-      {{ mode.label }}
+      {{ $t(mode.label) }}
     </button>
   </div>
 </template>
@@ -32,7 +32,8 @@ const modes = [
 button {
   @include mixins.interactive-row;
   border: 0;
-  width: 28px;
+  min-width: 28px;
+  padding-inline: 6px;
   height: 24px;
   color: var(--ink-3);
   background: var(--transparent);

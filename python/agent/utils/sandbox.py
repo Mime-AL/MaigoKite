@@ -26,6 +26,8 @@ class SandboxExecutionResult:
     timed_out: bool = False
     output_truncated: bool = False
     sandboxed: bool = False
+    stdout_path: str = ""
+    stderr_path: str = ""
 
 
 @lru_cache(maxsize=4)
@@ -91,12 +93,20 @@ class SandboxExecutor:
         if self.workspace_root == Path(self.workspace_root.anchor):
             raise ValueError("sandbox workspace must not be a filesystem root")
         self.allow_network = bool(values.get("allow_network", True))
+        self.output_limit = min(max(int(values.get("output_limit", self._OUTPUT_LIMIT)), 1), self._OUTPUT_LIMIT)
+        self.output_directory: Path | None = None
         try:
             self.workdir.relative_to(self.workspace_root)
         except ValueError as exc:
             raise ValueError("sandbox workdir is outside the workspace") from exc
         if not self.workdir.is_dir():
             raise ValueError("sandbox workdir does not exist")
+        if values.get("output_directory"):
+            directory = Path(values["output_directory"]).resolve()
+            directory.relative_to(self.workspace_root)
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            directory.resolve().relative_to(self.workspace_root)
+            self.output_directory = directory
         self._cpu_seconds = 0.0
         self._memory_mb = 0
 
@@ -112,7 +122,14 @@ class SandboxExecutor:
 
         argv, sandboxed = self._build_argv(args)
         start = time.monotonic()
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        # Only command tools request durable workspace logs. Search subprocesses
+        # retain their existing temporary output and do not create artifacts.
+        def output_file():
+            if self.output_directory is None:
+                return tempfile.TemporaryFile()
+            return tempfile.NamedTemporaryFile(mode="w+b", prefix="command_", suffix=".log",
+                                               dir=self.output_directory, delete=False)
+        with output_file() as stdout_file, output_file() as stderr_file:
             process = await asyncio.create_subprocess_exec(
                 *argv,
                 stdin=asyncio.subprocess.DEVNULL,
@@ -145,21 +162,23 @@ class SandboxExecutor:
 
             stdout_file.seek(0)
             stderr_file.seek(0)
-            stdout_bytes = stdout_file.read(self._OUTPUT_LIMIT + 1)
-            stderr_bytes = stderr_file.read(self._OUTPUT_LIMIT + 1)
+            stdout_bytes = stdout_file.read(self.output_limit + 1)
+            stderr_bytes = stderr_file.read(self.output_limit + 1)
+            stdout_path = str(stdout_file.name) if self.output_directory is not None else ""
+            stderr_path = str(stderr_file.name) if self.output_directory is not None else ""
 
-        stdout = stdout_bytes.decode("utf-8", errors="replace")
-        stderr = stderr_bytes.decode("utf-8", errors="replace")
         return SandboxExecutionResult(
             exit_code=-1 if timed_out else int(process.returncode or 0),
-            stdout=stdout[: self._OUTPUT_LIMIT],
-            stderr=stderr[: self._OUTPUT_LIMIT] or ("command timed out" if timed_out else ""),
+            stdout=stdout_bytes[:self.output_limit].decode("utf-8", errors="replace"),
+            stderr=stderr_bytes[:self.output_limit].decode("utf-8", errors="replace") or ("command timed out" if timed_out else ""),
             duration_ms=(time.monotonic() - start) * 1000,
             timed_out=timed_out,
             output_truncated=(
-                len(stdout_bytes) > self._OUTPUT_LIMIT or len(stderr_bytes) > self._OUTPUT_LIMIT
+                len(stdout_bytes) > self.output_limit or len(stderr_bytes) > self.output_limit
             ),
             sandboxed=sandboxed,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
         )
 
     async def execute_python(

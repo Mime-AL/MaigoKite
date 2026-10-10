@@ -124,6 +124,11 @@ class MCPClient:
             if self._failure is not None:
                 raise MCPError("MCP session closed with an error") from self._failure
 
+    @property
+    def is_running(self) -> bool:
+        """Local SDK connection state, not a remote health or side-effect check."""
+        return self._session is not None and not self._stop.is_set() and self._owner is not None and not self._owner.done()
+
     def _get_session(self) -> ClientSession:
         if self._session is None or self._stop.is_set() or self._owner is None or self._owner.done():
             raise MCPError("MCP session is not available") from self._failure
@@ -154,7 +159,8 @@ class MCPClient:
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         session = self._get_session()
         try:
-            result = await session.call_tool(name, arguments)
+            async with asyncio.timeout(self.request_timeout):
+                result = await session.call_tool(name, arguments)
             return result.model_dump(mode="json", by_alias=True, exclude_none=True)
         except Exception as exc:
             # CancelledError deliberately propagates. SDK request IDs and readers

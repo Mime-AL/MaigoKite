@@ -39,17 +39,17 @@ onMounted(() => {
 <template>
   <main class="page-shell settings-page">
     <header>
-      <h1 class="page-title">设置</h1>
-      <p class="page-subtitle">让它按你的方式工作。</p>
+      <h1 class="page-title">{{ $t('设置') }}</h1>
+      <router-link to="/integrations">{{ $t('管理 MCP 与 Skill 扩展') }}</router-link>
     </header>
-    <nav class="settings-tabs" aria-label="设置分类">
+    <nav class="settings-tabs" :aria-label="$t('设置分类')">
       <button
         v-for="tab in tabs"
         :key="tab.id"
         :aria-pressed="activeTab === tab.id"
         @click="selectTab(tab.id)"
       >
-        {{ tab.label }}
+        {{ $t(tab.label) }}
       </button>
     </nav>
     <AppearanceSettingsPanel v-if="activeTab === 'general'" /><ModelSettingsPanel

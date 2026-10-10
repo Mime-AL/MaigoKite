@@ -1,0 +1,128 @@
+@use '@/styles/mixins' as mixins;
+.session-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-left: 2px solid var(--transparent);
+  border-radius: var(--radius-sm);
+  margin-block: 2px;
+}
+.session-row:has(.router-link-active) {
+  background: var(--accent-selected);
+  border-left-color: var(--accent);
+}
+.session-link {
+  @include mixins.interactive-row;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 60px 0 4px;
+  color: var(--ink-2);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+.session-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--text-sm) var(--font-serif);
+}
+.session-link.router-link-active {
+  color: var(--accent);
+}
+.session-time {
+  position: absolute;
+  right: 6px;
+  pointer-events: none;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.session-actions {
+  position: absolute;
+  right: 2px;
+  top: 3px;
+  bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--motion-fast) var(--ease);
+}
+.session-actions .icon-button {
+  width: 28px;
+  min-height: 30px;
+  flex: none;
+  color: var(--ink-2);
+}
+.session-row:hover .session-actions,
+.session-row:focus-within .session-actions {
+  opacity: 1;
+  visibility: visible;
+}
+.session-row:hover .session-time,
+.session-row:focus-within .session-time {
+  visibility: hidden;
+}
+.collapsed .session-link {
+  padding-inline: 4px;
+  justify-content: center;
+}
+@media (hover: none) {
+  .session-actions {
+    opacity: 1;
+    visibility: visible;
+  }
+  .session-time {
+    display: none;
+  }
+}
+.session-dialog {
+  width: min(380px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: var(--shadow-float);
+}
+.session-dialog::backdrop {
+  background: var(--backdrop);
+}
+header,
+footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+label {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  font-size: var(--text-sm);
+}
+input,
+select {
+  width: 100%;
+}
+p {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+footer {
+  justify-content: flex-end;
+}
+.management-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  margin-top: 20px;
+}

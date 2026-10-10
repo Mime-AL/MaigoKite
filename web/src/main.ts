@@ -9,11 +9,13 @@ import App from './App.vue'
 import pinia from './stores'
 import router from './router'
 import { setupGuards } from './router/guards'
+import { i18n } from './i18n'
 import './styles/base.scss'
 
 const app = createApp(App)
 
 app.use(pinia)
+app.use(i18n)
 app.use(router)
 setupGuards(router)
 

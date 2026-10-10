@@ -11,7 +11,7 @@ const progress = computed(() =>
 </script>
 <template>
   <section class="plan-tab">
-    <p v-if="!items.length" class="empty-copy">还没有执行计划。</p>
+    <p v-if="!items.length" class="empty-copy">{{ $t('还没有执行计划。') }}</p>
     <template v-else
       ><div class="plan-progress"><i :style="{ width: `${progress}%` }" /></div>
       <ul>

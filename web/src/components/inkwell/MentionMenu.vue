@@ -9,9 +9,9 @@ defineProps<{ items: Mention[]; selected: number; loading?: boolean }>()
 const emit = defineEmits<{ (event: 'select', item: Mention): void }>()
 </script>
 <template>
-  <div class="mention-menu" role="listbox" aria-label="引用">
-    <p v-if="loading">正在查找…</p>
-    <p v-else-if="!items.length">没有找到相关内容</p>
+  <div class="mention-menu" role="listbox" :aria-label="$t('引用')">
+    <p v-if="loading">{{ $t('正在查找…') }}</p>
+    <p v-else-if="!items.length">{{ $t('没有找到相关内容') }}</p>
     <button
       v-for="(item, index) in items"
       :key="item.id"
@@ -20,7 +20,7 @@ const emit = defineEmits<{ (event: 'select', item: Mention): void }>()
       @mousedown.prevent
       @click="emit('select', item)"
     >
-      <small>{{ item.kind }}</small
+      <small>{{ $t(item.kind) }}</small
       ><span>{{ item.label }}</span>
     </button>
   </div>

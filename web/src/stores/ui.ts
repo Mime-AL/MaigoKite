@@ -2,16 +2,19 @@ import { computed, onScopeDispose, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useLayoutStore } from './layout'
 import { desktopEffects } from '@/composables/useElectron'
+import { i18n, resolveLanguage, t, type Language } from '@/i18n'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type Accent = 'stone' | 'blue' | 'green' | 'earth' | 'lotus' | 'ink'
 export interface Appearance {
+  language?: Language
   theme: ThemeMode
   accent: Accent
   texture: boolean
   greetingName: string
   avatar: string
   capsuleShortcut: string
+  showContextUsage?: boolean
 }
 export const accents: Array<{ id: Accent; label: string }> = [
   { id: 'stone', label: '石青' },
@@ -28,6 +31,8 @@ export function validAppearance(value: unknown): value is Appearance {
     ['system', 'light', 'dark'].includes(String(p.theme)) &&
     accents.some((a) => a.id === p.accent) &&
     typeof p.texture === 'boolean' &&
+    (p.language === undefined || ['zh-CN', 'en', 'system'].includes(String(p.language))) &&
+    (p.showContextUsage === undefined || typeof p.showContextUsage === 'boolean') &&
     typeof p.greetingName === 'string' &&
     p.greetingName.length <= 32 &&
     typeof p.avatar === 'string' &&
@@ -38,12 +43,14 @@ export function validAppearance(value: unknown): value is Appearance {
 }
 export const useUIStore = defineStore('ui', () => {
   const fallback: Appearance = {
+    language: 'zh-CN',
     theme: 'system',
     accent: 'stone',
     texture: true,
     greetingName: '你',
     avatar: '助',
     capsuleShortcut: 'Alt+Space',
+    showContextUsage: true,
   }
   const storageKey = import.meta.env.VITE_MOCK === '1' ? 'maigokite_inkline_demo' : 'maigokite_inkline'
   let stored: unknown
@@ -76,7 +83,7 @@ export const useUIStore = defineStore('ui', () => {
   }
   async function setCapsuleShortcut(value: string) {
     const next = { ...appearance.value, capsuleShortcut: value }
-    if (!validAppearance(next)) throw new Error('快捷键格式不正确')
+    if (!validAppearance(next)) throw new Error(t('快捷键格式不正确'))
     if (desktop) await desktop.setAppearance(next)
     appearance.value = next
   }
@@ -88,6 +95,9 @@ export const useUIStore = defineStore('ui', () => {
     drawerOpen.value = inboxOpen.value = commandOpen.value = shortcutsOpen.value = false
   }
   function apply() {
+    const locale = resolveLanguage(appearance.value.language, navigator.language)
+    i18n.global.locale.value = locale
+    document.documentElement.lang = locale
     document.documentElement.dataset.theme = theme.value
     document.documentElement.dataset.accent = appearance.value.accent
     document.documentElement.dataset.texture = String(appearance.value.texture)
@@ -101,6 +111,10 @@ export const useUIStore = defineStore('ui', () => {
     systemDark.value = event.matches
   }
   media?.addEventListener('change', onSystem)
+  const onLanguageChange = () => {
+    if (appearance.value.language === 'system') apply()
+  }
+  window.addEventListener('languagechange', onLanguageChange)
   watch(
     [appearance, theme],
     () => {
@@ -127,6 +141,7 @@ export const useUIStore = defineStore('ui', () => {
   })
   onScopeDispose(() => {
     media?.removeEventListener('change', onSystem)
+    window.removeEventListener('languagechange', onLanguageChange)
     off?.()
   })
   return {

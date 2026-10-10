@@ -52,6 +52,11 @@ class BrowserRuntime:
         async with self._lock:
             if self._browser is not None and self._browser.is_connected():
                 return self._browser
+            if self._playwright is not None:
+                # A disconnected Chromium must not orphan its previous driver.
+                await self._playwright.stop()
+                self._playwright = self._browser = None
+                self._pages.clear()
             try:
                 from playwright.async_api import async_playwright
             except ImportError as exc:
@@ -144,17 +149,28 @@ class BrowserRuntime:
 
     async def close(self) -> None:
         pages, self._pages = list(self._pages.values()), {}
+        errors: list[Exception] = []
         for page in pages:
             try:
                 await page.context.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                errors.append(exc)
         if self._browser is not None:
-            await self._browser.close()
-            self._browser = None
+            try:
+                await self._browser.close()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                self._browser = None
         if self._playwright is not None:
-            await self._playwright.stop()
-            self._playwright = None
+            try:
+                await self._playwright.stop()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                self._playwright = None
+        if errors:
+            raise ExceptionGroup("Browser cleanup failed", errors)
 
     async def _guard_request(self, route: Any) -> None:
         """Apply the public-network boundary to redirects and page subresources too."""

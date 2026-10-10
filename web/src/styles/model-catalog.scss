@@ -1,30 +1,18 @@
 @use './mixins';
 
-.catalog-backdrop {
-  position: fixed;
-  z-index: 120;
-  inset: 0;
-  display: grid;
-  padding: 24px;
-  place-items: center;
-  background: var(--paper-3);
-  backdrop-filter: var(--blur);
-}
-
-.catalog-dialog {
+.catalog-card {
   display: flex;
-  width: min(620px, 100%);
-  max-height: min(720px, calc(100vh - 48px));
+  width: 100%;
+  min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--surface-solid);
-  box-shadow: var(--shadow-card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
 }
 
-.catalog-dialog > header,
-.catalog-dialog > footer,
+.catalog-card > header,
+.catalog-card > footer,
 .catalog-tools {
   display: flex;
   align-items: center;
@@ -32,34 +20,33 @@
   gap: 12px;
 }
 
-.catalog-dialog > header {
-  padding: 20px 22px 14px;
+.catalog-card > header {
+  padding: 12px 14px;
 }
-.catalog-dialog > header p {
-  margin: 0 0 3px;
-  color: var(--text-tertiary);
+.catalog-card > header p {
+  margin: 4px 0 0;
+  color: var(--ink-3);
   font-size: var(--text-xs);
-  font-weight: var(--weight-bold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
-.catalog-dialog > header h3 {
+.catalog-card > header h3 {
   margin: 0;
-  font-size: var(--text-lg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
 }
 .icon-button {
+  @include mixins.interactive-row;
   width: 34px;
   height: 34px;
   border: 0;
   border-radius: var(--radius-round);
-  color: var(--text-secondary);
-  background: var(--surface-muted);
+  color: var(--ink-2);
+  background: var(--paper-2);
   cursor: pointer;
   font-size: var(--text-lg);
 }
 
 .catalog-tools {
-  padding: 0 22px 14px;
+  padding: 0 14px 12px;
 }
 .search-field {
   display: flex;
@@ -69,21 +56,20 @@
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  color: var(--text-tertiary);
-  background: var(--surface-muted);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  color: var(--ink-3);
+  background: var(--paper);
 }
 .search-field:focus-within {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px var(--focus-ring);
+  border-color: var(--accent);
 }
 .search-field input {
   min-width: 0;
   flex: 1;
   border: 0;
   outline: 0;
-  color: var(--text-primary);
+  color: var(--ink);
   background: var(--transparent);
   font-size: var(--text-sm);
 }
@@ -95,18 +81,18 @@
 }
 .catalog-message {
   margin: 0;
-  padding: 9px 22px;
-  color: var(--text-secondary);
-  background: var(--surface-muted);
+  padding: 8px 14px;
+  color: var(--ink-2);
+  background: var(--paper-2);
   font-size: var(--text-xs);
 }
 
 .model-list {
-  min-height: 220px;
-  padding: 6px 12px 12px;
+  max-height: 240px;
+  padding: 4px 8px 8px;
   overflow-y: auto;
-  border-top: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
 }
 .model-option {
   @include mixins.interactive-row;
@@ -114,10 +100,10 @@
   width: 100%;
   align-items: center;
   gap: 12px;
-  padding: 12px 10px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
   background: var(--transparent);
   cursor: pointer;
   text-align: left;
@@ -125,23 +111,18 @@
 .model-option.selected {
   background: var(--accent-selected);
 }
-.radio-mark {
+.checkbox-mark {
   display: grid;
   width: 18px;
   height: 18px;
   flex: none;
   place-items: center;
-  border: 1.5px solid var(--border-strong);
-  border-radius: var(--radius-round);
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius-sm);
 }
-.model-option.selected .radio-mark {
-  border-color: var(--primary-color);
-}
-.model-option.selected .radio-mark i {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-round);
-  background: var(--primary-color);
+.model-option.selected .checkbox-mark {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .model-copy {
   display: flex;
@@ -156,31 +137,27 @@
 }
 .model-copy code {
   overflow-wrap: anywhere;
-  color: var(--text-secondary);
+  color: var(--ink-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
 .model-copy small {
-  color: var(--text-tertiary);
+  color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
 }
-.model-option > svg {
-  flex: none;
-  color: var(--primary-color);
-}
 .catalog-empty {
   display: grid;
-  min-height: 220px;
+  min-height: 100px;
   place-content: center;
   justify-items: center;
   gap: 7px;
-  padding: 30px;
-  color: var(--text-tertiary);
+  padding: 18px;
+  color: var(--ink-3);
   text-align: center;
 }
 .catalog-empty strong {
-  color: var(--text-secondary);
+  color: var(--ink-2);
   font-size: var(--text-sm);
 }
 .catalog-empty small {
@@ -189,27 +166,21 @@
   line-height: var(--leading-normal);
 }
 
-.catalog-dialog > footer {
-  padding: 14px 18px;
+.catalog-card > footer {
+  padding: 10px 14px;
+  flex-wrap: wrap;
 }
-.catalog-dialog > footer > span {
-  color: var(--text-tertiary);
+.catalog-card > footer > span {
+  color: var(--ink-3);
   font-size: var(--text-xs);
 }
-.catalog-dialog > footer > div {
+.catalog-card > footer > div {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 @media (max-width: 560px) {
-  .catalog-backdrop {
-    padding: 10px;
-    place-items: end center;
-  }
-  .catalog-dialog {
-    max-height: calc(100vh - 20px);
-    border-radius: var(--radius-lg);
-  }
   .catalog-tools {
     align-items: stretch;
     flex-direction: column;

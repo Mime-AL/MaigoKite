@@ -67,7 +67,6 @@ class ConfigManager:
             "MAIGOKITE_MODEL_PROVIDER": "models.chat.provider",
             "MAIGOKITE_MODEL_NAME": "models.chat.default",
             "MAIGOKITE_MODEL_BASE_URL": "models.chat.base_url",
-            "MAIGOKITE_AGENT_RUNTIME": "agent.runtime",
         }
         for env_name, key in mapping.items():
             if value := os.getenv(env_name):

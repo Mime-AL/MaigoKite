@@ -44,7 +44,7 @@ SQLite 使用 backup API 或已停止写入后的完整一致性快照，不直�
 
 不直接覆盖仍在写入的目录。版本不兼容或关联不一致时停止切换，保留原数据；恢复失败不能靠反复启动触发副作用。
 
-运行恢复边界见 [智能体运行时设计](../design/AgentRuntime.md)：浏览器 session 易失，legacy 与新路径恢复不同，file_write 有有限内容状态核对但无通用恰好一次（exactly-once）。
+运行恢复边界见 [智能体运行时设计](../design/AgentRuntime.md)：浏览器 session 易失，旧任务无 checkpoint 时不能恢复执行，file_write 有有限内容状态核对但无通用恰好一次（exactly-once）。
 
 ## 5. 演练
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
@@ -7,6 +8,7 @@ import { useInboxStore } from '@/stores/inbox'
 import { usePulse } from '@/composables/usePulse'
 import { useElectron } from '@/composables/useElectron'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import AppIcon from '@/components/common/AppIcon.vue'
 import Pulse from './Pulse.vue'
 const session = useSessionStore(),
   ui = useUIStore(),
@@ -16,51 +18,94 @@ const { state } = usePulse(),
   { isElectron, platform, windowControl } = useElectron()
 const title = computed(() =>
   route.name === 'Chat'
-    ? session.activeSession?.title || '新页'
-    : String(route.meta.title || '个人空间'),
+    ? session.activeSession?.title || t('新页')
+    : t(String(route.meta.title || '个人空间')),
 )
-const demo = import.meta.env.VITE_MOCK === '1'
+const notificationLabel = computed(() =>
+  inbox.items.length ? t('通知，{0} 项待处理', [inbox.items.length]) : t('通知'),
+)
 </script>
 <template>
   <header class="titlebar" :class="{ mac: platform === 'darwin', offline: state === 'offline' }">
-    <button class="icon-button" aria-label="切换侧栏" :aria-expanded="!ui.layout.sidebarCollapsed" @click="ui.layout.toggleSidebar">
-      <IconSymbol name="sidebar" :size="16" />
+    <button
+      class="title-button"
+      type="button"
+      :title="ui.layout.sidebarCollapsed ? $t('展开侧栏') : $t('收起侧栏')"
+      :aria-label="ui.layout.sidebarCollapsed ? $t('展开侧栏') : $t('收起侧栏')"
+      :aria-expanded="!ui.layout.sidebarCollapsed"
+      aria-controls="session-sidebar"
+      @click="ui.layout.toggleSidebar"
+    >
+      <IconSymbol name="sidebar" :size="20" />
     </button>
+    <AppIcon :size="20" />
     <Pulse :state="state" /><span
       class="session-title"
       :class="{ 'conversation-title': route.name === 'Chat' }"
       >{{ title }}</span
     >
     <div class="title-actions">
-      <span v-if="demo" class="demo-label" role="status">演示模式</span>
       <button
-        class="inbox-button"
+        class="title-button notification-button"
+        type="button"
+        :title="notificationLabel"
+        :aria-label="notificationLabel"
         :aria-expanded="ui.inboxOpen"
+        aria-haspopup="dialog"
         @click="ui.inboxOpen = !ui.inboxOpen"
       >
-        等你 <b v-if="inbox.items.length">{{ inbox.items.length }}</b>
+        <IconSymbol name="bell" :size="20" />
+        <i v-if="inbox.items.length" class="notification-dot" aria-hidden="true" />
       </button>
       <button
-        class="icon-button"
-        title="切换宣纸 / 松烟"
+        class="title-button"
+        type="button"
+        :title="ui.theme === 'dark' ? $t('切换到宣纸') : $t('切换到松烟')"
+        :aria-label="ui.theme === 'dark' ? $t('切换到宣纸') : $t('切换到松烟')"
         @click="ui.setAppearance({ theme: ui.theme === 'dark' ? 'light' : 'dark' })"
       >
-        ◐
+        <IconSymbol :name="ui.theme === 'dark' ? 'sun' : 'moon'" :size="20" />
       </button>
-      <button class="icon-button" title="打开抽屉" :aria-expanded="ui.drawerOpen" @click="ui.drawerOpen = !ui.drawerOpen">
-        <IconSymbol name="files" :size="16" />
+      <button
+        class="title-button"
+        type="button"
+        :title="ui.drawerOpen ? $t('收起抽屉') : $t('打开抽屉')"
+        :aria-label="ui.drawerOpen ? $t('收起抽屉') : $t('打开抽屉')"
+        :aria-expanded="ui.drawerOpen"
+        aria-controls="work-drawer"
+        @click="ui.drawerOpen = !ui.drawerOpen"
+      >
+        <IconSymbol name="files" :size="20" />
       </button>
-      <template v-if="isElectron && platform !== 'darwin'">
-        <button class="window-button" aria-label="最小化" @click="windowControl('minimize')">
-          ─
+      <div v-if="isElectron && platform !== 'darwin'" class="window-controls">
+        <button
+          class="title-button window-button"
+          type="button"
+          :title="$t('最小化')"
+          :aria-label="$t('最小化')"
+          @click="windowControl('minimize')"
+        >
+          <IconSymbol name="minimize" :size="18" />
         </button>
-        <button class="window-button" aria-label="最大化" @click="windowControl('maximize')">
-          □
+        <button
+          class="title-button window-button"
+          type="button"
+          :title="$t('最大化 / 还原')"
+          :aria-label="$t('最大化 / 还原')"
+          @click="windowControl('maximize')"
+        >
+          <IconSymbol name="maximize" :size="16" />
         </button>
-        <button class="window-button close" aria-label="关闭窗口" @click="windowControl('close')">
-          ×
+        <button
+          class="title-button window-button close"
+          type="button"
+          :title="$t('关闭窗口')"
+          :aria-label="$t('关闭窗口')"
+          @click="windowControl('close')"
+        >
+          <IconSymbol name="close" :size="18" />
         </button>
-      </template>
+      </div>
     </div>
   </header>
 </template>
@@ -99,13 +144,9 @@ const demo = import.meta.env.VITE_MOCK === '1'
 .title-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   height: 100%;
-}
-.demo-label {
-  color: var(--wait);
-  font-size: var(--text-xs);
-  white-space: nowrap;
+  padding-right: 4px;
 }
 .conversation-title {
   font-family: var(--font-serif);
@@ -113,23 +154,63 @@ const demo = import.meta.env.VITE_MOCK === '1'
 button {
   -webkit-app-region: no-drag;
 }
-.inbox-button,
-.window-button {
+.title-button {
   @include mixins.interactive-row;
-  height: 100%;
-  border: 0;
-  background: var(--transparent);
-  color: var(--ink-2);
-  padding: 0 12px;
-  font-size: var(--text-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--titlebar-button-size);
+  height: var(--titlebar-button-size);
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+  color: var(--ink);
 }
-.inbox-button b {
-  margin-left: 5px;
-  color: var(--wait);
-  font-weight: var(--weight-medium);
-}
-.inbox-button[aria-expanded='true'] {
+.title-button[aria-expanded='true'] {
   color: var(--accent);
+  border-color: var(--accent);
   background: var(--accent-selected);
+}
+.title-button:not(:disabled):active {
+  scale: var(--press-scale);
+}
+.notification-button {
+  position: relative;
+}
+.notification-dot {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-round);
+  background: var(--notification-dot);
+  outline: 2px solid var(--paper-2);
+  pointer-events: none;
+}
+.window-controls {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding-left: 6px;
+  border-left: 1px solid var(--rule);
+}
+.window-button {
+  width: var(--titlebar-window-button-width);
+  background: var(--transparent);
+  border-color: var(--transparent);
+}
+.window-button.close:hover,
+.window-button.close:focus-visible {
+  color: var(--seal);
+  background: var(--seal-hover);
+}
+.window-button.close:active {
+  color: var(--seal);
+  background: var(--seal-pressed);
 }
 </style>

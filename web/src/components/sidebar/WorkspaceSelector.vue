@@ -21,9 +21,9 @@ onMounted(() => {
   void workspace.load()
 })
 async function select(id: string) {
+  await router.push('/chat')
   workspace.select(id)
   open.value = false
-  await router.push('/chat')
 }
 async function add() {
   if (busy.value || !root.value.trim()) return
@@ -53,32 +53,30 @@ async function choose() {
     }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally { choosing.value = false }
+  } finally {
+    choosing.value = false
+  }
+}
+function openSelector() {
+  error.value = ''
+  open.value = true
+}
+function close() {
+  if (!busy.value && !choosing.value) open.value = false
 }
 </script>
 <template>
   <div class="workspace-selector">
-    <select
-      v-if="!collapsed"
-      :value="workspace.selectedId"
-      :disabled="workspace.loading"
-      aria-label="当前工作区"
-      :title="workspace.current?.root_path"
-      @change="select(($event.target as HTMLSelectElement).value)"
+    <span v-if="!collapsed" class="workspace-label"
+      >{{ $t('工作区') }}<small>{{ workspace.folders.length }}</small></span
     >
-      <option v-if="!workspace.folders.length" value="">
-        {{ workspace.loading ? '读取工作区…' : '默认工作区' }}
-      </option>
-      <option v-for="folder in workspace.folders" :key="folder.id" :value="folder.id">
-        {{ folder.name }}
-      </option>
-    </select>
     <button
       class="icon-button"
-      :aria-label="collapsed ? '选择工作区' : '添加文件夹工作区'"
+      :aria-label="collapsed ? $t('选择工作区') : $t('添加文件夹工作区')"
+      :title="collapsed ? workspace.current?.name || $t('选择工作区') : $t('添加文件夹工作区')"
       :disabled="choosing || busy"
       :aria-busy="choosing || busy || undefined"
-      @click="choose"
+      @click="collapsed ? openSelector() : choose()"
     >
       <IconSymbol :name="collapsed ? 'folder' : 'plus'" :size="16" />
     </button>
@@ -89,51 +87,76 @@ async function choose() {
       <dialog
         ref="dialog"
         class="workspace-dialog"
-        aria-label="选择工作区"
-        @cancel.prevent="open = false"
-        @click.self="open = false"
+        :aria-label="$t('选择工作区')"
+        @cancel.prevent="close"
+        @click.self="close"
       >
         <section>
           <header>
-            <strong>工作区</strong
-            ><button class="icon-button" aria-label="关闭" @click="open = false">×</button>
+            <strong>{{ $t('工作区') }}</strong
+            ><button
+              class="icon-button"
+              :disabled="busy || choosing"
+              :aria-label="$t('关闭')"
+              @click="close"
+            >
+              ×
+            </button>
           </header>
           <label
-            >切换已有工作区<select
+            >{{ $t('切换已有工作区')
+            }}<select
               :value="workspace.selectedId"
+              :disabled="busy || choosing || workspace.loading"
               @change="select(($event.target as HTMLSelectElement).value)"
             >
               <option v-for="folder in workspace.folders" :key="folder.id" :value="folder.id">
-                {{ folder.name }}
+                {{ folder.id ? folder.name : $t('默认工作区') }}
               </option>
             </select></label
           >
           <form @submit.prevent="add">
+            <button
+              v-if="desktopEffects"
+              type="button"
+              class="secondary-button folder-picker"
+              :disabled="choosing || busy"
+              :aria-busy="choosing || undefined"
+              @click="choose"
+            >
+              <IconSymbol name="folder" :size="16" />{{
+                choosing ? $t('正在选择…') : $t('选择文件夹')
+              }}
+            </button>
             <label
-              >文件夹路径<input
+              >{{ $t('文件夹路径')
+              }}<input
                 v-model="root"
                 maxlength="4096"
-                placeholder="服务所在设备上的绝对路径"
+                :placeholder="$t('服务所在设备上的绝对路径')"
                 required
-                :disabled="busy"
+                :disabled="busy || choosing"
             /></label>
             <label
-              >工作区名称<input
+              >{{ $t('工作区名称')
+              }}<input
                 v-model="name"
                 maxlength="120"
-                placeholder="默认使用文件夹名称"
-                :disabled="busy"
+                :placeholder="$t('默认使用文件夹名称')"
+                :disabled="busy || choosing"
             /></label>
-            <p class="empty-copy">新对话和文件操作会使用所选文件夹；已有对话不会自动移动。</p>
+            <p class="empty-copy">
+              {{ $t('新对话和文件操作会使用所选文件夹；已有对话不会自动移动。') }}
+            </p>
             <p v-if="error" role="alert" class="error-banner">{{ error }}</p>
             <footer>
-              <InkButton :disabled="busy" @click="open = false">取消</InkButton>
+              <InkButton :disabled="busy || choosing" @click="close">{{ $t('取消') }}</InkButton>
               <button
                 class="primary-button"
-                :disabled="busy || !root.trim()"
+                :disabled="busy || choosing || !root.trim()"
                 :aria-busy="busy || undefined"
               >
-                {{ busy ? '正在添加…' : '添加工作区' }}
+                {{ busy ? $t('正在添加…') : $t('添加工作区') }}
               </button>
             </footer>
           </form>
@@ -148,15 +171,30 @@ async function choose() {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  margin-bottom: 12px;
-}
-.workspace-selector > select {
   flex: 1;
   min-width: 0;
-  width: 0;
-  font-size: var(--text-sm);
-  padding: 6px;
-  background: var(--paper);
+}
+.workspace-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding-left: 8px;
+  font-size: var(--text-xs);
+}
+.workspace-label small {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.workspace-selector > .icon-button {
+  width: 32px;
+  min-height: 36px;
+}
+.folder-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .workspace-selector > p {
   width: 100%;

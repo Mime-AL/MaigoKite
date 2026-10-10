@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import type { RailNode, Turn, TurnSummary } from '@/api/events'
 
 export function summarize(turn: Turn): TurnSummary {
@@ -34,8 +35,8 @@ export function railNodes(turn: Turn): RailNode[] {
       if (kind === 'read' && previous?.kind === 'read') {
         previous.steps.push(step)
         previous.title = previous.steps.every((s) => ['read', 'file_read'].includes(s.tool))
-          ? `翻了 ${previous.steps.length} 个文件`
-          : `查看了 ${previous.steps.length} 项资料`
+          ? t("翻了 {0} 个文件", [previous.steps.length])
+          : t("查看了 {0} 项资料", [previous.steps.length])
         previous.running ||= turn.status === 'running' && (step.status === 'running' || step.status === 'pending')
       } else
         nodes.push({
@@ -53,9 +54,9 @@ export function railNodes(turn: Turn): RailNode[] {
     if (item.kind === 'memory') {
       const value = memories.get(item.id)
       if (value)
-        nodes.push({ id: value.id, kind: 'memory', title: `记下了：${value.text}`, steps: [], memoryId: value.id })
+        nodes.push({ id: value.id, kind: 'memory', title: t("记下了：{0}", [value.text]), steps: [], memoryId: value.id })
     }
-    if (item.kind === 'error') nodes.push({ id: item.id, kind: 'failed', title: turn.error || '执行失败', steps: [] })
+    if (item.kind === 'error') nodes.push({ id: item.id, kind: 'failed', title: turn.error || t("执行失败"), steps: [] })
   }
   return nodes
 }

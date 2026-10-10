@@ -17,7 +17,7 @@ class GrepParams(BaseModel):
     pattern: str = Field(min_length=1, description="Ripgrep (Rust regex) pattern, not Python regex.")
     path: str = Field(default=".", description="Workspace file or directory to search.")
     ignore_case: bool = False
-    max_results: int = Field(default=100, ge=1, le=1000)
+    max_results: int = Field(default=30, ge=1, le=1000)
     context_lines: int = Field(default=0, ge=0, le=20)
 
 
@@ -76,14 +76,29 @@ class GrepTool(BaseTool):
             lines.setdefault(filename, {})[number] = text.rstrip("\r\n")
             if event["type"] == "match":
                 matches.append((filename, number))
-        hits = [
+        hits: list[dict[str, Any]] = [
             {"file": path, "line_number": number, "context": "\n".join(
                 lines[path][line] for line in range(max(1, number - args.context_lines), number + args.context_lines + 1)
                 if line in lines[path]
             )}
             for path, number in matches[:args.max_results]
         ]
-        truncated = result.output_truncated or len(matches) > args.max_results
+        # Bound long matching lines too, without rewriting an earlier ToolMessage.
+        budget = 16_000
+        selected = []
+        content_truncated = False
+        for hit in hits:
+            if budget <= 0:
+                content_truncated = True
+                break
+            text = hit["context"]
+            hit["context"] = text[:min(budget, 2000)]
+            hit["context_truncated"] = len(hit["context"]) < len(text)
+            content_truncated |= hit["context_truncated"]
+            budget -= len(hit["context"]) + len(hit["file"]) + 80
+            selected.append(hit)
+        hits = selected
+        truncated = result.output_truncated or len(matches) > len(hits) or content_truncated
         return ToolResult(
             {"pattern": args.pattern, "matches": hits, "total_count": len(hits),
              "files_scanned": files_scanned, "truncated": truncated},

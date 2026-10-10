@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { i18n, t } from '@/i18n'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
@@ -12,13 +13,13 @@ const isCreating = ref(false)
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
-  if (hour < 11) return '早上好'
-  if (hour < 18) return '下午好'
-  return '晚上好'
+  if (hour < 11) return t("早上好")
+  if (hour < 18) return t("下午好")
+  return t("晚上好")
 })
 
 const todayLabel = computed(() =>
-  new Intl.DateTimeFormat('zh-CN', {
+  new Intl.DateTimeFormat(i18n.global.locale.value, {
     month: 'long',
     day: 'numeric',
     weekday: 'long',
@@ -44,8 +45,8 @@ async function createNewSession() {
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '刚刚'
-  return new Intl.DateTimeFormat('zh-CN', {
+  if (Number.isNaN(date.getTime())) return t("刚刚")
+  return new Intl.DateTimeFormat(i18n.global.locale.value, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -59,32 +60,29 @@ function formatUpdatedAt(value: string) {
     <section class="hero">
       <div>
         <p class="page-eyebrow">{{ todayLabel }}</p>
-        <h1 class="page-title">{{ greeting }}，今天想完成什么？</h1>
+        <h1 class="page-title">{{ greeting }}</h1>
         <p class="page-subtitle">
-          从一个想法开始。{{ settingsStore.profile.assistantName }} 会组织当前对话的上下文，并给出清晰回答。
-        </p>
+          {{ $t('{0} · 个人助手', [settingsStore.profile.assistantName]) }}</p>
       </div>
       <button class="primary-button" type="button" :disabled="isCreating" @click="createNewSession">
         <IconSymbol name="compose" :size="17" />
-        {{ isCreating ? '正在创建' : '开始新对话' }}
+        {{ isCreating ? $t('正在创建') : $t('新建对话') }}
       </button>
     </section>
 
     <p v-if="sessionStore.error" class="error-banner"><IconSymbol name="alert" :size="16" />{{ sessionStore.error }}</p>
 
-    <section class="metrics" aria-label="工作区摘要">
+    <section class="metrics" :aria-label="$t('工作区摘要')">
       <article class="metric-card glass-card">
         <span class="metric-icon blue"><IconSymbol name="review" :size="20" /></span>
         <div>
           <strong>{{ sessionStore.sessions.length }}</strong
-          ><span>对话</span>
+          ><span>{{ $t('对话') }}</span>
         </div>
-        <small>个人空间</small>
       </article>
       <article class="metric-card glass-card">
         <span class="metric-icon green"><IconSymbol name="shield" :size="20" /></span>
-        <div><strong>本地</strong><span>工作区</span></div>
-        <small>当前工作区</small>
+        <div><strong>{{ $t('本地') }}</strong><span>{{ $t('工作区') }}</span></div>
       </article>
     </section>
 
@@ -92,15 +90,14 @@ function formatUpdatedAt(value: string) {
       <div class="recent-panel glass-card">
         <header class="panel-header">
           <div>
-            <p>Continue</p>
-            <h2>最近对话</h2>
+            <h2>{{ $t('最近对话') }}</h2>
           </div>
-          <button class="icon-button" type="button" title="新建对话" @click="createNewSession">
+          <button class="icon-button" type="button" :title="$t('新建对话')" @click="createNewSession">
             <IconSymbol name="plus" :size="18" />
           </button>
         </header>
 
-        <div v-if="sessionStore.isLoading" class="panel-empty">正在同步对话…</div>
+        <div v-if="sessionStore.isLoading" class="panel-empty">{{ $t('正在同步对话…') }}</div>
         <div v-else-if="sessionStore.sessions.length" class="session-list">
           <router-link
             v-for="session in sessionStore.sessions.slice(0, 6)"
@@ -110,28 +107,27 @@ function formatUpdatedAt(value: string) {
           >
             <span class="session-icon"><IconSymbol name="review" :size="17" /></span>
             <span class="session-copy">
-              <strong>{{ session.title || '未命名对话' }}</strong>
-              <small>{{ session.message_count }} 条消息 · {{ formatUpdatedAt(session.updated_at) }}</small>
+              <strong>{{ session.title || $t('未命名对话') }}</strong>
+              <small>{{ $t('{0} 条消息 · {1}', [session.message_count, formatUpdatedAt(session.updated_at)]) }}</small>
             </span>
             <IconSymbol name="chevron" :size="15" />
           </router-link>
         </div>
         <div v-else class="panel-empty rich-empty">
           <span><IconSymbol name="compose" :size="23" /></span>
-          <strong>这里会保存你的工作脉络</strong>
-          <p>创建第一段对话，稍后可以从这里继续。</p>
+          <strong>{{ $t('暂无对话') }}</strong>
         </div>
       </div>
 
       <aside class="shortcuts">
         <router-link to="/audit" class="shortcut glass-card">
           <span class="shortcut-icon green"><IconSymbol name="shield" :size="19" /></span>
-          <div><strong>审计日志</strong><small>查看已记录的安全操作</small></div>
+          <div><strong>{{ $t('审计日志') }}</strong></div>
           <IconSymbol name="chevron" :size="15" />
         </router-link>
         <router-link to="/settings" class="shortcut glass-card">
           <span class="shortcut-icon gray"><IconSymbol name="settings" :size="19" /></span>
-          <div><strong>称呼与模型</strong><small>管理界面称呼与模型接入</small></div>
+          <div><strong>{{ $t('称呼与模型') }}</strong></div>
           <IconSymbol name="chevron" :size="15" />
         </router-link>
       </aside>

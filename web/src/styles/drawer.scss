@@ -1,0 +1,113 @@
+@use '@/styles/mixins' as mixins;
+.drawer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: var(--drawer-width);
+  flex: none;
+  min-height: 0;
+  border-left: 1px solid var(--rule);
+  background: var(--paper);
+  z-index: 20;
+}
+.drawer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 46px;
+  padding: 6px 10px 6px 14px;
+}
+.drawer-workspace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.drawer-workspace span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawer-controls {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 4px;
+}
+.drawer-control {
+  @include mixins.interactive-row;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--transparent);
+  color: var(--ink-2);
+}
+.drawer-control[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-selected);
+}
+.drawer-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.drawer-tabs button {
+  @include mixins.interactive-row;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 6px;
+  border: 0;
+  border-bottom: 2px solid var(--transparent);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--transparent);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.drawer-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-selected);
+}
+.drawer-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.drawer-shade {
+  display: none;
+}
+.drawer.wide {
+  width: min(var(--drawer-maximum-width, var(--drawer-width)), calc(100vw - 16px));
+}
+@media (max-width: 1100px) {
+  .drawer {
+    position: fixed;
+    right: 0;
+    top: var(--titlebar-height);
+    bottom: 0;
+    width: min(var(--drawer-width), calc(100vw - 16px));
+    box-shadow: var(--shadow-float);
+  }
+  .drawer-shade {
+    display: block;
+    position: fixed;
+    inset: var(--titlebar-height) 0 0;
+    z-index: 19;
+    background: var(--backdrop);
+  }
+}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import type { UserMemory } from '@/api/client'
 import { useMemoryStore } from '@/stores/memory'
 import { useSessionStore } from '@/stores/session'
@@ -7,7 +8,7 @@ const emit = defineEmits<{ (event: 'edit', item: UserMemory): void }>()
 const memory = useMemoryStore(),
   session = useSessionStore()
 async function remove(item: UserMemory) {
-  if (window.confirm('遗忘这条记忆？')) await memory.remove(item.id)
+  if (window.confirm(t("遗忘这条记忆？"))) await memory.remove(item.id)
 }
 </script>
 <template>
@@ -16,16 +17,16 @@ async function remove(item: UserMemory) {
     <router-link
       v-if="session.sessions.some((s) => s.id === item.source_id)"
       :to="`/chat/${item.source_id}`"
-      >来源会话</router-link
-    ><small v-else>{{ item.source_type === 'user' ? '由你写下' : '助手记下' }}</small>
+      >{{ $t('来源会话') }}</router-link
+    ><small v-else>{{ item.source_type === 'user' ? $t('由你写下') : $t('助手记下') }}</small>
     <footer>
       <button
         :aria-pressed="memory.pinnedIds.includes(item.id)"
         @click="memory.togglePinned(item.id)"
       >
-        {{ memory.pinnedIds.includes(item.id) ? '已置顶' : '置顶' }}</button
-      ><button @click="emit('edit', item)">编辑</button
-      ><button class="danger" :disabled="memory.saving" @click="remove(item)">遗忘</button>
+        {{ memory.pinnedIds.includes(item.id) ? $t('已置顶') : $t('置顶') }}</button
+      ><button @click="emit('edit', item)">{{ $t('编辑') }}</button
+      ><button class="danger" :disabled="memory.saving" @click="remove(item)">{{ $t('遗忘') }}</button>
     </footer>
   </article>
 </template>

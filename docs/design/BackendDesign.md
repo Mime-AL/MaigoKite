@@ -31,16 +31,14 @@ flowchart TD
     S[gRPC Servicer：协议转换] --> C[AgentCore：组合根]
     C --> R[Repository：产品事实与审计]
     C --> M[ChatModelRuntime：Provider 生命周期]
-    C --> L[legacy Loop / ExecutionEngine]
     C --> N[LangGraph Runtime 薄桥接]
-    L --> T[ToolRegistry / PermissionPolicy]
-    N --> T
+    N --> T[ToolRegistry / PermissionPolicy]
     T --> B[现有 Native / Browser / Skill / MCP 工具]
 ```
 
 - `AgentServiceServicer` 转换 Proto 与事件流，领域写入委托核心服务。
 - `AgentCore` 组织聊天入口、设置、审批、取消与关闭，不继续生长为通用执行框架。
-- 新路径的执行/检查点/HITL 属于成熟运行时；旧路径暂留兼容。两条路径的范围、资源所有权和退役条件见 AgentRuntime。
+- 执行/检查点/HITL 统一属于 LangChain/LangGraph；旧路径和 feature flag 已移除。资源所有权和历史任务边界见 AgentRuntime。
 - ToolRegistry 只保留发现、结构定义/产品元数据、权限与公开转换入口；不为新路径自建工具调度。
 - 浏览器复用 Playwright；本地技能是受限声明内容；MCP 进程/协议只由 Python 管理。不得在 Go 或渲染进程再建一套执行与权限体系。
 
@@ -52,7 +50,7 @@ flowchart TD
 
 - 当前仅 SQLiteRepository；没有 PostgreSQL 兼容承诺。
 - 新运行时恢复看检查点，审批校验看 Repository，UI 看 messages/task_events。
-- legacy 内存 TaskManager 与持久投影仍有双重维护，不能将其描述为统一持久状态机。
+- 内存 TaskManager 已删除；运行续接只看 LangGraph checkpoint，Repository 保留业务投影与审批审计，不建第二套状态机。
 - 部分状态与事件独立事务写入，尚无正式 Unit of Work/Outbox。修复应按一致性需求决定，不预设必须引入大型持久化框架。
 - 索引若未来加入，须可从权威数据重建；敏感凭证不进入消息、记忆或日志。
 

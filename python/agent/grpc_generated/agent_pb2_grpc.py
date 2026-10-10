@@ -49,6 +49,11 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.ConversationRequest.SerializeToString,
                 response_deserializer=agent__pb2.Conversation.FromString,
                 _registered_method=True)
+        self.GetConversationSnapshot = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/GetConversationSnapshot',
+                request_serializer=agent__pb2.ConversationRequest.SerializeToString,
+                response_deserializer=agent__pb2.ConversationSnapshot.FromString,
+                _registered_method=True)
         self.ListConversations = channel.unary_unary(
                 '/maigokite.agent.v1.AgentService/ListConversations',
                 request_serializer=agent__pb2.ListConversationsRequest.SerializeToString,
@@ -279,10 +284,30 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
                 response_deserializer=agent__pb2.SkillList.FromString,
                 _registered_method=True)
+        self.GetExtensions = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/GetExtensions',
+                request_serializer=agent__pb2.WorkspaceRequest.SerializeToString,
+                response_deserializer=agent__pb2.ExtensionSettings.FromString,
+                _registered_method=True)
+        self.UpdateExtensions = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/UpdateExtensions',
+                request_serializer=agent__pb2.ExtensionUpdateRequest.SerializeToString,
+                response_deserializer=agent__pb2.ExtensionSettings.FromString,
+                _registered_method=True)
+        self.ReloadExtensions = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/ReloadExtensions',
+                request_serializer=agent__pb2.ExtensionReloadRequest.SerializeToString,
+                response_deserializer=agent__pb2.ExtensionSettings.FromString,
+                _registered_method=True)
         self.Health = channel.unary_unary(
                 '/maigokite.agent.v1.AgentService/Health',
                 request_serializer=agent__pb2.Empty.SerializeToString,
                 response_deserializer=agent__pb2.HealthResponse.FromString,
+                _registered_method=True)
+        self.ResumeTask = channel.unary_stream(
+                '/maigokite.agent.v1.AgentService/ResumeTask',
+                request_serializer=agent__pb2.ResumeTaskRequest.SerializeToString,
+                response_deserializer=agent__pb2.AgentEvent.FromString,
                 _registered_method=True)
 
 
@@ -302,6 +327,12 @@ class AgentServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def GetConversation(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetConversationSnapshot(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -583,7 +614,31 @@ class AgentServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetExtensions(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateExtensions(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReloadExtensions(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Health(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResumeTask(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -606,6 +661,11 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.GetConversation,
                     request_deserializer=agent__pb2.ConversationRequest.FromString,
                     response_serializer=agent__pb2.Conversation.SerializeToString,
+            ),
+            'GetConversationSnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetConversationSnapshot,
+                    request_deserializer=agent__pb2.ConversationRequest.FromString,
+                    response_serializer=agent__pb2.ConversationSnapshot.SerializeToString,
             ),
             'ListConversations': grpc.unary_unary_rpc_method_handler(
                     servicer.ListConversations,
@@ -837,10 +897,30 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     request_deserializer=agent__pb2.WorkspaceRequest.FromString,
                     response_serializer=agent__pb2.SkillList.SerializeToString,
             ),
+            'GetExtensions': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetExtensions,
+                    request_deserializer=agent__pb2.WorkspaceRequest.FromString,
+                    response_serializer=agent__pb2.ExtensionSettings.SerializeToString,
+            ),
+            'UpdateExtensions': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateExtensions,
+                    request_deserializer=agent__pb2.ExtensionUpdateRequest.FromString,
+                    response_serializer=agent__pb2.ExtensionSettings.SerializeToString,
+            ),
+            'ReloadExtensions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReloadExtensions,
+                    request_deserializer=agent__pb2.ExtensionReloadRequest.FromString,
+                    response_serializer=agent__pb2.ExtensionSettings.SerializeToString,
+            ),
             'Health': grpc.unary_unary_rpc_method_handler(
                     servicer.Health,
                     request_deserializer=agent__pb2.Empty.FromString,
                     response_serializer=agent__pb2.HealthResponse.SerializeToString,
+            ),
+            'ResumeTask': grpc.unary_stream_rpc_method_handler(
+                    servicer.ResumeTask,
+                    request_deserializer=agent__pb2.ResumeTaskRequest.FromString,
+                    response_serializer=agent__pb2.AgentEvent.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -924,6 +1004,33 @@ class AgentService:
             '/maigokite.agent.v1.AgentService/GetConversation',
             agent__pb2.ConversationRequest.SerializeToString,
             agent__pb2.Conversation.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetConversationSnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/GetConversationSnapshot',
+            agent__pb2.ConversationRequest.SerializeToString,
+            agent__pb2.ConversationSnapshot.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2177,6 +2284,87 @@ class AgentService:
             _registered_method=True)
 
     @staticmethod
+    def GetExtensions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/GetExtensions',
+            agent__pb2.WorkspaceRequest.SerializeToString,
+            agent__pb2.ExtensionSettings.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateExtensions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/UpdateExtensions',
+            agent__pb2.ExtensionUpdateRequest.SerializeToString,
+            agent__pb2.ExtensionSettings.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReloadExtensions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/ReloadExtensions',
+            agent__pb2.ExtensionReloadRequest.SerializeToString,
+            agent__pb2.ExtensionSettings.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def Health(request,
             target,
             options=(),
@@ -2193,6 +2381,33 @@ class AgentService:
             '/maigokite.agent.v1.AgentService/Health',
             agent__pb2.Empty.SerializeToString,
             agent__pb2.HealthResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResumeTask(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/ResumeTask',
+            agent__pb2.ResumeTaskRequest.SerializeToString,
+            agent__pb2.AgentEvent.FromString,
             options,
             channel_credentials,
             insecure,

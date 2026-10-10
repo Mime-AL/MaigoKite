@@ -9,7 +9,7 @@ export interface Playback {
 }
 export function playTask(playback: Playback) {
   const { emit, wait } = playback
-  wait(200, () => emit('reasoning.delta', { content: '先看看现有资料，再把下一步写下来。' }))
+  wait(200, () => emit('reasoning.delta', { content: '正在阅读资料，确认计划。' }))
   const files = ['README.md', 'notes/ideas.md', 'notes/preferences.md']
   files.forEach((path, index) => {
     wait(700 + index * 700, () =>
@@ -38,7 +38,7 @@ export function playTask(playback: Playback) {
       emit('tool.started', {
         tool_call_id: 'write',
         tool_name: 'file_write',
-        arguments: { path: 'notes/next-step.md', content: '# 下一步\n把想法整理成一个可执行的小目标。' },
+        arguments: { path: 'notes/next-step.md', content: '# 下一步\n整理资料，列出待办事项。' },
       })
       wait(400, () => {
         emit('tool.completed', {
@@ -48,11 +48,11 @@ export function playTask(playback: Playback) {
         })
         emit('file.changed', {
           path: 'notes/next-step.md',
-          diff: '+++ b/notes/next-step.md\n@@ -0,0 +1,2 @@\n+# 下一步\n+把想法整理成一个可执行的小目标。',
+          diff: '+++ b/notes/next-step.md\n@@ -0,0 +1,2 @@\n+# 下一步\n+整理资料，列出待办事项。',
         })
       })
       wait(850, () => playback.remember())
-      const answer = '已经整理好资料，并把下一步写进 `notes/next-step.md`。\n\n从一个小目标开始，完成后再继续。'
+      const answer = '资料已整理，计划已保存到 `notes/next-step.md`。'
       answer
         .match(/.{1,8}|\n/g)
         ?.forEach((text, index) => wait(1200 + index * 75, () => emit('message.delta', { content: text })))

@@ -4,11 +4,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import uuid
 from typing import Any, AsyncIterator
 import grpc
 from agent.grpc_generated import agent_pb2, agent_pb2_grpc
 from agent.models.runtime import ChatModelSettings
-from agent.repository import ConversationBusyError
+from agent.repository import ConversationBusyError, MessageConflictError
+from pydantic import ValidationError
 
 
 class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
@@ -63,6 +65,9 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             message_count=int(item.get("message_count", 0)),
             folder_id=str(item.get("folder_id") or ""),
             archived=bool(item.get("archived", False)),
+            max_subagent_calls=int(item.get("max_subagent_calls", 0)),
+            max_concurrent_subagents=int(item.get("max_concurrent_subagents", 1)),
+            subagent_model_ids=json.loads(item.get("subagent_model_ids_json", "[]")),
         )
 
     @staticmethod
@@ -116,6 +121,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             version=int(item.get("version", 1)),
             created_at=item["created_at"],
             updated_at=item["updated_at"],
+            subagent_model_ids=json.loads(item.get("subagent_model_ids_json", "[]")),
         )
 
     async def ProcessMessage(self, request, context) -> AsyncIterator[agent_pb2.AgentEvent]:
@@ -123,17 +129,23 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "conversation_id is required")
             return
         try:
-            conversation = await self._core.get_conversation(request.workspace_id or "personal", request.conversation_id)
+            await self._core.get_conversation(request.workspace_id or "personal", request.conversation_id)
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "conversation not found")
             return
-        if conversation.get("archived"):
-            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "请先恢复归档对话，再发送消息。")
-            return
+        # Core checks an existing submission before Repository rejects a new
+        # turn in an archived conversation. Replaying a receipt is not a write.
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+        trace_id = f"trace_{uuid.uuid4().hex}"
+        accepted_task_id = ""
 
         async def receive(kind: str, payload: dict[str, Any]) -> None:
-            if str(payload.get("conversation_id", "")) == request.conversation_id:
+            nonlocal accepted_task_id
+            if kind == "task.started" and payload.get("trace_id") == trace_id:
+                accepted_task_id = str(payload.get("task_id") or "")
+            # A duplicate submission must not steal/broadcast another stream's
+            # live events before returning its replay acknowledgement.
+            if accepted_task_id and str(payload.get("task_id", "")) == accepted_task_id:
                 await queue.put((kind, payload))
 
         self._event_bus.subscribe("*", receive)
@@ -142,6 +154,8 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             "workspace_id": request.workspace_id or "personal",
             "principal_id": request.principal_id or "local-user",
             "attachments": [{"type": a.type, "path": a.path, "url": a.url} for a in request.attachments],
+            "idempotency_key": request.idempotency_key,
+            "trace_id": trace_id,
         }
         task = asyncio.create_task(self._core.run(request.content, metadata))
         self._keep_alive(task)
@@ -153,6 +167,11 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                     continue
                 yield self._event(kind, payload)
             result = await task
+            if result.get("replayed"):
+                # Transport acknowledgement, not a new durable/UI event.
+                yield agent_pb2.AgentEvent(type="task.accepted", code="MESSAGE_REPLAY",
+                    task_id=result["task_id"], conversation_id=result["conversation_id"],
+                    payload_json=json.dumps(result))
             if error := result.get("error"):
                 yield agent_pb2.AgentEvent(
                     type="error",
@@ -163,6 +182,14 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                     retryable=bool(result.get("retryable")),
                     payload_json=json.dumps(result),
                 )
+        except MessageConflictError as exc:
+            await context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
+        except ConversationBusyError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "conversation not found")
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         finally:
             self._event_bus.unsubscribe("*", receive)
             # Client disconnect is not task cancellation. The durable task keeps
@@ -177,6 +204,10 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 request.permission_mode or None,
                 request.response_mode or "balanced",
                 request.folder_id,
+                max_subagent_calls=request.max_subagent_calls if request.HasField("max_subagent_calls") else 0,
+                subagent_model_ids=list(request.subagent_model_ids),
+                max_concurrent_subagents=(request.max_concurrent_subagents
+                    if request.HasField("max_concurrent_subagents") else 1),
             )
         except (KeyError, ValueError) as exc:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
@@ -195,6 +226,23 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             conversations=[
                 self._conversation(i) for i in await self._core.list_conversations(request.workspace_id or "personal")
             ]
+        )
+
+    async def GetConversationSnapshot(self, request, context):
+        try:
+            item = await self._core.repository.conversation_snapshot(
+                request.workspace_id or "personal", request.conversation_id,
+            )
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "conversation not found")
+        return agent_pb2.ConversationSnapshot(
+            messages=[agent_pb2.Message(**row) for row in item["messages"]],
+            tasks=[self._task(row) for row in item["tasks"]],
+            approvals=[self._approval(row) for row in item["approvals"]],
+            questions=[agent_pb2.Question(**{key: row[key] for key in
+                ("id", "workspace_id", "conversation_id", "task_id", "tool_call_id", "title", "status",
+                 "version", "answer", "options_json", "created_at")}) for row in item["questions"]],
+            last_sequence=item["last_sequence"], truncated=item["truncated"],
         )
 
     async def DeleteConversation(self, request, context):
@@ -228,6 +276,10 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 title=request.title if request.HasField("title") else None,
                 folder_id=request.folder_id if request.HasField("folder_id") else None,
                 archived=request.archived if request.HasField("archived") else None,
+                max_subagent_calls=request.max_subagent_calls if request.HasField("max_subagent_calls") else None,
+                subagent_model_ids=list(request.subagent_models.model_ids) if request.HasField("subagent_models") else None,
+                max_concurrent_subagents=(request.max_concurrent_subagents
+                    if request.HasField("max_concurrent_subagents") else None),
             )
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "conversation or model not found")
@@ -380,7 +432,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
     async def SubmitTaskInput(self, request, context):
         runtime = self._core._langgraph_runtime
         if runtime is None:
-            await context.abort(grpc.StatusCode.UNIMPLEMENTED, "steering requires the LangGraph runtime")
+            await context.abort(grpc.StatusCode.UNAVAILABLE, "Agent Core runtime is not ready")
         try:
             item = await runtime.submit_input(request.workspace_id or "personal", request.task_id,
                                               request.content, request.idempotency_key)
@@ -417,15 +469,46 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
         async for event in self._stream_interaction(pending, operation, context):
             yield event
 
-    async def _stream_interaction(self, pending, operation, context):
+    async def ResumeTask(self, request, context) -> AsyncIterator[agent_pb2.AgentEvent]:
+        workspace_id = request.workspace_id or "personal"
+        if await self._core.repository.check_workspace_access(workspace_id, request.principal_id) != "owner":
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "workspace owner required")
+            return
+        if request.version < 1:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "a positive task version is required")
+            return
+        try:
+            task = await self._core.get_task(workspace_id, request.task_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "task not found")
+            return
+        trace_id = f"resume_{uuid.uuid4().hex}"
+        operation = self._core.resume_task(
+            workspace_id, request.task_id, request.principal_id, request.version, trace_id,
+        )
+        async for event in self._stream_interaction(
+            {"conversation_id": task["conversation_id"], "task_id": request.task_id},
+            operation, context, resume_trace_id=trace_id,
+        ):
+            yield event
+
+    async def _stream_interaction(self, pending, operation, context, *, resume_trace_id: str = ""):
         """HTTP/gRPC subscription glue; the Core owns execution and persistence."""
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+        admitted = not resume_trace_id
 
         async def receive(kind: str, payload: dict[str, Any]) -> None:
+            nonlocal admitted
             if (
                 str(payload.get("conversation_id", "")) == pending["conversation_id"]
                 and str(payload.get("task_id", "")) == pending["task_id"]
             ):
+                # A rejected duplicate resume must not stream someone else's
+                # active run and be mistaken for an accepted HTTP request.
+                if not admitted:
+                    if kind != "task.resumed" or payload.get("trace_id") != resume_trace_id:
+                        return
+                    admitted = True
                 await queue.put((kind, payload))
 
         self._event_bus.subscribe("*", receive)
@@ -457,13 +540,16 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 )
         finally:
             self._event_bus.unsubscribe("*", receive)
-            # Approval continuation also outlives the caller's stream.
+            # Execution outlives the caller's stream; Core shutdown owns cleanup.
 
     async def Health(self, request, context):
-        native = self._core._langgraph_runtime is not None
-        return agent_pb2.HealthResponse(status="serving", version="0.1.0", capabilities={
+        native = self._core._initialized and self._core._langgraph_runtime is not None
+        return agent_pb2.HealthResponse(status="serving" if native else "not_serving", version="0.1.0", capabilities={
             "approval_note": True, "approval_detail": True, "task_inspection": True,
             "structured_questions": native, "task_input": native, "structured_plan": native,
+            "task_resume": native,
+            "subagents": native,
+            "subagent_model_selection": native,
             "file_change_events": True, "context_estimate": native,
             "model_context_percentage": False, "session_approval": False,
             "turn_rollback": False, "automatic_memory_events": False,
@@ -687,6 +773,46 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
     async def ListMCPServers(self, request, context):
         items = await self._core.list_mcp_servers()
         return agent_pb2.MCPServerList(servers=[agent_pb2.MCPServer(**item) for item in items])
+
+    async def _extension_response(self, operation, context):
+        try:
+            return agent_pb2.ExtensionSettings(json=json.dumps(await operation, ensure_ascii=False))
+        except PermissionError as exc:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+        except ConversationBusyError as exc:
+            await context.abort(grpc.StatusCode.ABORTED, str(exc))
+        except ValidationError as exc:
+            # Pydantic's default rendering includes submitted input (possibly
+            # secrets misplaced in config). Expose field locations/messages only.
+            detail = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+                               for e in exc.errors(include_input=False, include_url=False))
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, detail)
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        except Exception:
+            await context.abort(grpc.StatusCode.UNAVAILABLE, "扩展应用失败，请查看当前状态后重新连接。")
+
+    async def GetExtensions(self, request, context):
+        return await self._extension_response(self._core.get_extensions(request.workspace_id), context)
+
+    async def UpdateExtensions(self, request, context):
+        async def update():
+            if len(request.config_json.encode()) > 2 * 1024 * 1024:
+                raise ValueError("Extension configuration exceeds 2 MiB")
+            return await self._core.update_extensions(request.workspace_id, json.loads(request.config_json))
+        return await self._extension_response(update(), context)
+
+    async def ReloadExtensions(self, request, context):
+        async def reload():
+            if len(request.credentials_json.encode()) > 1024 * 1024:
+                raise ValueError("Extension credentials exceed request limit")
+            credentials = json.loads(request.credentials_json or "{}")
+            if not isinstance(credentials, dict):
+                raise ValueError("Invalid extension credentials")
+            return await self._core.reload_extensions(
+                request.workspace_id, request.revision, credentials, restore_only=request.restore_only,
+            )
+        return await self._extension_response(reload(), context)
 
     async def ListSkills(self, request, context):
         items = await self._core.list_skills()

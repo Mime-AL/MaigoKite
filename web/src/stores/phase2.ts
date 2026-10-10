@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import {
@@ -29,7 +30,7 @@ export const usePhase2Store = defineStore('phase2', () => {
       mcpServers.value = servers.value
       skills.value = installedSkills.status === 'fulfilled' ? installedSkills.value : []
       if (installedSkills.status === 'rejected') {
-        mcpError.value = `Skill 清单暂不可用：${installedSkills.reason instanceof Error ? installedSkills.reason.message : String(installedSkills.reason)}`
+        mcpError.value = t("无法读取技能列表：{0}", [installedSkills.reason instanceof Error ? installedSkills.reason.message : String(installedSkills.reason)])
       }
     }
     catch (reason) { mcpError.value = reason instanceof Error ? reason.message : String(reason) }

@@ -23,6 +23,7 @@ const {
   loadFileTree,
   toggleExpand,
   selectNode,
+  closePreview,
 } = useFileTree()
 const activeTab = ref<'files' | 'changes'>('files')
 </script>
@@ -36,7 +37,7 @@ const activeTab = ref<'files' | 'changes'>('files')
       v-if="!embedded && layoutStore.fileExplorerCollapsed"
       class="collapsed-button icon-button"
       type="button"
-      title="展开文件栏"
+      :title="$t('展开文件栏')"
       @click="layoutStore.toggleFileExplorer"
     >
       <IconSymbol name="files" :size="17" />
@@ -45,13 +46,13 @@ const activeTab = ref<'files' | 'changes'>('files')
     <template v-else>
       <header v-if="!embedded" class="explorer-header">
         <div>
-          <p :title="workspace.current?.root_path">{{ workspace.current?.name || '工作区' }}</p>
-          <h2>文件</h2>
+          <p :title="workspace.current?.root_path">{{ workspace.current?.name || $t('工作区') }}</p>
+          <h2>{{ $t('文件') }}</h2>
         </div>
         <button
           class="icon-button"
           type="button"
-          aria-label="收起文件栏"
+          :aria-label="$t('收起文件栏')"
           @click="layoutStore.toggleFileExplorer"
         >
           <IconSymbol name="chevron" :size="16" />
@@ -62,25 +63,22 @@ const activeTab = ref<'files' | 'changes'>('files')
           type="button"
           :class="{ active: activeTab === 'files' }"
           @click="activeTab = 'files'"
-        >
-          文件</button
+        >{{ $t('文件') }}</button
         ><button
           type="button"
           :class="{ active: activeTab === 'changes' }"
           @click="activeTab = 'changes'"
-        >
-          变更
-        </button>
+        >{{ $t('变更') }}</button>
       </nav>
       <template v-if="embedded || activeTab === 'files'">
-        <Toolbar @refresh="loadFileTree('')" />
+        <Toolbar :loading="loading" @refresh="loadFileTree('')" />
         <p v-if="error && tree.length" class="empty-copy" role="alert">{{ error }}</p>
         <div class="explorer-body">
-          <FileTree v-if="tree.length" :nodes="tree" @expand="toggleExpand" @select="selectNode" />
+          <FileTree v-if="tree.length" :nodes="tree" :selected-path="selectedNode?.path" @expand="toggleExpand" @select="selectNode" />
           <div v-else class="empty-files">
             <span class="empty-icon"><IconSymbol name="folder" :size="24" /></span>
-            <strong>{{ loading ? '正在读取工作区…' : '没有可显示的文件' }}</strong>
-            <p>{{ error || '项目文件会出现在这里。' }}</p>
+            <strong>{{ loading ? $t('正在读取工作区…') : $t('没有可显示的文件') }}</strong>
+            <p v-if="error" role="alert">{{ error }}</p>
           </div>
         </div>
         <FilePreview
@@ -90,10 +88,11 @@ const activeTab = ref<'files' | 'changes'>('files')
           :loading="previewLoading"
           :load-error="previewError"
           @retry="selectedNode && selectNode(selectedNode)"
+          @close="closePreview"
         />
       </template>
       <WorkspaceDiff v-else />
-      <footer v-if="!embedded"><span>工作区 · 只读预览</span></footer>
+      <footer v-if="!embedded"><span>{{ $t('工作区 · 只读预览') }}</span></footer>
     </template>
   </div>
 </template>

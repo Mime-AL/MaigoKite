@@ -18,12 +18,27 @@ const LAYOUT_KEYS = {
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 240
-const MIN_SIDEBAR_WIDTH = 64
+const MIN_SIDEBAR_WIDTH = 200
 const MAX_SIDEBAR_WIDTH = 400
 
-const DEFAULT_EXPLORER_WIDTH = 320
-const MIN_EXPLORER_WIDTH = 48
-const MAX_EXPLORER_WIDTH = 600
+const DEFAULT_EXPLORER_WIDTH = 380
+const MIN_EXPLORER_WIDTH = 280
+// Right panel is bounded by the viewport and chat space, not a fixed pixel ceiling.
+const MAX_EXPLORER_WIDTH = Infinity
+
+export const panelWidths = {
+  left: { min: MIN_SIDEBAR_WIDTH, max: MAX_SIDEBAR_WIDTH, default: DEFAULT_SIDEBAR_WIDTH },
+  right: { min: MIN_EXPLORER_WIDTH, max: MAX_EXPLORER_WIDTH, default: DEFAULT_EXPLORER_WIDTH },
+} as const
+
+function savedWidth(key: string, side: keyof typeof panelWidths): number {
+  const bounds = panelWidths[side]
+  const stored: unknown = loadFromStorage(key, bounds.default)
+  // Old layouts stored the collapsed rail width instead of the expanded width.
+  return typeof stored === 'number' && Number.isFinite(stored) && stored >= bounds.min
+    ? Math.min(bounds.max, stored)
+    : bounds.default
+}
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -35,18 +50,14 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 export const useLayoutStore = defineStore('layout', () => {
-  const sidebarCollapsed = ref(loadFromStorage(LAYOUT_KEYS.SIDEBAR_COLLAPSED, false))
-  const sidebarWidth = ref(
-    sidebarCollapsed.value
-      ? MIN_SIDEBAR_WIDTH
-      : loadFromStorage(LAYOUT_KEYS.SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH),
+  const sidebarCollapsed = ref(
+    loadFromStorage<boolean>(LAYOUT_KEYS.SIDEBAR_COLLAPSED, false) === true,
   )
-  const fileExplorerCollapsed = ref(loadFromStorage(LAYOUT_KEYS.FILE_EXPLORER_COLLAPSED, false))
-  const fileExplorerWidth = ref(
-    fileExplorerCollapsed.value
-      ? MIN_EXPLORER_WIDTH
-      : loadFromStorage(LAYOUT_KEYS.FILE_EXPLORER_WIDTH, DEFAULT_EXPLORER_WIDTH),
+  const sidebarWidth = ref(savedWidth(LAYOUT_KEYS.SIDEBAR_WIDTH, 'left'))
+  const fileExplorerCollapsed = ref(
+    loadFromStorage<boolean>(LAYOUT_KEYS.FILE_EXPLORER_COLLAPSED, false) === true,
   )
+  const fileExplorerWidth = ref(savedWidth(LAYOUT_KEYS.FILE_EXPLORER_WIDTH, 'right'))
 
   /** 仅在交互完成后持久化，避免拖拽期间同步阻塞每一帧。 */
   function persistLayout() {
@@ -66,33 +77,31 @@ export const useLayoutStore = defineStore('layout', () => {
   /** 切换侧边栏收起/展开 */
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
-    if (sidebarCollapsed.value) {
-      sidebarWidth.value = MIN_SIDEBAR_WIDTH
-    } else {
-      sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH
-    }
     persistLayout()
   }
 
   /** 切换文件管理器收起/展开 */
   function toggleFileExplorer() {
     fileExplorerCollapsed.value = !fileExplorerCollapsed.value
-    if (fileExplorerCollapsed.value) {
-      fileExplorerWidth.value = MIN_EXPLORER_WIDTH
-    } else {
-      fileExplorerWidth.value = DEFAULT_EXPLORER_WIDTH
-    }
     persistLayout()
   }
 
   /** 设置侧边栏宽度（拖拽时使用） */
   function setSidebarWidth(width: number) {
+    if (!Number.isFinite(width)) return
     sidebarWidth.value = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width))
   }
 
   /** 设置文件管理器宽度（拖拽时使用） */
   function setFileExplorerWidth(width: number) {
+    if (!Number.isFinite(width)) return
     fileExplorerWidth.value = Math.max(MIN_EXPLORER_WIDTH, Math.min(MAX_EXPLORER_WIDTH, width))
+  }
+
+  function resetPanelWidth(side: keyof typeof panelWidths) {
+    if (side === 'left') setSidebarWidth(panelWidths.left.default)
+    else setFileExplorerWidth(panelWidths.right.default)
+    persistLayout()
   }
 
   return {
@@ -104,6 +113,7 @@ export const useLayoutStore = defineStore('layout', () => {
     toggleFileExplorer,
     setSidebarWidth,
     setFileExplorerWidth,
+    resetPanelWidth,
     persistLayout,
   }
 })

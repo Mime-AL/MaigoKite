@@ -1,5 +1,7 @@
-import { computed, reactive, ref, watch } from 'vue'
+import { t } from '@/i18n'
+import { computed, onScopeDispose, reactive, ref, watch } from 'vue'
 import { COMPATIBLE_PROVIDER_PRESETS, getModelProvider, modelSettingsFingerprint } from '@/config/model-providers'
+import { findModelPreset as findPreset, groupModelProfiles, modelServiceName, normalizeEndpoint } from '@/config/model-groups'
 import { useSettingsStore } from '@/stores/settings'
 import { api, type ChatModelProfile, type ChatModelProvider, type DiscoveredChatModel } from '@/api/client'
 
@@ -17,9 +19,13 @@ export function useModelSettings() {
   const discoveredModels = ref<DiscoveredChatModel[]>([])
   const discovering = ref(false)
   const discoveryMessage = ref('')
+  const discoveryFailed = ref(false)
   const catalogOpen = ref(false)
-
-  const cloudPresetIds = new Set(['deepseek', 'openrouter', 'dashscope', 'groq', 'together'])
+  const customService = ref(false)
+  const selectedModels = ref<string[]>([])
+  const manualModelId = ref('')
+  const pendingProfileIds = new Map<string, string>()
+  let discoveryController: AbortController | null = null
 
   function blankProfile(): ChatModelProfile {
     return {
@@ -38,21 +44,33 @@ export function useModelSettings() {
 
   const draft = reactive<ChatModelProfile>(blankProfile())
   const original = ref<ChatModelProfile | null>(null)
+  const originalModels = ref<ChatModelProfile[]>([])
+  const modelGroups = computed(() => groupModelProfiles(settings.modelProfiles))
   const provider = computed(() => getModelProvider(draft.provider))
-  const compatiblePreset = computed(() => findPreset(draft.baseUrl))
-  const displayProviderName = computed(() => compatiblePreset.value?.name ?? provider.value.name)
-  const recommendedModels = computed(() =>
-    compatiblePreset.value?.models.length ? compatiblePreset.value.models : provider.value.recommendedModels,
-  )
-  const modelOptions = computed<DiscoveredChatModel[]>(() =>
-    discoveredModels.value.length ? discoveredModels.value : recommendedModels.value.map((id) => ({ id, name: id })),
-  )
+  const compatiblePreset = computed(() => findPreset(draft.baseUrl, draft.provider))
+  const displayProviderName = computed(() => customService.value
+    ? t("中转站 / 自定义服务")
+    : t(compatiblePreset.value?.name ?? provider.value.name))
+  const requiresEndpoint = computed(() => customService.value || draft.provider === 'openai_compatible')
+  const endpointHelp = computed(() => customService.value
+    ? draft.provider === 'anthropic'
+      ? t("填写服务地址，不含 /v1/messages。")
+      : t("填写服务提供的 Base URL（通常含 /v1），不含 /chat/completions。")
+    : compatiblePreset.value
+      ? t("请使用与你的地域或套餐对应的服务地址。")
+      : t(provider.value.baseUrlHelp))
+  const modelOptions = computed(() => discoveredModels.value)
+  const modelIds = computed(() => [...new Set([
+    ...selectedModels.value,
+    ...(manualModelId.value.trim() ? [manualModelId.value.trim()] : []),
+  ])])
+  const modelCount = computed(() => modelIds.value.length)
   const selectedModelInfo = computed(() => {
     const item = discoveredModels.value.find((model) => model.id === draft.model)
     if (!item) return ''
     return [
       item.owned_by,
-      item.context_window ? `${item.context_window.toLocaleString('en-US')} Token 上下文` : '',
+      item.context_window ? t("{0} Token 上下文", [item.context_window.toLocaleString('en-US')]) : '',
       item.details,
     ]
       .filter(Boolean)
@@ -68,21 +86,19 @@ export function useModelSettings() {
   )
   const keyRequired = computed(
     () =>
-      provider.value.apiKeyMode === 'required' ||
-      (draft.provider === 'openai_compatible' &&
-        Boolean(compatiblePreset.value && cloudPresetIds.has(compatiblePreset.value.id))),
+      (compatiblePreset.value?.apiKeyMode ?? provider.value.apiKeyMode) === 'required',
   )
   const canDiscover = computed(() =>
     Boolean(
-      (draft.provider !== 'openai_compatible' || draft.baseUrl.trim()) &&
+      (!requiresEndpoint.value || draft.baseUrl.trim()) &&
       (!keyRequired.value || apiKey.value.trim() || (draft.credentialConfigured && !endpointChanged.value)),
     ),
   )
   const canSave = computed(() =>
     Boolean(
       draft.name.trim() &&
-      draft.model.trim() &&
-      (draft.provider !== 'openai_compatible' || draft.baseUrl.trim()) &&
+      modelCount.value && manualModelId.value.trim().length <= 200 &&
+      (!requiresEndpoint.value || draft.baseUrl.trim()) &&
       (!keyRequired.value || apiKey.value.trim() || (draft.credentialConfigured && !endpointChanged.value)) &&
       (!endpointChanged.value || apiKey.value.trim()),
     ),
@@ -92,6 +108,9 @@ export function useModelSettings() {
       !original.value ||
       modelSettingsFingerprint(draft) !== modelSettingsFingerprint(original.value) ||
       draft.name !== original.value.name ||
+      selectedModels.value.length !== new Set(originalModels.value.map(item => item.model)).size ||
+      originalModels.value.some(item => !selectedModels.value.includes(item.model)) ||
+      Boolean(manualModelId.value.trim()) ||
       Boolean(apiKey.value.trim()),
   )
 
@@ -104,52 +123,63 @@ export function useModelSettings() {
   )
 
   watch(
-    () => [draft.provider, draft.baseUrl, apiKey.value],
+    () => [draft.id, draft.provider, draft.baseUrl, apiKey.value],
     () => {
+      cancelDiscovery()
+      catalogOpen.value = false
       discoveredModels.value = []
       discoveryMessage.value = ''
+      discoveryFailed.value = false
     },
+    { flush: 'sync' },
   )
+  onScopeDispose(cancelDiscovery)
+
+  watch(() => [draft.provider, draft.baseUrl], clearModelSelection, { flush: 'sync' })
 
   watch(
     () => settings.modelProfiles.map((profile) => profile.id),
     (ids) => {
-      if (selectedId.value && !ids.includes(selectedId.value)) closeEditor()
+      if (!settings.saving && selectedId.value && !ids.includes(selectedId.value)) closeEditor()
     },
   )
 
-  function normalizeEndpoint(value: string): string {
-    return value.trim().replace(/\/$/, '')
-  }
-
-  function findPreset(baseUrl: string) {
-    const endpoint = normalizeEndpoint(baseUrl)
-    return COMPATIBLE_PROVIDER_PRESETS.find((item) => normalizeEndpoint(item.baseUrl) === endpoint)
+  function isCustomService(profile: ChatModelProfile): boolean {
+    return profile.provider !== 'ollama' && !findPreset(profile.baseUrl, profile.provider) &&
+      Boolean(profile.baseUrl.trim())
   }
 
   function profileProviderName(profile: ChatModelProfile): string {
-    return findPreset(profile.baseUrl)?.name ?? getModelProvider(profile.provider).name
+    if (isCustomService(profile)) {
+      return profile.provider === 'anthropic' ? t("Anthropic 中转 / 自定义") : t("OpenAI 中转 / 自定义")
+    }
+    return t(findPreset(profile.baseUrl, profile.provider)?.name ?? getModelProvider(profile.provider).name)
   }
 
   function profileCredential(profile: ChatModelProfile): { label: string; tone: string } {
     const definition = getModelProvider(profile.provider)
-    const preset = findPreset(profile.baseUrl)
-    if (definition.apiKeyMode === 'none') return { label: '无需密钥', tone: 'neutral' }
-    if (profile.credentialConfigured) return { label: '密钥已配置', tone: 'ready' }
-    if (definition.apiKeyMode === 'required' || (preset && cloudPresetIds.has(preset.id))) {
-      return { label: '需要密钥', tone: 'missing' }
+    const keyMode = findPreset(profile.baseUrl, profile.provider)?.apiKeyMode ?? definition.apiKeyMode
+    if (keyMode === 'none') return { label: t("无需密钥"), tone: 'neutral' }
+    if (profile.credentialConfigured) return { label: t("密钥已配置"), tone: 'ready' }
+    if (keyMode === 'required') {
+      return { label: t("需要密钥"), tone: 'missing' }
     }
-    return { label: '密钥可选', tone: 'neutral' }
+    return { label: t("密钥可选"), tone: 'neutral' }
   }
 
   function resetEditor() {
+    cancelDiscovery()
     selectedId.value = ''
+    clearModelSelection()
+    customService.value = false
     original.value = null
+    originalModels.value = []
     Object.assign(draft, blankProfile())
     apiKey.value = ''
     revealKey.value = false
     discoveredModels.value = []
     discoveryMessage.value = ''
+    discoveryFailed.value = false
     catalogOpen.value = false
     settings.clearModelFeedback()
   }
@@ -164,19 +194,36 @@ export function useModelSettings() {
     selectProvider(choice.provider)
     draft.name = choice.name
     if (choice.presetId) applyPreset(choice.presetId)
+    if (choice.custom) {
+      customService.value = true
+      draft.baseUrl = ''
+    }
     mode.value = 'editor'
   }
 
   function selectProfile(id: string) {
     const item = settings.modelProfiles.find((profile) => profile.id === id)
     if (!item) return
+    const group = modelGroups.value.find(group => group.models.some(profile => profile.id === id))
+    const members = group?.models || [item]
+    // Prefer a configured credential for discovery, without changing any saved credential.
+    const seed = members.find(profile => profile.id === id && profile.credentialConfigured) ||
+      members.find(profile => profile.credentialConfigured) || item
+    const name = modelServiceName(item)
     selectedId.value = item.id
-    original.value = { ...item }
-    Object.assign(draft, item)
+    original.value = { ...seed, name }
+    originalModels.value = members.map(profile => ({ ...profile }))
+    Object.assign(draft, seed, { name })
+    selectedModels.value = [...new Set(members.map(profile => profile.model))]
+    draft.model = seed.model
+    manualModelId.value = ''
+    pendingProfileIds.clear()
+    customService.value = isCustomService(item)
     apiKey.value = ''
     revealKey.value = false
     discoveredModels.value = []
     discoveryMessage.value = ''
+    discoveryFailed.value = false
     catalogOpen.value = false
     settings.clearModelFeedback()
     mode.value = 'editor'
@@ -188,6 +235,8 @@ export function useModelSettings() {
   }
 
   function selectProvider(value: ChatModelProvider) {
+    clearModelSelection()
+    customService.value = false
     draft.provider = value
     draft.baseUrl = getModelProvider(value).defaultBaseUrl
     draft.model = ''
@@ -198,9 +247,11 @@ export function useModelSettings() {
   function applyPreset(id: string) {
     const preset = COMPATIBLE_PROVIDER_PRESETS.find((item) => item.id === id)
     if (!preset) return
-    draft.provider = 'openai_compatible'
+    clearModelSelection()
+    customService.value = false
+    draft.provider = preset.provider ?? 'openai_compatible'
     draft.baseUrl = preset.baseUrl
-    draft.model = preset.model
+    draft.model = ''
     draft.credentialConfigured = false
     apiKey.value = ''
   }
@@ -212,40 +263,138 @@ export function useModelSettings() {
   function handlePresetChange(event: Event) {
     const presetId = (event.target as HTMLSelectElement).value
     if (presetId) applyPreset(presetId)
+    else customService.value = true
+  }
+
+  function handleProtocolChange(event: Event) {
+    const value = (event.target as HTMLSelectElement).value
+    if (value !== 'openai_compatible' && value !== 'anthropic') return
+    clearModelSelection()
+    // Keep the gateway URL; endpointChanged prevents reuse of a different protocol's stored key.
+    draft.provider = value
+    draft.model = ''
   }
 
   async function save() {
-    const saved = await settings.saveModelProfile({ ...draft }, apiKey.value.trim())
-    if (!saved) return
-    selectedId.value = saved.id
-    original.value = { ...saved }
-    Object.assign(draft, saved)
-    apiKey.value = ''
+    if (!canSave.value || settings.saving) return
+    if (manualModelId.value.trim()) addModel(manualModelId.value)
+    manualModelId.value = ''
+    const snapshot = { ...draft }
+    const removed = originalModels.value.filter(item =>
+      !selectedModels.value.includes(item.model) && settings.modelProfiles.some(profile => profile.id === item.id))
+    if (removed.length && !window.confirm(t("保存后将移除 {0} 个模型：{1}。继续？", [removed.length, removed.map(item => item.model).join('、')]))) return
+    const targets = selectedModels.value.flatMap((model): ChatModelProfile[] => {
+      const existing = originalModels.value.filter(item => item.model === model)
+      // Keep IDs, defaults and per-model generation settings; order is not identity.
+      if (existing.length) return existing.map(item => ({
+        ...item, name: snapshot.name, provider: snapshot.provider, baseUrl: snapshot.baseUrl,
+      }))
+      // Stable IDs let retries update the same profile after a partial/network failure.
+      let id = pendingProfileIds.get(model)
+      if (!id) {
+        const bytes = crypto.getRandomValues(new Uint8Array(16))
+        id = `model_${Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')}`
+        pendingProfileIds.set(model, id)
+      }
+      return [{
+        ...snapshot, id, model,
+        name: snapshot.name,
+        credentialConfigured: false,
+        isDefault: false,
+      }]
+    })
+    const sources = settings.modelProfiles.filter(item =>
+      item.credentialConfigured && item.provider === snapshot.provider &&
+      normalizeEndpoint(item.baseUrl) === normalizeEndpoint(snapshot.baseUrl) &&
+      (item.id === snapshot.id || originalModels.value.some(original => original.id === item.id) ||
+        [...pendingProfileIds.values()].includes(item.id)))
+    const source = sources.find(item => item.id === snapshot.id) || sources[0]
+    const sourceId = snapshot.credentialConfigured && !endpointChanged.value ? source?.id || '' : ''
+    const saved = await settings.saveModelProfiles(targets, apiKey.value.trim(), sourceId, removed.map(item => item.id))
+    if (!saved) {
+      // A partial removal may delete the credential seed. Use a remaining saved
+      // member for the next discovery/retry, without inventing a new profile ID.
+      const remaining = settings.modelProfiles.find(item => targets.some(target => target.id === item.id) && item.credentialConfigured)
+      if (remaining) {
+        selectedId.value = draft.id = remaining.id
+        draft.credentialConfigured = true
+      }
+      return
+    }
+    const message = settings.success
+    closeEditor()
+    settings.success = message
   }
 
   function openCatalog() {
     catalogOpen.value = true
+    if (!discoveredModels.value.length) void discoverModels()
+  }
+
+  function cancelDiscovery() {
+    discoveryController?.abort()
+    discoveryController = null
+    discovering.value = false
+  }
+
+  function closeCatalog() {
+    catalogOpen.value = false
+    cancelDiscovery()
+  }
+
+  function clearModelSelection() {
+    selectedModels.value = []
+    manualModelId.value = ''
+    pendingProfileIds.clear()
+    draft.model = ''
+  }
+
+  function addModel(value: string): boolean {
+    const model = value.trim()
+    if (!model || model.length > 200) return false
+    if (!selectedModels.value.includes(model)) selectedModels.value = [...selectedModels.value, model]
+    if (!draft.model) draft.model = model
+    return true
+  }
+
+  function removeModel(modelId: string) {
+    selectedModels.value = selectedModels.value.filter(model => model !== modelId)
+    if (draft.model === modelId) draft.model = selectedModels.value[0] || ''
   }
 
   function useCatalogModel(modelId: string) {
-    draft.model = modelId
-    catalogOpen.value = false
+    if (selectedModels.value.includes(modelId)) removeModel(modelId)
+    else addModel(modelId)
   }
 
   async function discoverModels() {
     if (!canDiscover.value || discovering.value) return
+    const controller = new AbortController()
+    discoveryController = controller
     discovering.value = true
+    discoveredModels.value = []
     discoveryMessage.value = ''
+    discoveryFailed.value = false
+    catalogOpen.value = true
     settings.clearModelFeedback()
     try {
-      const models = await api.discoverChatModels(draft, apiKey.value.trim())
+      // Bind the response to this form snapshot; changing endpoint/key aborts it.
+      const target = { id: draft.id, provider: draft.provider, baseUrl: draft.baseUrl }
+      const models = await api.discoverChatModels(target, apiKey.value.trim(), controller.signal)
+      if (discoveryController !== controller) return
       discoveredModels.value = models
-      discoveryMessage.value = `已从服务端获取 ${models.length} 个模型。`
-      catalogOpen.value = true
+      discoveryMessage.value = models.length
+        ? t("已从 {0} 获取 {1} 个模型。", [displayProviderName.value, models.length])
+        : t("未获取到可用模型，可手动填写模型 ID。")
     } catch (reason) {
+      if (discoveryController !== controller) return
+      discoveryFailed.value = true
       discoveryMessage.value = reason instanceof Error ? reason.message : String(reason)
     } finally {
-      discovering.value = false
+      if (discoveryController === controller) {
+        discoveryController = null
+        discovering.value = false
+      }
     }
   }
 
@@ -254,6 +403,7 @@ export function useModelSettings() {
     const item = settings.modelProfiles.find((profile) => profile.id === id)
     if (!item || item.isDefault) return
     if (await settings.setDefaultModel(id)) {
+      originalModels.value.forEach(item => { item.isDefault = item.id === id })
       if (draft.id === id) {
         draft.isDefault = true
         if (original.value) original.value.isDefault = true
@@ -262,26 +412,41 @@ export function useModelSettings() {
   }
 
   async function remove() {
-    if (!draft.id || !window.confirm(`删除模型配置“${draft.name}”？`)) return
-    if (await settings.removeModelProfile(draft.id)) closeEditor()
+    if (!draft.id || !window.confirm(t("删除服务“{0}”及其 {1} 个模型？", [draft.name, originalModels.value.length]))) return
+    const ids = originalModels.value.map(item => item.id).filter(id => settings.modelProfiles.some(item => item.id === id))
+    if (await settings.removeModelProfiles(ids)) {
+      const message = settings.success
+      closeEditor()
+      settings.success = message
+    }
   }
   return {
     settings,
     mode,
     selectedId,
+    modelGroups,
     apiKey,
     revealKey,
     discoveredModels,
     discovering,
     discoveryMessage,
+    discoveryFailed,
     catalogOpen,
+    customService,
     draft,
     provider,
     compatiblePreset,
     displayProviderName,
     modelOptions,
+    selectedModels,
+    manualModelId,
+    modelCount,
+    addModel,
+    removeModel,
     selectedModelInfo,
     endpointChanged,
+    endpointHelp,
+    requiresEndpoint,
     keyRequired,
     canDiscover,
     canSave,
@@ -295,8 +460,10 @@ export function useModelSettings() {
     closeEditor,
     handleProviderChange,
     handlePresetChange,
+    handleProtocolChange,
     save,
     openCatalog,
+    closeCatalog,
     useCatalogModel,
     discoverModels,
     makeDefault,

@@ -16,8 +16,7 @@ watch(() => workspace.selectedId, (id) => void settings.loadRuntimeStatus(id), {
     <header class="runtime-heading">
       <span class="section-icon"><IconSymbol name="folder" :size="21" /></span>
       <div>
-        <h2>工作区与运行状态</h2>
-        <p>查看当前工作区位置和应用服务状态。</p>
+        <h2>{{ $t('工作区与运行状态') }}</h2>
       </div>
       <button
         class="refresh-button"
@@ -25,17 +24,17 @@ watch(() => workspace.selectedId, (id) => void settings.loadRuntimeStatus(id), {
         :disabled="settings.runtimeLoading"
         @click="settings.loadRuntimeStatus(workspace.selectedId)"
       >
-        <IconSymbol name="refresh" :size="14" />{{ settings.runtimeLoading ? '刷新中…' : '刷新' }}
+        <IconSymbol name="refresh" :size="14" />{{ settings.runtimeLoading ? $t('刷新中…') : $t('刷新') }}
       </button>
     </header>
 
     <div v-if="settings.runtimeError" class="runtime-error" role="alert">
       <IconSymbol name="alert" :size="15" />{{ settings.runtimeError }}
     </div>
-    <div v-else-if="!status" class="runtime-loading" role="status">正在读取运行状态…</div>
+    <div v-else-if="!status" class="runtime-loading" role="status">{{ $t('正在读取运行状态…') }}</div>
     <template v-else>
       <div class="workspace-block">
-        <span class="block-label">工作区位置</span>
+        <span class="block-label">{{ $t('工作区位置') }}</span>
         <code>{{ status.workspaceRoot }}</code>
       </div>
 
@@ -43,25 +42,23 @@ watch(() => workspace.selectedId, (id) => void settings.loadRuntimeStatus(id), {
         <article>
           <span class="service-icon"><IconSymbol name="globe" :size="17" /></span>
           <div>
-            <strong>应用服务</strong><small>{{ status.gateway.version || '版本未知' }}</small>
+            <strong>{{ $t('应用服务') }}</strong><small>{{ status.gateway.version || $t('版本未知') }}</small>
           </div>
-          <span class="service-state ready"><i />运行中</span>
+          <span class="service-state ready"><i />{{ $t('运行中') }}</span>
         </article>
         <article>
           <span class="service-icon core"><IconSymbol name="brain" :size="17" /></span>
           <div>
-            <strong>智能服务</strong><small>{{ status.agentCore.version || '版本未知' }}</small>
+            <strong>{{ $t('智能服务') }}</strong><small>{{ status.agentCore.version || $t('版本未知') }}</small>
           </div>
           <span class="service-state" :class="status.agentCore.status === 'serving' ? 'ready' : 'unavailable'">
-            <i />{{ status.agentCore.status === 'serving' ? '运行中' : '不可用' }}
+            <i />{{ status.agentCore.status === 'serving' ? $t('运行中') : $t('不可用') }}
           </span>
         </article>
       </div>
 
       <footer v-if="status.restart.pending" class="pending">
-        <IconSymbol name="alert" :size="14" />
-        部分更改将在重新启动应用后生效。
-      </footer>
+        <IconSymbol name="alert" :size="14" />{{ $t('重启应用后生效。') }}</footer>
     </template>
   </section>
 </template>

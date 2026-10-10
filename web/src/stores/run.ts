@@ -1,24 +1,60 @@
 import { computed, onScopeDispose, shallowRef, triggerRef } from 'vue'
 import { defineStore } from 'pinia'
-import type { AwaitItem, GatewayEvent, PulseState, Turn } from '@/api/events'
-import type { AgentTask } from '@/api/client'
+import type { AwaitItem, ContextUsage, GatewayEvent, PulseState, Turn } from '@/api/events'
+import type { AgentTask, ConversationSnapshot } from '@/api/client'
 import { summarize } from './run-projection'
+import { latestContext, projectModelEvent, sessionUsage, type UsageStats } from './run-usage'
 export type { PulseState } from '@/api/events'
 
 export const useRunStore = defineStore('run', () => {
   const turns = shallowRef<Record<string, Turn[]>>({})
+  const metrics = shallowRef<Record<string, { usage: UsageStats; context?: ContextUsage }>>({})
+  const dirtyMetrics = new Set<string>()
   const connected = shallowRef<Record<string, boolean>>({})
   const seen = new Set<string>()
   const reasoningStreams = new Set<string>()
+  const stateSequences = new Map<string, number>()
+  const dirtyTurns = new Map<string, Set<string>>()
   let frame = 0
   function publish() {
     if (!frame)
       frame = requestAnimationFrame(() => {
         frame = 0
-        triggerRef(turns)
+        // Token deltas must not rescan the whole transcript for statistics.
+        if (dirtyMetrics.size) {
+          const next = { ...metrics.value }
+          for (const id of dirtyMetrics) {
+            const list = turns.value[id] || []
+            next[id] = { usage: sessionUsage(list), context: latestContext(list) }
+          }
+          dirtyMetrics.clear()
+          metrics.value = next
+        }
+        // Fresh identities reach computed selectors and child props. Only copy
+        // changed tasks; streaming must not clone every historical task.
+        const nextTurns = { ...turns.value }
+        for (const [id, ids] of dirtyTurns) {
+          if (!nextTurns[id]) continue
+          nextTurns[id] = nextTurns[id].map((turn) => ids.has(turn.id) ? {
+            ...turn,
+            steps: turn.steps.map((step) => ({ ...step })),
+            awaits: turn.awaits.map((item) => ({ ...item })),
+            timeline: [...turn.timeline],
+            memories: [...turn.memories],
+            changes: turn.changes.map((item) => ({ ...item })),
+            plan: [...turn.plan],
+            jobs: turn.jobs.map((item) => ({ ...item })),
+            modelCalls: turn.modelCalls ? { ...turn.modelCalls } : undefined,
+          } : turn)
+        }
+        dirtyTurns.clear()
+        turns.value = nextTurns
       })
   }
   function getTurn(sessionId: string, turnId: string, time?: string): Turn {
+    const dirty = dirtyTurns.get(sessionId) || new Set<string>()
+    dirty.add(turnId)
+    dirtyTurns.set(sessionId, dirty)
     const list = (turns.value[sessionId] ||= [])
     let turn = list.find((t) => t.id === turnId)
     if (!turn) {
@@ -47,7 +83,10 @@ export const useRunStore = defineStore('run', () => {
     turn.userText ||= userText
     publish()
   }
-  function hydrateTask(sessionId: string, task: AgentTask) {
+  function hydrateTask(sessionId: string, task: AgentTask, pendingIds?: Set<string>, sequence = 0) {
+    const key = `${sessionId}:${task.id}`
+    if (sequence < (stateSequences.get(key) || 0)) return
+    stateSequences.set(key, sequence)
     const turn = getTurn(sessionId, task.id, task.created_at)
     turn.startedAt = Date.parse(task.created_at)
     turns.value[sessionId].sort((a, b) => a.startedAt - b.startedAt)
@@ -62,9 +101,50 @@ export const useRunStore = defineStore('run', () => {
             : task.status === 'waiting_approval'
               ? 'waiting'
               : 'running'
-    if (task.last_error) turn.error = task.last_error
-    if (['completed', 'failed', 'cancelled'].includes(turn.status))
-      for (const item of turn.awaits) if (!item.verdict) item.closed = true
+    turn.error = task.last_error || undefined
+    const terminal = ['completed', 'failed', 'cancelled'].includes(turn.status)
+    if (terminal && turn.thinkingStatus === 'running') turn.thinkingStatus = 'completed'
+    if (!terminal) {
+      turn.endedAt = undefined
+      turn.summary = undefined
+    } else {
+      turn.endedAt ||= Date.parse(task.updated_at)
+      turn.summary = { ...summarize(turn), contextPct: turn.summary?.contextPct ?? null }
+    }
+    for (const item of turn.awaits)
+      if (!item.verdict && item.answer === undefined)
+        item.closed = terminal || (pendingIds ? !pendingIds.has(item.id) : Boolean(item.closed))
+    publish()
+  }
+  function hydratePending(sessionId: string, snapshot: ConversationSnapshot) {
+    // Pending product facts have the snapshot's real watermark, not a fabricated
+    // runtime event identity. Event replay remains responsible for activity history.
+    const pending: AwaitItem[] = [
+      ...snapshot.approvals.map((approval): AwaitItem => ({
+        id: approval.id, sessionId, turnId: approval.task_id, mode: 'approval',
+        title: `批准 ${approval.tool_name}`, detail: JSON.stringify(approval.arguments, null, 2),
+        risk: approval.risk_level, version: approval.version,
+      })),
+      ...snapshot.questions.map((question): AwaitItem => ({
+        id: question.id, sessionId, turnId: question.task_id, mode: 'question',
+        title: question.title, detail: '', options: question.options, version: question.version,
+      })),
+    ]
+    for (const item of pending) {
+      const key = `${sessionId}:${item.turnId}`
+      if (snapshot.last_sequence < (stateSequences.get(key) || 0)) continue
+      const turn = getTurn(sessionId, item.turnId)
+      if (['completed', 'failed', 'cancelled'].includes(turn.status)) continue
+      const existing = turn.awaits.find((a) => a.id === item.id)
+      if (existing?.verdict || existing?.answer !== undefined) continue
+      if (existing) Object.assign(existing, item, { closed: false })
+      else {
+        turn.awaits.push({ ...item, closed: false })
+        turn.timeline.push({ id: item.id, kind: 'await' })
+      }
+      turn.status = 'waiting'
+      stateSequences.set(key, snapshot.last_sequence)
+    }
     publish()
   }
   function completeText(sessionId: string, turnId: string, text: string, messageId?: string) {
@@ -76,6 +156,12 @@ export const useRunStore = defineStore('run', () => {
   function forgetSession(id: string) {
     delete turns.value[id]
     delete connected.value[id]
+    const next = { ...metrics.value }
+    delete next[id]
+    metrics.value = next
+    dirtyMetrics.delete(id)
+    dirtyTurns.delete(id)
+    for (const key of stateSequences.keys()) if (key.startsWith(`${id}:`)) stateSequences.delete(key)
     triggerRef(connected)
     publish()
   }
@@ -94,23 +180,51 @@ export const useRunStore = defineStore('run', () => {
     if (seen.has(identity)) return
     seen.add(identity)
     const turn = getTurn(event.sessionId, event.turnId, event.time)
+    const stateKey = `${event.sessionId}:${event.turnId}`
+    const staleState = event.seq <= (stateSequences.get(stateKey) || 0)
+    if (!staleState && ['turn_resumed', 'await', 'await_resolved', 'question_answered', 'error', 'turn_end'].includes(event.type))
+      stateSequences.set(stateKey, event.seq)
     switch (event.type) {
+      case 'model_start':
+      case 'model_end':
+      case 'model_failed':
+      case 'context_update':
+        projectModelEvent(turn, event)
+        dirtyMetrics.add(event.sessionId)
+        break
+      case 'turn_resumed':
+        if (staleState) break
+        turn.status = 'running'
+        turn.error = undefined
+        turn.endedAt = undefined
+        turn.summary = undefined
+        break
       case 'text_delta':
         turn.text += event.text
+        break
+      case 'thinking_started':
+        if (!['completed', 'failed', 'cancelled'].includes(turn.status))
+          turn.thinkingStatus = 'running'
         break
       case 'thinking_delta':
         reasoningStreams.add(`${event.sessionId}:${event.turnId}`)
         turn.thinking += event.text
+        turn.thinkingStatus = ['completed', 'failed', 'cancelled'].includes(turn.status)
+          ? 'completed' : 'running'
         break
       case 'thinking_completed':
         if (!reasoningStreams.has(`${event.sessionId}:${event.turnId}`))
           turn.thinking += (turn.thinking ? '\n\n' : '') + event.text
+        turn.thinkingStatus = 'completed'
         break
       case 'step_start': {
         let step = turn.steps.find((s) => s.id === event.stepId)
         if (step) {
+          // Delegation progress updates the same activity, not the main reply.
+          // Do not restart its clock on every read/progress receipt.
+          if (event.tool === 'delegate') step.title = event.title
           if (step.status === 'pending' && !event.pending) step.status = 'running'
-          if (!event.pending) step.startedAt = event.time ? Date.parse(event.time) : Date.now()
+          if (!event.pending && !step.startedAt) step.startedAt = event.time ? Date.parse(event.time) : Date.now()
           if (event.input) step.input = event.input
         } else {
           step = {
@@ -130,6 +244,7 @@ export const useRunStore = defineStore('run', () => {
         break
       }
       case 'step_end': {
+        dirtyMetrics.add(event.sessionId)
         let step = turn.steps.find((s) => s.id === event.stepId)
         if (!step) {
           step = {
@@ -162,7 +277,8 @@ export const useRunStore = defineStore('run', () => {
         break
       }
       case 'await': {
-        if (!turn.awaits.some((a) => a.id === event.awaitId)) {
+        const existing = turn.awaits.find((a) => a.id === event.awaitId)
+        if (!existing) {
           turn.awaits.push({
             id: event.awaitId,
             sessionId: event.sessionId,
@@ -173,11 +289,17 @@ export const useRunStore = defineStore('run', () => {
             risk: event.risk,
             options: event.options,
             version: event.version || 1,
-            closed: ['completed', 'failed', 'cancelled'].includes(turn.status),
+            closed: staleState || ['completed', 'failed', 'cancelled'].includes(turn.status),
           })
           turn.timeline.push({ id: event.awaitId, kind: 'await' })
+        } else if (!staleState && !existing.verdict && existing.answer === undefined) {
+          Object.assign(existing, {
+            title: event.title, detail: event.detail, risk: event.risk,
+            options: event.options, version: event.version || existing.version,
+            closed: ['completed', 'failed', 'cancelled'].includes(turn.status),
+          })
         }
-        if (!['completed', 'failed', 'cancelled'].includes(turn.status)) turn.status = 'waiting'
+        if (!staleState && !['completed', 'failed', 'cancelled'].includes(turn.status)) turn.status = 'waiting'
         break
       }
       case 'await_resolved': {
@@ -186,7 +308,17 @@ export const useRunStore = defineStore('run', () => {
           item.verdict = event.verdict
           item.note = event.note
         }
-        if (turn.status === 'waiting' && turn.awaits.every((a) => a.verdict))
+        if (!staleState && turn.status === 'waiting' && turn.awaits.every((a) => a.verdict || a.closed))
+          turn.status = 'running'
+        break
+      }
+      case 'question_answered': {
+        const item = turn.awaits.find((a) => a.id === event.awaitId)
+        if (item) {
+          item.answer = event.answer
+          item.closed = true
+        }
+        if (!staleState && turn.status === 'waiting' && turn.awaits.every((a) => a.verdict || a.closed))
           turn.status = 'running'
         break
       }
@@ -212,36 +344,31 @@ export const useRunStore = defineStore('run', () => {
         break
       }
       case 'error':
-        turn.error = event.message
         turn.timeline.push({ id: `error-${event.seq}`, kind: 'error' })
-        turn.status = 'failed'
+        if (!staleState) {
+          turn.error = event.message
+          turn.status = 'failed'
+          if (turn.thinkingStatus === 'running') turn.thinkingStatus = 'completed'
+        }
         break
       case 'turn_end':
+        // An error and its terminal projection share one event sequence.
+        if (event.seq < (stateSequences.get(stateKey) || 0)) break
         turn.status = event.status || 'completed'
         turn.endedAt = event.time ? Date.parse(event.time) : Date.now()
         turn.summary = event.summary || summarize(turn)
+        if (turn.thinkingStatus === 'running') turn.thinkingStatus = 'completed'
         for (const item of turn.awaits) if (!item.verdict) item.closed = true
         break
     }
     // Streaming text is published once per frame, never once per token.
     publish()
   }
-  function resolveAwait(id: string, verdict: AwaitItem['verdict'], note?: string) {
-    for (const list of Object.values(turns.value))
-      for (const turn of list) {
-        const item = turn.awaits.find((a) => a.id === id)
-        if (item) {
-          item.verdict = verdict
-          item.note = note
-          if (turn.status === 'waiting' && turn.awaits.every((a) => a.verdict))
-            turn.status = 'running'
-        }
-      }
-    publish()
-  }
   function removeMemory(id: string) {
     for (const list of Object.values(turns.value))
       for (const turn of list) {
+        if (!turn.memories.some((item) => item.id === id)) continue
+        getTurn(turn.sessionId, turn.id)
         turn.memories = turn.memories.filter((m) => m.id !== id)
         turn.timeline = turn.timeline.filter((n) => n.kind !== 'memory' || n.id !== id)
       }
@@ -270,14 +397,15 @@ export const useRunStore = defineStore('run', () => {
   return {
     forgetSession,
     turns,
+    metrics,
     connected,
     awaits,
     getTurn,
     markStarted,
     hydrateTask,
+    hydratePending,
     completeText,
     apply,
-    resolveAwait,
     removeMemory,
     setConnection,
     pulse,

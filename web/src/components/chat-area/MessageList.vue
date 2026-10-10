@@ -82,23 +82,22 @@ const suggestions = [
   },
   {
     icon: 'sparkles',
-    title: '从想法开始',
-    prompt: '我有一个新想法，请通过提问帮我把它变成可执行计划。',
+    title: '制定计划',
+    prompt: '我有一个想法，请提问确认需求，并列出可执行计划。',
   },
 ]
 </script>
 
 <template>
-  <div ref="listElement" class="message-list" :aria-label="`对话 ${props.sessionId}`">
+  <div ref="listElement" class="message-list" :aria-label="$t('对话 {0}', [props.sessionId])">
     <div v-if="sessionStore.activeMessages.length === 0" class="welcome-state">
       <div class="welcome-orb"><IconSymbol name="sparkles" :size="27" :stroke-width="1.55" /></div>
-      <p class="welcome-eyebrow">{{ props.assistantName }} · Agent</p>
-      <h2>准备好了，从哪里开始？</h2>
-      <p class="welcome-copy">描述你的目标，我会结合当前对话上下文回答。</p>
+      <p class="welcome-eyebrow">{{ props.assistantName }}</p>
+      <h2>{{ $t('新对话') }}</h2>
       <div class="suggestions">
         <button v-for="item in suggestions" :key="item.title" type="button" @click="emit('suggest', item.prompt)">
           <IconSymbol :name="item.icon" :size="17" />
-          <span>{{ item.title }}</span>
+          <span>{{ $t(item.title) }}</span>
           <IconSymbol name="chevron" :size="14" />
         </button>
       </div>

@@ -22,33 +22,31 @@ onMounted(async () => {
 <template>
   <main class="page-shell audit-page">
     <header>
-      <p class="page-eyebrow">Security</p>
-      <h1 class="page-title">审计日志</h1>
-      <p class="page-subtitle">按时间追踪权限判断与敏感操作，所有结果都可回溯。</p>
+      <h1 class="page-title">{{ $t('审计日志') }}</h1>
     </header>
     <section class="audit-card glass-card">
       <div class="audit-toolbar">
-        <span><IconSymbol name="shield" :size="17" />最近事件</span
-        ><span class="event-count">{{ events.length }} 项</span>
+        <span><IconSymbol name="shield" :size="17" />{{ $t('最近事件') }}</span
+        ><span class="event-count">{{ $t('{0} 项', [events.length]) }}</span>
       </div>
-      <LoadingSpinner v-if="loading" message="正在读取审计事件" />
+      <LoadingSpinner v-if="loading" :message="$t('正在读取审计事件')" />
       <div v-else-if="error" class="state error">
-        <IconSymbol name="alert" :size="20" /><strong>无法读取审计日志</strong>
+        <IconSymbol name="alert" :size="20" /><strong>{{ $t('无法读取审计日志') }}</strong>
         <p>{{ error }}</p>
       </div>
       <div v-else-if="events.length" class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>时间</th>
-              <th>动作</th>
-              <th>资源</th>
-              <th>结果</th>
+              <th>{{ $t('时间') }}</th>
+              <th>{{ $t('动作') }}</th>
+              <th>{{ $t('资源') }}</th>
+              <th>{{ $t('结果') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="event in events" :key="event.id">
-              <td>{{ new Date(event.created_at).toLocaleString('zh-CN') }}</td>
+              <td>{{ new Date(event.created_at).toLocaleString($i18n.locale) }}</td>
               <td>
                 <code>{{ event.action }}</code>
               </td>
@@ -61,8 +59,7 @@ onMounted(async () => {
         </table>
       </div>
       <div v-else class="state">
-        <span class="state-icon"><IconSymbol name="shield" :size="24" /></span><strong>还没有审计事件</strong>
-        <p>需要记录的安全操作会自动出现在这里。</p>
+        <span class="state-icon"><IconSymbol name="shield" :size="24" /></span><strong>{{ $t('还没有审计事件') }}</strong>
       </div>
     </section>
   </main>

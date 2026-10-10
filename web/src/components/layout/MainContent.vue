@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useLayoutStore } from '@/stores/layout'
@@ -7,7 +8,7 @@ import IconSymbol from '@/components/common/IconSymbol.vue'
 
 const route = useRoute()
 const layoutStore = useLayoutStore()
-const title = computed(() => String(route.meta.title || '工作区'))
+const title = computed(() => t(String(route.meta.title || '工作区')))
 const runtimeStatus = ref<'checking' | 'online' | 'offline'>('checking')
 let healthRetry: ReturnType<typeof setTimeout> | undefined
 let healthAttempts = 0
@@ -32,7 +33,7 @@ async function checkHealth() {
 }
 
 const runtimeLabel = computed(
-  () => ({ checking: '检查运行时…', online: '运行正常', offline: '运行时离线' })[runtimeStatus.value],
+  () => ({ checking: t("正在连接…"), online: t("已连接"), offline: t("未连接") })[runtimeStatus.value],
 )
 onMounted(() => {
   void checkHealth()
@@ -47,7 +48,7 @@ onUnmounted(() => {
   <div class="main-content">
     <header class="titlebar">
       <div class="titlebar-left">
-        <button class="icon-button no-drag" type="button" aria-label="切换侧边栏" @click="layoutStore.toggleSidebar">
+        <button class="icon-button no-drag" type="button" :aria-label="$t('切换侧边栏')" @click="layoutStore.toggleSidebar">
           <IconSymbol name="sidebar" :size="17" />
         </button>
         <span class="titlebar-divider" />

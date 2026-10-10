@@ -5,17 +5,19 @@ import argparse
 import asyncio
 from typing import Any, Awaitable, Callable
 
-from agent.models.chat_adapter import ChatAdapter
-from agent.models.chat_provider import ChatMessage, IChatProvider
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import HumanMessage
+
+from agent.models.native_model import build_chat_model, close_chat_models
 
 Search = Callable[[str], Awaitable[list[dict[str, Any]]]]
 
 
-async def search_and_summarize(query: str, search: Search, provider: IChatProvider) -> str:
+async def search_and_summarize(query: str, search: Search, provider: BaseChatModel) -> str:
     results = await search(query)
     evidence = "\n".join(f"- {item.get('title', '')}: {item.get('snippet', '')}" for item in results[:5])
     prompt = f"Summarize these search results for the query {query!r}. Cite result titles.\n{evidence}"
-    return (await provider.chat([ChatMessage("user", prompt)])).content
+    return (await provider.ainvoke([HumanMessage(content=prompt)])).text
 
 
 async def duckduckgo_search(query: str) -> list[dict[str, Any]]:
@@ -32,7 +34,7 @@ async def duckduckgo_search(query: str) -> list[dict[str, Any]]:
 
 
 async def run_example(args: argparse.Namespace) -> None:
-    provider = ChatAdapter(
+    provider = build_chat_model(
         provider=args.provider,
         model=args.model,
         base_url=args.base_url or None,
@@ -42,7 +44,7 @@ async def run_example(args: argparse.Namespace) -> None:
     try:
         print(await search_and_summarize(args.query, duckduckgo_search, provider))
     finally:
-        await provider.aclose()
+        await close_chat_models([provider])
 
 
 def main() -> None:

@@ -7,9 +7,9 @@ const layoutStore = useLayoutStore()
 </script>
 
 <template>
-  <router-link :to="to" class="nav-item" :title="layoutStore.sidebarCollapsed ? label : undefined">
+  <router-link :to="to" class="nav-item" :title="layoutStore.sidebarCollapsed ? $t(label) : undefined">
     <IconSymbol :name="icon" :size="17" />
-    <span v-show="!layoutStore.sidebarCollapsed" class="nav-label">{{ label }}</span>
+    <span v-show="!layoutStore.sidebarCollapsed" class="nav-label">{{ $t(label) }}</span>
   </router-link>
 </template>
 

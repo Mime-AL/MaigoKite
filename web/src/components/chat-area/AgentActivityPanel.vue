@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, ref, watch } from 'vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import type { AgentActivityGroup, AgentActivityItem } from '@/api/client'
@@ -15,12 +16,12 @@ const isRunning = computed(
     props.group.items.some((item) => item.status === 'pending' || item.status === 'running'),
 )
 const heading = computed(() => {
-  if (props.group.status === 'failed') return '执行失败'
-  if (props.group.status === 'cancelled') return '已停止'
-  if (isRunning.value) return '正在工作'
+  if (props.group.status === 'failed') return t("执行失败")
+  if (props.group.status === 'cancelled') return t("已停止")
+  if (isRunning.value) return t("正在工作")
   const failed = props.group.items.filter((item) => item.status === 'failed' || item.status === 'denied').length
-  if (failed) return `已完成，${failed} 项需要处理`
-  return `已完成 ${props.group.items.length} 项操作`
+  if (failed) return t("已完成，{0} 项需要处理", [failed])
+  return t("已完成 {0} 项操作", [props.group.items.length])
 })
 
 watch(isRunning, (running) => {
@@ -39,11 +40,11 @@ function itemIcon(item: AgentActivityItem): string {
 
 function statusLabel(item: AgentActivityItem): string {
   return {
-    pending: '等待执行',
-    running: '进行中',
-    completed: '完成',
-    failed: '失败',
-    denied: '已拦截',
+    pending: t("等待执行"),
+    running: t("进行中"),
+    completed: t("完成"),
+    failed: t("失败"),
+    denied: t("已拦截"),
   }[item.status]
 }
 
@@ -61,12 +62,12 @@ function detailText(item: AgentActivityItem): string {
         <IconSymbol :name="isRunning ? 'activity' : hasAttention ? 'alert' : 'check'" :size="14" />
       </span>
       <strong>{{ heading }}</strong>
-      <small v-if="group.items.length">{{ group.items.length }} 个事件</small>
+      <small v-if="group.items.length">{{ $t('{0} 条记录', [group.items.length]) }}</small>
       <IconSymbol name="chevron" :size="13" class="disclosure" :class="{ open: expanded }" />
     </button>
 
     <div v-show="expanded" class="activity-items">
-      <p v-if="!group.items.length" class="waiting-row"><span />正在分析任务…</p>
+      <p v-if="!group.items.length" class="waiting-row"><span />{{ $t('正在处理…') }}</p>
       <article
         v-for="item in group.items"
         :key="item.id"
@@ -78,7 +79,7 @@ function detailText(item: AgentActivityItem): string {
         <span class="item-icon"><IconSymbol :name="itemIcon(item)" :size="14" /></span>
         <div class="item-copy">
           <div class="item-title">
-            <strong>{{ item.title }}</strong>
+            <strong>{{ item.kind === 'reasoning' ? $t('思考') : item.title }}</strong>
             <small>{{ statusLabel(item) }}</small>
           </div>
           <p v-if="item.summary">{{ item.summary }}</p>
@@ -88,7 +89,7 @@ function detailText(item: AgentActivityItem): string {
             <router-link v-if="item.action" :to="item.action.to">{{ item.action.label }}</router-link>
           </aside>
           <details v-if="detailText(item)" class="item-detail">
-            <summary>查看详情</summary>
+            <summary>{{ $t('查看详情') }}</summary>
             <pre>{{ detailText(item) }}</pre>
           </details>
         </div>

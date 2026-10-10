@@ -1,43 +1,32 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 import WorkspaceSelector from '@/components/sidebar/WorkspaceSelector.vue'
-import SessionItem from '@/components/sidebar/SessionItem.vue'
+import RecentChats from '@/components/sidebar/RecentChats.vue'
+import ResizeHandle from '@/components/common/ResizeHandle.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import AppIcon from '@/components/common/AppIcon.vue'
+defineProps<{ maximumWidth?: number }>()
 const session = useSessionStore(),
   settings = useSettingsStore(),
   ui = useUIStore(),
   router = useRouter()
-const creating = ref(false)
-const groups = computed(() => {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const week = new Date(today)
-  week.setDate(week.getDate() - ((week.getDay() + 6) % 7))
-  return [
-    { label: '今天', min: today.getTime(), max: Infinity },
-    { label: '本周', min: week.getTime(), max: today.getTime() },
-    { label: '更早', min: -Infinity, max: week.getTime() },
-  ].map((group) => ({
-    ...group,
-    sessions: session.visibleSessions
-      .slice()
-      .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
-      .filter((s) => {
-        const time = Date.parse(s.updated_at)
-        return time >= group.min && time < group.max
-      }),
-  }))
-})
-async function create() {
+const creating = ref(false),
+  resizing = ref(false),
+  searchOpen = ref(false),
+  query = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
+async function create(folderId?: string) {
   if (creating.value) return
   creating.value = true
   try {
-    const item = await session.createSession('新对话')
+    const item = await session.createSession('新对话', folderId)
     await router.push('/chat/' + item.id)
+    closeSearch()
     closeOnNarrowScreen()
   } catch {
     /* Store exposes the failure. */
@@ -45,161 +34,185 @@ async function create() {
     creating.value = false
   }
 }
+async function search() {
+  if (ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
+  searchOpen.value = true
+  await nextTick()
+  searchInput.value?.focus()
+}
+function closeSearch() {
+  query.value = ''
+  searchOpen.value = false
+}
+function toggleArchive() {
+  if (ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
+  session.showArchived = !session.showArchived
+  query.value = ''
+}
 function closeOnNarrowScreen() {
   if (window.innerWidth < 720 && !ui.layout.sidebarCollapsed) ui.layout.toggleSidebar()
 }
 </script>
 <template>
-  <aside class="sidebar" :class="{ collapsed: ui.layout.sidebarCollapsed }">
+  <aside
+    id="session-sidebar"
+    class="sidebar"
+    :class="{ collapsed: ui.layout.sidebarCollapsed, resizing }"
+    :aria-label="$t('会话侧栏')"
+  >
     <div class="identity">
-      <span class="avatar">{{ ui.appearance.avatar }}</span
-      ><strong v-if="!ui.layout.sidebarCollapsed">{{ settings.profile.assistantName }}</strong>
-    </div>
-    <WorkspaceSelector :collapsed="ui.layout.sidebarCollapsed" />
-    <button class="new-page" title="新页" :disabled="creating" :aria-busy="creating || undefined" @click="create">
-      <IconSymbol v-if="!creating" name="compose" :size="16" /><span v-if="!ui.layout.sidebarCollapsed">{{ creating ? '正在新建…' : '新页' }}</span>
-    </button>
-    <button class="search-page" title="搜索会话" @click="ui.commandOpen = true">
-      <IconSymbol name="search" :size="16" /><span v-if="!ui.layout.sidebarCollapsed">搜索</span>
-    </button>
-    <button class="search-page" :aria-pressed="session.showArchived" :title="session.showArchived ? '查看当前对话' : '查看归档对话'" @click="session.showArchived = !session.showArchived">
-      <IconSymbol name="archive" :size="16" /><span v-if="!ui.layout.sidebarCollapsed">{{ session.showArchived ? '返回对话' : '归档对话' }}</span>
-    </button>
-    <div class="session-groups">
-      <p v-if="!ui.layout.sidebarCollapsed && session.isLoading" class="empty-copy">
-        正在读取会话…
-      </p>
-      <p
-        v-else-if="!ui.layout.sidebarCollapsed && session.error && !session.sessions.length"
-        class="empty-copy"
-        role="alert"
+      <button
+        v-if="ui.layout.sidebarCollapsed"
+        class="sidebar-icon brand-button"
+        :aria-label="$t('展开侧栏')"
+        :title="$t('展开侧栏') + ' (' + mod + '+B)'"
+        @click="ui.layout.toggleSidebar()"
       >
-        {{ session.error }}
-        <button class="secondary-button" @click="session.loadSessions">重新连接</button>
-      </p>
-      <p v-else-if="!ui.layout.sidebarCollapsed && !session.visibleSessions.length" class="empty-copy">
-        {{ session.showArchived ? '这个工作区还没有归档对话。' : '这个工作区还没有对话。' }}
-      </p>
-      <section v-for="group in groups" :key="group.label">
-        <h2 v-if="group.sessions.length && !ui.layout.sidebarCollapsed">{{ group.label }}</h2>
-        <SessionItem
-          v-for="item in group.sessions"
-          :key="item.id"
-          :item="item"
-          :collapsed="ui.layout.sidebarCollapsed"
-          @select="closeOnNarrowScreen"
+        <AppIcon v-if="ui.appearance.avatar === '助'" /><span v-else class="avatar">{{
+          ui.appearance.avatar
+        }}</span>
+      </button>
+      <template v-else>
+        <AppIcon v-if="ui.appearance.avatar === '助'" /><span v-else class="avatar">{{
+          ui.appearance.avatar
+        }}</span>
+        <strong :title="settings.profile.assistantName">{{
+          settings.profile.assistantName
+        }}</strong>
+        <button
+          class="sidebar-icon"
+          :aria-label="$t('收起侧栏')"
+          :title="$t('收起侧栏') + ' (' + mod + '+B)'"
+          @click="ui.layout.toggleSidebar()"
+        >
+          <IconSymbol name="sidebar" :size="18" />
+        </button>
+      </template>
+    </div>
+    <button
+      class="new-page"
+      :title="$t('新页') + ' (' + mod + '+N)'"
+      :aria-label="$t('新页')"
+      :disabled="creating"
+      :aria-busy="creating || undefined"
+      @click="create()"
+    >
+      <IconSymbol name="compose" :size="18" /><span v-if="!ui.layout.sidebarCollapsed">{{
+        creating ? $t('正在新建…') : $t('新页')
+      }}</span
+      ><kbd v-if="!ui.layout.sidebarCollapsed">{{ mod }} N</kbd>
+    </button>
+    <button
+      class="sidebar-action"
+      :title="$t('搜索工作区和对话')"
+      :aria-label="$t('搜索工作区和对话')"
+      :aria-expanded="searchOpen && !ui.layout.sidebarCollapsed"
+      aria-controls="session-search"
+      @click="search"
+    >
+      <IconSymbol name="search" :size="18" /><span v-if="!ui.layout.sidebarCollapsed">{{
+        $t('搜索')
+      }}</span>
+    </button>
+    <button
+      v-if="ui.layout.sidebarCollapsed"
+      class="sidebar-action"
+      :aria-label="$t('归档对话')"
+      :title="$t('归档对话')"
+      :aria-pressed="session.showArchived"
+      @click="toggleArchive"
+    >
+      <IconSymbol name="archive" :size="18" />
+    </button>
+    <template v-if="!ui.layout.sidebarCollapsed">
+      <div v-if="searchOpen" id="session-search" class="session-search">
+        <input
+          ref="searchInput"
+          v-model="query"
+          type="search"
+          maxlength="500"
+          :aria-label="$t('搜索工作区和对话')"
+          :placeholder="$t('搜索工作区和对话')"
+          @keydown.esc.stop="closeSearch"
         />
-      </section>
+        <button
+          class="sidebar-icon"
+          :aria-label="$t('关闭搜索')"
+          :title="$t('关闭搜索')"
+          @click="closeSearch"
+        >
+          <IconSymbol name="close" :size="14" />
+        </button>
+      </div>
+    </template>
+    <div class="session-heading">
+      <WorkspaceSelector :collapsed="ui.layout.sidebarCollapsed" />
+      <div v-if="!ui.layout.sidebarCollapsed" class="session-list-controls">
+        <button
+          class="sidebar-icon"
+          :aria-pressed="session.showArchived"
+          :aria-label="session.showArchived ? $t('查看当前对话') : $t('查看归档对话')"
+          :title="session.showArchived ? $t('查看当前对话') : $t('查看归档对话')"
+          @click="toggleArchive"
+        >
+          <IconSymbol name="archive" :size="16" />
+        </button>
+        <button
+          class="sidebar-icon"
+          :disabled="session.isLoading"
+          :aria-busy="session.isLoading || undefined"
+          :aria-label="$t('刷新会话')"
+          :title="$t('刷新会话')"
+          @click="session.loadSessions"
+        >
+          <IconSymbol name="refresh" :size="16" />
+        </button>
+      </div>
     </div>
+    <RecentChats
+      v-show="!ui.layout.sidebarCollapsed"
+      :query="query"
+      :creating="creating"
+      @create="create"
+      @select="closeOnNarrowScreen"
+    />
     <footer>
-      <router-link to="/memory" title="它记得" @click="closeOnNarrowScreen"
-        ><span>✦</span><span v-if="!ui.layout.sidebarCollapsed">它记得</span></router-link
+      <router-link
+        to="/integrations"
+        :aria-label="$t('扩展')"
+        :title="$t('扩展')"
+        @click="closeOnNarrowScreen"
       >
-      <router-link to="/settings" title="设置" @click="closeOnNarrowScreen"
-        ><IconSymbol name="settings" :size="16" /><span v-if="!ui.layout.sidebarCollapsed"
-          >设置</span
-        ></router-link
+        <IconSymbol name="cube" :size="18" /><span v-if="!ui.layout.sidebarCollapsed">{{
+          $t('扩展')
+        }}</span>
+      </router-link>
+      <router-link
+        to="/memory"
+        :aria-label="$t('它记得')"
+        :title="$t('它记得')"
+        @click="closeOnNarrowScreen"
+        ><span class="memory-mark">✦</span
+        ><span v-if="!ui.layout.sidebarCollapsed">{{ $t('它记得') }}</span></router-link
+      >
+      <router-link
+        to="/settings"
+        :aria-label="$t('设置')"
+        :title="$t('设置')"
+        @click="closeOnNarrowScreen"
+        ><IconSymbol name="settings" :size="18" /><span v-if="!ui.layout.sidebarCollapsed">{{
+          $t('设置')
+        }}</span></router-link
       >
     </footer>
+    <ResizeHandle
+      v-if="!ui.layout.sidebarCollapsed"
+      side="left"
+      :maximum="maximumWidth"
+      @dragging="resizing = $event"
+    />
   </aside>
 </template>
 <style scoped lang="scss">
-@use '@/styles/mixins' as mixins;
-.sidebar {
-  width: var(--sidebar-width);
-  height: 100%;
-  flex: none;
-  background: var(--paper-2);
-  border-right: 1px solid var(--rule);
-  display: flex;
-  flex-direction: column;
-  padding: 22px 14px 16px;
-  transition: width var(--duration-slow) var(--ease);
-}
-.sidebar.collapsed {
-  width: 56px;
-  padding-inline: 8px;
-}
-.identity {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 4px 24px;
-}
-.identity strong {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-.avatar {
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-content: center;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-}
-.new-page,
-.search-page {
-  @include mixins.interactive-row;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 36px;
-  padding: 8px;
-  margin-bottom: 4px;
-  background: var(--transparent);
-  border: 0;
-  text-align: left;
-  font-size: var(--text-sm);
-}
-.new-page {
-  color: var(--ink);
-}
-.search-page {
-  color: var(--ink-2);
-}
-.session-groups {
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-  padding-top: 20px;
-}
-h2 {
-  font-size: var(--text-xs);
-  font-weight: var(--weight-normal);
-  color: var(--ink-3);
-  margin: 18px 8px 8px;
-}
-footer {
-  border-top: 1px solid var(--rule);
-  padding-top: 12px;
-}
-footer a {
-  @include mixins.interactive-row;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 8px;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  text-decoration: none;
-  border-radius: var(--radius-sm);
-}
-footer a.router-link-active {
-  color: var(--accent);
-  background: var(--accent-selected);
-}
-@media (max-width: 720px) {
-  .sidebar {
-    position: fixed;
-    inset: var(--titlebar-height) auto 0 0;
-    z-index: 30;
-    box-shadow: var(--shadow-float);
-  }
-  .sidebar.collapsed {
-    display: none;
-  }
-}
+@use '@/styles/sidebar';
 </style>

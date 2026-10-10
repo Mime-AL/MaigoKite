@@ -22,6 +22,7 @@ const (
 	AgentService_ProcessMessage_FullMethodName               = "/maigokite.agent.v1.AgentService/ProcessMessage"
 	AgentService_CreateConversation_FullMethodName           = "/maigokite.agent.v1.AgentService/CreateConversation"
 	AgentService_GetConversation_FullMethodName              = "/maigokite.agent.v1.AgentService/GetConversation"
+	AgentService_GetConversationSnapshot_FullMethodName      = "/maigokite.agent.v1.AgentService/GetConversationSnapshot"
 	AgentService_ListConversations_FullMethodName            = "/maigokite.agent.v1.AgentService/ListConversations"
 	AgentService_DeleteConversation_FullMethodName           = "/maigokite.agent.v1.AgentService/DeleteConversation"
 	AgentService_UpdateConversationPermission_FullMethodName = "/maigokite.agent.v1.AgentService/UpdateConversationPermission"
@@ -68,7 +69,11 @@ const (
 	AgentService_GetWorkspaceDataSummary_FullMethodName      = "/maigokite.agent.v1.AgentService/GetWorkspaceDataSummary"
 	AgentService_ListMCPServers_FullMethodName               = "/maigokite.agent.v1.AgentService/ListMCPServers"
 	AgentService_ListSkills_FullMethodName                   = "/maigokite.agent.v1.AgentService/ListSkills"
+	AgentService_GetExtensions_FullMethodName                = "/maigokite.agent.v1.AgentService/GetExtensions"
+	AgentService_UpdateExtensions_FullMethodName             = "/maigokite.agent.v1.AgentService/UpdateExtensions"
+	AgentService_ReloadExtensions_FullMethodName             = "/maigokite.agent.v1.AgentService/ReloadExtensions"
 	AgentService_Health_FullMethodName                       = "/maigokite.agent.v1.AgentService/Health"
+	AgentService_ResumeTask_FullMethodName                   = "/maigokite.agent.v1.AgentService/ResumeTask"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -78,6 +83,7 @@ type AgentServiceClient interface {
 	ProcessMessage(ctx context.Context, in *ProcessMessageRequest, opts ...grpc.CallOption) (AgentService_ProcessMessageClient, error)
 	CreateConversation(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
 	GetConversation(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
+	GetConversationSnapshot(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*ConversationSnapshot, error)
 	ListConversations(ctx context.Context, in *ListConversationsRequest, opts ...grpc.CallOption) (*ConversationList, error)
 	DeleteConversation(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*Empty, error)
 	UpdateConversationPermission(ctx context.Context, in *ConversationPermissionRequest, opts ...grpc.CallOption) (*Conversation, error)
@@ -124,7 +130,11 @@ type AgentServiceClient interface {
 	GetWorkspaceDataSummary(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*WorkspaceDataSummary, error)
 	ListMCPServers(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*MCPServerList, error)
 	ListSkills(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*SkillList, error)
+	GetExtensions(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*ExtensionSettings, error)
+	UpdateExtensions(ctx context.Context, in *ExtensionUpdateRequest, opts ...grpc.CallOption) (*ExtensionSettings, error)
+	ReloadExtensions(ctx context.Context, in *ExtensionReloadRequest, opts ...grpc.CallOption) (*ExtensionSettings, error)
 	Health(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*HealthResponse, error)
+	ResumeTask(ctx context.Context, in *ResumeTaskRequest, opts ...grpc.CallOption) (AgentService_ResumeTaskClient, error)
 }
 
 type agentServiceClient struct {
@@ -182,6 +192,16 @@ func (c *agentServiceClient) GetConversation(ctx context.Context, in *Conversati
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Conversation)
 	err := c.cc.Invoke(ctx, AgentService_GetConversation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) GetConversationSnapshot(ctx context.Context, in *ConversationRequest, opts ...grpc.CallOption) (*ConversationSnapshot, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConversationSnapshot)
+	err := c.cc.Invoke(ctx, AgentService_GetConversationSnapshot_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -694,6 +714,36 @@ func (c *agentServiceClient) ListSkills(ctx context.Context, in *WorkspaceReques
 	return out, nil
 }
 
+func (c *agentServiceClient) GetExtensions(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*ExtensionSettings, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExtensionSettings)
+	err := c.cc.Invoke(ctx, AgentService_GetExtensions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) UpdateExtensions(ctx context.Context, in *ExtensionUpdateRequest, opts ...grpc.CallOption) (*ExtensionSettings, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExtensionSettings)
+	err := c.cc.Invoke(ctx, AgentService_UpdateExtensions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ReloadExtensions(ctx context.Context, in *ExtensionReloadRequest, opts ...grpc.CallOption) (*ExtensionSettings, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExtensionSettings)
+	err := c.cc.Invoke(ctx, AgentService_ReloadExtensions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) Health(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*HealthResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthResponse)
@@ -704,6 +754,39 @@ func (c *agentServiceClient) Health(ctx context.Context, in *Empty, opts ...grpc
 	return out, nil
 }
 
+func (c *agentServiceClient) ResumeTask(ctx context.Context, in *ResumeTaskRequest, opts ...grpc.CallOption) (AgentService_ResumeTaskClient, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[3], AgentService_ResumeTask_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &agentServiceResumeTaskClient{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type AgentService_ResumeTaskClient interface {
+	Recv() (*AgentEvent, error)
+	grpc.ClientStream
+}
+
+type agentServiceResumeTaskClient struct {
+	grpc.ClientStream
+}
+
+func (x *agentServiceResumeTaskClient) Recv() (*AgentEvent, error) {
+	m := new(AgentEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility
@@ -711,6 +794,7 @@ type AgentServiceServer interface {
 	ProcessMessage(*ProcessMessageRequest, AgentService_ProcessMessageServer) error
 	CreateConversation(context.Context, *ConversationRequest) (*Conversation, error)
 	GetConversation(context.Context, *ConversationRequest) (*Conversation, error)
+	GetConversationSnapshot(context.Context, *ConversationRequest) (*ConversationSnapshot, error)
 	ListConversations(context.Context, *ListConversationsRequest) (*ConversationList, error)
 	DeleteConversation(context.Context, *ConversationRequest) (*Empty, error)
 	UpdateConversationPermission(context.Context, *ConversationPermissionRequest) (*Conversation, error)
@@ -757,7 +841,11 @@ type AgentServiceServer interface {
 	GetWorkspaceDataSummary(context.Context, *WorkspaceRequest) (*WorkspaceDataSummary, error)
 	ListMCPServers(context.Context, *WorkspaceRequest) (*MCPServerList, error)
 	ListSkills(context.Context, *WorkspaceRequest) (*SkillList, error)
+	GetExtensions(context.Context, *WorkspaceRequest) (*ExtensionSettings, error)
+	UpdateExtensions(context.Context, *ExtensionUpdateRequest) (*ExtensionSettings, error)
+	ReloadExtensions(context.Context, *ExtensionReloadRequest) (*ExtensionSettings, error)
 	Health(context.Context, *Empty) (*HealthResponse, error)
+	ResumeTask(*ResumeTaskRequest, AgentService_ResumeTaskServer) error
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -773,6 +861,9 @@ func (UnimplementedAgentServiceServer) CreateConversation(context.Context, *Conv
 }
 func (UnimplementedAgentServiceServer) GetConversation(context.Context, *ConversationRequest) (*Conversation, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConversation not implemented")
+}
+func (UnimplementedAgentServiceServer) GetConversationSnapshot(context.Context, *ConversationRequest) (*ConversationSnapshot, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetConversationSnapshot not implemented")
 }
 func (UnimplementedAgentServiceServer) ListConversations(context.Context, *ListConversationsRequest) (*ConversationList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListConversations not implemented")
@@ -912,8 +1003,20 @@ func (UnimplementedAgentServiceServer) ListMCPServers(context.Context, *Workspac
 func (UnimplementedAgentServiceServer) ListSkills(context.Context, *WorkspaceRequest) (*SkillList, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListSkills not implemented")
 }
+func (UnimplementedAgentServiceServer) GetExtensions(context.Context, *WorkspaceRequest) (*ExtensionSettings, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetExtensions not implemented")
+}
+func (UnimplementedAgentServiceServer) UpdateExtensions(context.Context, *ExtensionUpdateRequest) (*ExtensionSettings, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateExtensions not implemented")
+}
+func (UnimplementedAgentServiceServer) ReloadExtensions(context.Context, *ExtensionReloadRequest) (*ExtensionSettings, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReloadExtensions not implemented")
+}
 func (UnimplementedAgentServiceServer) Health(context.Context, *Empty) (*HealthResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Health not implemented")
+}
+func (UnimplementedAgentServiceServer) ResumeTask(*ResumeTaskRequest, AgentService_ResumeTaskServer) error {
+	return status.Errorf(codes.Unimplemented, "method ResumeTask not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 
@@ -981,6 +1084,24 @@ func _AgentService_GetConversation_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServiceServer).GetConversation(ctx, req.(*ConversationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_GetConversationSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConversationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetConversationSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetConversationSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetConversationSnapshot(ctx, req.(*ConversationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1819,6 +1940,60 @@ func _AgentService_ListSkills_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_GetExtensions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetExtensions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetExtensions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetExtensions(ctx, req.(*WorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_UpdateExtensions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExtensionUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).UpdateExtensions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_UpdateExtensions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).UpdateExtensions(ctx, req.(*ExtensionUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ReloadExtensions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExtensionReloadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ReloadExtensions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ReloadExtensions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ReloadExtensions(ctx, req.(*ExtensionReloadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_Health_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Empty)
 	if err := dec(in); err != nil {
@@ -1837,6 +2012,27 @@ func _AgentService_Health_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_ResumeTask_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ResumeTaskRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentServiceServer).ResumeTask(m, &agentServiceResumeTaskServer{ServerStream: stream})
+}
+
+type AgentService_ResumeTaskServer interface {
+	Send(*AgentEvent) error
+	grpc.ServerStream
+}
+
+type agentServiceResumeTaskServer struct {
+	grpc.ServerStream
+}
+
+func (x *agentServiceResumeTaskServer) Send(m *AgentEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1851,6 +2047,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetConversation",
 			Handler:    _AgentService_GetConversation_Handler,
+		},
+		{
+			MethodName: "GetConversationSnapshot",
+			Handler:    _AgentService_GetConversationSnapshot_Handler,
 		},
 		{
 			MethodName: "ListConversations",
@@ -2029,6 +2229,18 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AgentService_ListSkills_Handler,
 		},
 		{
+			MethodName: "GetExtensions",
+			Handler:    _AgentService_GetExtensions_Handler,
+		},
+		{
+			MethodName: "UpdateExtensions",
+			Handler:    _AgentService_UpdateExtensions_Handler,
+		},
+		{
+			MethodName: "ReloadExtensions",
+			Handler:    _AgentService_ReloadExtensions_Handler,
+		},
+		{
 			MethodName: "Health",
 			Handler:    _AgentService_Health_Handler,
 		},
@@ -2047,6 +2259,11 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "DecideApproval",
 			Handler:       _AgentService_DecideApproval_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ResumeTask",
+			Handler:       _AgentService_ResumeTask_Handler,
 			ServerStreams: true,
 		},
 	},

@@ -8,6 +8,7 @@ import { registerIPC } from './ipc'
 import { registeredWorkspaceRoot } from './workspace'
 import { appearanceValue } from './contracts'
 import { trayImage } from './tray-icons'
+import { i18n, resolveLanguage, t } from '../i18n'
 import type { Appearance } from '../stores/ui'
 import type { PulseState } from '../api/events'
 app.setName('MaigoKite')
@@ -18,8 +19,13 @@ let mainWindow: BrowserWindow | null = null,
 let quitting = false,
   appearance: Appearance | null = null,
   shortcut = ''
+let pulseState: PulseState = 'idle'
 const children: ChildProcess[] = []
 const indexPath = path.resolve(__dirname, '../dist/index.html')
+const appIconPath = path.resolve(
+  __dirname,
+  app.isPackaged ? '../dist/brand/app-icon-cat-ribbon-v1.png' : '../public/brand/app-icon-cat-ribbon-v1.png',
+)
 export function secureWebPreferences() {
   return {
     preload: path.join(__dirname, 'preload.cjs'),
@@ -42,7 +48,7 @@ function startProcess(command: string, args: string[], cwd: string) {
   child.stdout?.on('data', () => undefined)
   child.stderr?.on('data', () => undefined)
   child.on('error', () =>
-    mainWindow?.webContents.send('runtime:error', command + ' failed to start'),
+    mainWindow?.webContents.send('runtime:error', t('应用服务启动失败，请重新打开应用。')),
   )
   children.push(child)
 }
@@ -103,6 +109,7 @@ function secureNavigation(window: BrowserWindow) {
 export function createWindow() {
   const window = new BrowserWindow({
     title: 'MaigoKite',
+    icon: appIconPath,
     width: 1320,
     height: 860,
     minWidth: 560,
@@ -130,7 +137,8 @@ export function createWindow() {
 function showCapsule() {
   if (!capsuleWindow) {
     const window = new BrowserWindow({
-      title: 'MaigoKite · 速记',
+      title: `MaigoKite · ${t('速记')}`,
+      icon: appIconPath,
       width: 560,
       height: 56,
       frame: false,
@@ -164,7 +172,7 @@ function showCapsule() {
 function setShortcut(value: string) {
   if (shortcut === value) return
   if (!globalShortcut.register(value, showCapsule))
-    throw new Error('快捷键已被占用，请换一个组合。')
+    throw new Error(t('快捷键已被占用，请换一个组合。'))
   if (shortcut) globalShortcut.unregister(shortcut)
   shortcut = value
 }
@@ -180,6 +188,10 @@ function setAppearance(value: Appearance) {
   }
   if (JSON.stringify(value) === JSON.stringify(appearance)) return
   appearance = value
+  i18n.global.locale.value = resolveLanguage(value.language, app.getLocale())
+  updateTrayMenu()
+  setPulse(pulseState)
+  capsuleWindow?.setTitle(`MaigoKite · ${t('速记')}`)
   writeFileSync(
     path.join(app.getPath('userData'), 'inkline-ui.json'),
     JSON.stringify(value),
@@ -189,17 +201,18 @@ function setAppearance(value: Appearance) {
     window?.webContents.send('appearance:changed', value)
 }
 function setPulse(state: PulseState) {
+  pulseState = state
   tray?.setImage(trayImage(state))
   tray?.setToolTip(
     'MaigoKite · ' +
-      {
+      t({
         idle: '静息',
         thinking: '思考',
         acting: '行动',
-        waiting: '等你',
+        waiting: '等待确认',
         error: '出错',
         offline: '离线',
-      }[state],
+      }[state]),
   )
 }
 function createTray() {
@@ -209,22 +222,27 @@ function createTray() {
     mainWindow?.show()
     mainWindow?.focus()
   })
-  tray.setContextMenu(
+  updateTrayMenu()
+  setPulse(pulseState)
+}
+function updateTrayMenu() {
+  tray?.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: '显示窗口',
+        label: t('显示窗口'),
         click: () => {
           mainWindow?.show()
           mainWindow?.focus()
         },
       },
-      { label: '速记', click: showCapsule },
+      { label: t('速记'), click: showCapsule },
       { type: 'separator' },
-      { label: '退出', click: () => app.quit() },
+      { label: t('退出'), click: () => app.quit() },
     ]),
   )
 }
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') app.dock?.setIcon(appIconPath)
   try {
     const value: unknown = JSON.parse(
       readFileSync(path.join(app.getPath('userData'), 'inkline-ui.json'), 'utf8'),
@@ -233,6 +251,7 @@ app.whenReady().then(() => {
   } catch {
     /* First launch uses saved renderer appearance. */
   }
+  i18n.global.locale.value = resolveLanguage(appearance?.language, app.getLocale())
   registerIPC({
     main: () => mainWindow,
     capsule: () => capsuleWindow,

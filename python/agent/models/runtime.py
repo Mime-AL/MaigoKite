@@ -14,7 +14,6 @@ from langchain_core.messages import HumanMessage
 
 from agent.config_manager import ConfigManager
 from agent.models.native_model import build_chat_model, close_chat_models, normalize_openai_compatible_base_url
-from agent.models.chat_provider import ChatMessage, IChatProvider
 from agent.repository import SQLiteRepository
 
 
@@ -94,7 +93,7 @@ class ChatModelSettings:
         return asdict(self)
 
 
-ProviderFactory = Callable[..., IChatProvider]
+ModelFactory = Callable[..., BaseChatModel]
 
 
 class ChatModelRuntime:
@@ -107,15 +106,13 @@ class ChatModelRuntime:
         self,
         config: ConfigManager,
         repository: SQLiteRepository,
-        provider_factory: ProviderFactory | None = None,
+        model_factory: ModelFactory | None = None,
     ) -> None:
         self._config = config
         self._repository = repository
-        self._provider_factory = provider_factory
+        self._model_factory = model_factory
         self._credentials: dict[tuple[str, str], str] = {}
-        self._providers: dict[tuple[str, str], tuple[ChatModelSettings, IChatProvider]] = {}
-        self._retired_providers: list[IChatProvider] = []
-        self._native_models: dict[tuple[str, str], tuple[ChatModelSettings, BaseChatModel]] = {}
+        self._native_models: dict[tuple[str, str, str], tuple[ChatModelSettings, BaseChatModel]] = {}
         self._retired_models: list[BaseChatModel] = []
 
     def _defaults(self) -> ChatModelSettings:
@@ -211,7 +208,7 @@ class ChatModelRuntime:
         if not default_id or normalized.is_default:
             default_id = profile_id
         await self._save_catalog(workspace_id, profiles, default_id)
-        self._invalidate_provider(workspace_id, profile_id)
+        self._invalidate_model(workspace_id, profile_id)
         return replace(normalized, is_default=profile_id == default_id)
 
     async def delete_settings(self, workspace_id: str, model_id: str) -> None:
@@ -224,7 +221,7 @@ class ChatModelRuntime:
         await self._save_catalog(workspace_id, remaining, default_id)
         await self._repository.replace_conversation_model(workspace_id, model_id, default_id)
         self._credentials.pop((workspace_id, model_id), None)
-        self._invalidate_provider(workspace_id, model_id)
+        self._invalidate_model(workspace_id, model_id)
 
     async def set_default(self, workspace_id: str, model_id: str) -> tuple[list[ChatModelSettings], str]:
         profiles, _ = await self.list_settings(workspace_id)
@@ -244,30 +241,21 @@ class ChatModelRuntime:
             self._credentials[credential_key] = api_key
         else:
             self._credentials.pop(credential_key, None)
-        self._invalidate_provider(workspace_id, model_id)
+        self._invalidate_model(workspace_id, model_id)
 
-    def _invalidate_provider(self, workspace_id: str, model_id: str = "") -> None:
-        keys = [key for key in self._providers if key[0] == workspace_id and (not model_id or key[1] == model_id)]
-        for key in keys:
-            cached = self._providers.pop(key)
-            self._retired_providers.append(cached[1])
+    def _invalidate_model(self, workspace_id: str, model_id: str = "") -> None:
         for key in list(self._native_models):
             if key[0] == workspace_id and (not model_id or key[1] == model_id):
                 self._retired_models.append(self._native_models.pop(key)[1])
 
     async def close(self) -> None:
-        providers = [item[1] for item in self._providers.values()] + self._retired_providers
-        self._providers.clear()
-        self._retired_providers = []
         models = [item[1] for item in self._native_models.values()] + self._retired_models
         self._native_models.clear()
         self._retired_models = []
-        for provider in providers:
-            close = getattr(provider, "aclose", None)
-            if close is not None:
-                await close()
-        await close_chat_models(models)
-        self._credentials.clear()
+        try:
+            await close_chat_models(models)
+        finally:
+            self._credentials.clear()
 
     def _model_options(self, settings: ChatModelSettings, api_key: str = "") -> dict[str, Any]:
         settings.validate()
@@ -297,43 +285,31 @@ class ChatModelRuntime:
             timeout=settings.timeout_seconds,
         )
 
-    def _build_provider(self, settings: ChatModelSettings, api_key: str = "") -> IChatProvider:
-        # Only the legacy entry imports its protocol wrapper.
-        factory = self._provider_factory
-        if factory is None:
-            from agent.models.chat_adapter import ChatAdapter
-            factory = ChatAdapter
-        return factory(**self._model_options(settings, api_key))
-
     def _profile_key(self, workspace_id: str, settings: ChatModelSettings) -> str:
         key = self._credentials.get((workspace_id, settings.id), "")
         if not key and settings.id in {"", "model_default"}:
             key = self._credentials.get((workspace_id, settings.provider), "")
         return key
 
-    async def get_provider(self, workspace_id: str, model_id: str = "") -> IChatProvider:
-        settings = await self.get_profile(workspace_id, model_id)
-        cache_key = (workspace_id, settings.id or settings.provider)
-        cached = self._providers.get(cache_key)
-        if cached and cached[0] == settings:
-            return cached[1]
-        provider = self._build_provider(settings, self._profile_key(workspace_id, settings))
-        if cached:
-            self._retired_providers.append(cached[1])
-        self._providers[cache_key] = (settings, provider)
-        return provider
-
     async def get_langchain_model(
-        self, workspace_id: str, model_id: str = ""
+        self, workspace_id: str, model_id: str = "", response_mode: str = "balanced"
     ) -> tuple[str, BaseChatModel]:
         """Return the Core-owned native model used by the LangGraph runtime."""
         settings = await self.get_profile(workspace_id, model_id)
-        cache_key = (workspace_id, settings.id)
+        # Preserve the existing product output budgets, not a provider speed or
+        # context-window claim. The native factory maps this to the SDK option.
+        caps = {"fast": 2048, "balanced": 8192, "thorough": settings.max_tokens}
+        if response_mode not in caps:
+            raise ValueError("invalid response mode")
+        settings = replace(settings, max_tokens=min(settings.max_tokens, caps[response_mode]))
+        cache_key = (workspace_id, settings.id, response_mode)
         cached = self._native_models.get(cache_key)
         if cached and cached[0] == settings:
             model = cached[1]
         else:
-            model = build_chat_model(**self._model_options(settings, self._profile_key(workspace_id, settings)))
+            model = (self._model_factory or build_chat_model)(
+                **self._model_options(settings, self._profile_key(workspace_id, settings)),
+            )
             if cached:
                 self._retired_models.append(cached[1])
             self._native_models[cache_key] = (settings, model)
@@ -341,29 +317,23 @@ class ChatModelRuntime:
         # identical. Do not reuse a compiled graph holding that obsolete client.
         return f"{workspace_id}:{settings.id}:{hash(settings)}:{id(model)}", model
 
+    async def subagent_catalog(self, workspace_id: str) -> list[dict[str, Any]]:
+        """Configured identities only: never send endpoints or credentials to a model."""
+        profiles, _ = await self.list_settings(workspace_id)
+        return [{"model_id": item.id, "name": item.name, "provider": item.provider, "model": item.model, "is_default": item.is_default}
+                for item in profiles]
+
     async def validate_connection(
         self,
         settings: ChatModelSettings,
         api_key: str = "",
     ) -> str:
-        if self._provider_factory is None:
-            options = self._model_options(replace(settings, temperature=0, max_tokens=min(settings.max_tokens, 8)), api_key)
-            model = build_chat_model(**options)
-            try:
-                native_response = await model.ainvoke([HumanMessage(content="Reply with OK.")])
-                return str(native_response.text)
-            finally:
-                await close_chat_models([model])
-        # Preserve explicitly injected legacy providers during the migration.
-        provider = self._build_provider(settings, api_key)
+        options = self._model_options(
+            replace(settings, temperature=0, max_tokens=min(settings.max_tokens, 8)), api_key,
+        )
+        model = (self._model_factory or build_chat_model)(**options)
         try:
-            response = await provider.chat(
-                [ChatMessage("user", "Reply with OK.")],
-                temperature=0,
-                max_tokens=min(settings.max_tokens, 8),
-            )
-            return response.content
+            response = await model.ainvoke([HumanMessage(content="Reply with OK.")])
+            return str(response.text)
         finally:
-            close = getattr(provider, "aclose", None)
-            if close is not None:
-                await close()
+            await close_chat_models([model])

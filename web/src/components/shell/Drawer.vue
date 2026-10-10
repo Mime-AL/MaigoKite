@@ -1,92 +1,141 @@
 <script setup lang="ts">
+import { computed, nextTick, ref, watch } from 'vue'
 import { useUIStore } from '@/stores/ui'
+import { useWorkspaceStore } from '@/stores/workspace'
 import ChangesTab from '@/components/drawer/ChangesTab.vue'
 import JobsTab from '@/components/drawer/JobsTab.vue'
 import PlanTab from '@/components/drawer/PlanTab.vue'
 import FileExplorer from '@/components/layout/FileExplorer.vue'
-const ui = useUIStore()
+import IconSymbol from '@/components/common/IconSymbol.vue'
+import ResizeHandle from '@/components/common/ResizeHandle.vue'
+defineProps<{ maximumWidth?: number }>()
+const ui = useUIStore(),
+  workspace = useWorkspaceStore()
+const wide = ref(false),
+  resizing = ref(false),
+  everOpened = ref(ui.drawerOpen)
+const tabList = ref<HTMLElement | null>(null)
+const content = ref<HTMLElement | null>(null)
+const scrollPositions: Partial<Record<typeof ui.drawerTab, number>> = {}
+const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
 const tabs = [
-  { id: 'changes', label: '变更' },
-  { id: 'jobs', label: '任务' },
-  { id: 'plan', label: '计划' },
-  { id: 'files', label: '文件' },
+  { id: 'changes', label: '变更', icon: 'review', component: ChangesTab },
+  { id: 'jobs', label: '任务', icon: 'activity', component: JobsTab },
+  { id: 'plan', label: '计划', icon: 'check', component: PlanTab },
+  { id: 'files', label: '文件', icon: 'files', component: FileExplorer },
 ] as const
+const current = computed(() => tabs.find((tab) => tab.id === ui.drawerTab) ?? tabs[0])
+watch(
+  () => ui.drawerOpen,
+  (open) => {
+    if (open) everOpened.value = true
+    else {
+      wide.value = false
+      resizing.value = false
+    }
+  },
+)
+watch(
+  () => ui.drawerTab,
+  async (next, previous) => {
+    scrollPositions[previous] = content.value?.scrollTop ?? 0
+    await nextTick()
+    if (content.value && ui.drawerTab === next) content.value.scrollTop = scrollPositions[next] ?? 0
+  },
+)
+async function moveTab(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const index = tabs.findIndex((tab) => tab.id === ui.drawerTab)
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+  ui.drawerTab = tabs[next].id
+  await nextTick()
+  tabList.value?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus()
+}
 </script>
 <template>
   <div v-if="ui.drawerOpen" class="drawer-shade" @click="ui.drawerOpen = false" />
-  <aside v-if="ui.drawerOpen" class="drawer" aria-label="工作抽屉">
-    <header>
-      <nav>
+  <aside
+    v-if="everOpened"
+    v-show="ui.drawerOpen"
+    id="work-drawer"
+    class="drawer"
+    :class="{ wide, resizing }"
+    :aria-label="$t('工作抽屉')"
+  >
+    <header class="drawer-heading">
+      <div class="drawer-workspace" :title="workspace.current?.root_path">
+        <IconSymbol name="folder" :size="16" /><span>{{
+          workspace.current?.name || $t('工作区')
+        }}</span>
+      </div>
+      <div class="drawer-controls">
         <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          :class="{ active: ui.drawerTab === tab.id }"
-          :aria-pressed="ui.drawerTab === tab.id"
-          @click="ui.drawerTab = tab.id"
+          class="drawer-control"
+          :aria-label="wide ? $t('还原面板') : $t('放大面板')"
+          :title="wide ? $t('还原面板') : $t('放大面板')"
+          :aria-pressed="wide"
+          @click="wide = !wide"
         >
-          {{ tab.label }}
+          <IconSymbol :name="wide ? 'restore' : 'expand'" :size="18" />
         </button>
-      </nav>
-      <button class="icon-button" aria-label="关闭抽屉" @click="ui.drawerOpen = false">×</button>
+        <button
+          class="drawer-control"
+          :aria-label="$t('关闭抽屉')"
+          :title="$t('关闭抽屉') + ' (' + mod + '+.)'"
+          @click="ui.drawerOpen = false"
+        >
+          <IconSymbol name="close" :size="18" />
+        </button>
+      </div>
     </header>
-    <ChangesTab v-if="ui.drawerTab === 'changes'" /><JobsTab
-      v-else-if="ui.drawerTab === 'jobs'"
-    /><PlanTab v-else-if="ui.drawerTab === 'plan'" /><FileExplorer v-else embedded />
+    <nav
+      ref="tabList"
+      class="drawer-tabs"
+      role="tablist"
+      :aria-label="$t('工作抽屉')"
+      @keydown="moveTab"
+    >
+      <button
+        v-for="tab in tabs"
+        :id="'drawer-tab-' + tab.id"
+        :key="tab.id"
+        role="tab"
+        :tabindex="ui.drawerTab === tab.id ? 0 : -1"
+        :aria-selected="ui.drawerTab === tab.id"
+        aria-controls="drawer-content"
+        :class="{ active: ui.drawerTab === tab.id }"
+        @click="ui.drawerTab = tab.id"
+      >
+        <IconSymbol :name="tab.icon" :size="15" /><span>{{ $t(tab.label) }}</span>
+      </button>
+    </nav>
+    <div
+      id="drawer-content"
+      ref="content"
+      class="drawer-content"
+      role="tabpanel"
+      :aria-labelledby="'drawer-tab-' + current.id"
+      tabindex="0"
+    >
+      <!-- Keep tab content alive so file selection and scroll positions survive panel toggles. -->
+      <KeepAlive :max="4"
+        ><component :is="current.component" :embedded="current.id === 'files' || undefined"
+      /></KeepAlive>
+    </div>
+    <ResizeHandle
+      v-if="ui.drawerOpen && !wide"
+      side="right"
+      :maximum="maximumWidth"
+      @dragging="resizing = $event"
+    />
   </aside>
 </template>
 <style scoped lang="scss">
-@use '@/styles/mixins' as mixins;
-.drawer {
-  display: flex;
-  flex-direction: column;
-  width: var(--drawer-width);
-  flex: none;
-  min-height: 0;
-  border-left: 1px solid var(--rule);
-  background: var(--paper);
-  z-index: 20;
-}
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px;
-  border-bottom: 1px solid var(--rule);
-}
-nav {
-  display: flex;
-  gap: 4px;
-}
-nav button {
-  @include mixins.interactive-row;
-  padding: 6px 10px;
-  border: 0;
-  color: var(--ink-3);
-  background: var(--transparent);
-  font-size: var(--text-sm);
-}
-nav button.active {
-  color: var(--accent);
-  background: var(--accent-selected);
-}
-.drawer-shade {
-  display: none;
-}
-@media (max-width: 1100px) {
-  .drawer {
-    position: absolute;
-    right: 0;
-    top: var(--titlebar-height);
-    bottom: 0;
-    width: min(var(--drawer-width), 100vw);
-    box-shadow: var(--shadow-float);
-  }
-  .drawer-shade {
-    display: block;
-    position: fixed;
-    inset: var(--titlebar-height) 0 0;
-    z-index: 19;
-    background: var(--backdrop);
-  }
-}
+@use '@/styles/drawer';
 </style>

@@ -2,10 +2,13 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { PermissionMode, ResponseMode } from '@/api/client'
+import type { ModelOption } from '@/config/model-groups'
 import { useUIStore } from '@/stores/ui'
 import { useMentions } from '@/composables/useMentions'
 import ModePill from '@/components/inkwell/ModePill.vue'
-import InkMeter from '@/components/inkwell/InkMeter.vue'
+import ComposerStats from '@/components/inkwell/ComposerStats.vue'
+import ModelPicker from '@/components/inkwell/ModelPicker.vue'
+import SubagentSettings from './SubagentSettings.vue'
 import MentionMenu, { type Mention } from '@/components/inkwell/MentionMenu.vue'
 import SlashMenu, { type SlashCommand } from '@/components/inkwell/SlashMenu.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
@@ -17,11 +20,16 @@ const props = withDefaults(
     isSubmitting?: boolean
     isStopping?: boolean
     modelId?: string
-    modelOptions?: Array<{ id: string; name: string; model: string }>
+    modelOptions?: ModelOption[]
     responseMode?: ResponseMode
     permissionMode?: PermissionMode
     lastMessage?: string
-    contextPct?: number | null
+    subagentsSupported?: boolean
+    subagentModelsSupported?: boolean
+    subagentModelIds?: string[]
+    maxSubagentCalls?: number
+    maxConcurrentSubagents?: number
+    savingSubagents?: boolean
   }>(),
   {
     assistantName: '助手',
@@ -33,7 +41,12 @@ const props = withDefaults(
     responseMode: 'balanced',
     permissionMode: 'workspace',
     lastMessage: '',
-    contextPct: null,
+    subagentsSupported: false,
+    subagentModelsSupported: false,
+    subagentModelIds: () => [],
+    maxSubagentCalls: 0,
+    maxConcurrentSubagents: 1,
+    savingSubagents: false,
   },
 )
 const emit = defineEmits<{
@@ -42,6 +55,7 @@ const emit = defineEmits<{
   (event: 'model-change', value: string): void
   (event: 'response-mode-change', value: ResponseMode): void
   (event: 'permission-mode-change', value: PermissionMode): void
+  (event: 'subagents-change', value: { calls: number; concurrent: number; modelIds?: string[] }): void
 }>()
 const inputValue = ref(''),
   textarea = ref<HTMLTextAreaElement | null>(null),
@@ -192,46 +206,41 @@ function handleKeydown(event: KeyboardEvent) {
       <textarea
         ref="textarea"
         v-model="inputValue"
-        :placeholder="'问问 ' + assistantName + '…'"
+        :placeholder="$t('问问 ') + assistantName + '…'"
         :disabled="!modelOptions.length"
         rows="1"
-        aria-label="消息内容"
+        :aria-label="$t('消息内容')"
         @keydown="handleKeydown"
       />
       <div class="composer-controls">
-        <button class="reference-button" aria-label="引用文件、会话或记忆" @click="reference">
+        <button class="reference-button" :aria-label="$t('引用文件、会话或记忆')" @click="reference">
           ＠
         </button>
         <ModePill :model-value="mode" :disabled="isSending || isSubmitting" @update:model-value="chooseMode" />
         <div class="control-spacer" />
-        <InkMeter :value="contextPct" />
-        <select
-          :value="modelId"
+        <ModelPicker
+          :key="sessionId"
+          :model-value="modelId"
+          :models="modelOptions"
           :disabled="isSending || isSubmitting || !modelOptions.length"
-          aria-label="当前对话模型"
-          @change="emit('model-change', ($event.target as HTMLSelectElement).value)"
-        >
-          <option v-if="!modelOptions.length" value="">未配置模型</option>
-          <option v-for="item in modelOptions" :key="item.id" :value="item.id">
-            {{ item.name }}
-          </option>
-        </select>
+          @update:model-value="emit('model-change', $event)"
+        />
         <select
           :value="responseMode"
           :disabled="isSending || isSubmitting"
-          aria-label="响应速度"
+          :aria-label="$t('响应速度')"
           @change="
             emit('response-mode-change', ($event.target as HTMLSelectElement).value as ResponseMode)
           "
         >
-          <option value="fast">快速</option>
-          <option value="balanced">均衡</option>
-          <option value="thorough">深度</option>
+          <option value="fast">{{ $t('快速') }}</option>
+          <option value="balanced">{{ $t('均衡') }}</option>
+          <option value="thorough">{{ $t('深度') }}</option>
         </select>
         <select
           :value="permissionMode"
           :disabled="isSending || isSubmitting"
-          aria-label="执行权限"
+          :aria-label="$t('执行权限')"
           @change="
             emit(
               'permission-mode-change',
@@ -239,16 +248,16 @@ function handleKeydown(event: KeyboardEvent) {
             )
           "
         >
-          <option value="read_only">只读</option>
-          <option value="workspace">工作区</option>
-          <option value="full_access">完全访问</option>
+          <option value="read_only">{{ $t('只读') }}</option>
+          <option value="workspace">{{ $t('工作区') }}</option>
+          <option value="full_access">{{ $t('完全访问') }}</option>
         </select>
         <button
           v-if="isSending"
           class="icon-button"
           :disabled="isStopping"
           :aria-busy="isStopping || undefined"
-          :aria-label="isStopping ? '正在请求停止' : '停止任务'"
+          :aria-label="isStopping ? $t('正在请求停止') : $t('停止任务')"
           @click="emit('cancel')"
         >
           <IconSymbol v-if="!isStopping" name="stop" :size="15" />
@@ -257,26 +266,32 @@ function handleKeydown(event: KeyboardEvent) {
           class="send-button"
           :disabled="isSubmitting || !inputValue.trim() || !modelOptions.length"
           :aria-busy="isSubmitting || undefined"
-          :aria-label="isSubmitting ? '正在发送消息' : isSending ? '排队发送' : '发送消息'"
+          :aria-label="isSubmitting ? $t('正在发送消息') : isSending ? $t('排队发送') : $t('发送消息')"
           @click="send"
         >
           <IconSymbol v-if="!isSubmitting" name="send" :size="15" />
         </button>
       </div>
     </div>
+    <ComposerStats :session-id="sessionId" :model-name="modelOptions.find((item) => item.id === modelId)?.model || ''" />
+    <SubagentSettings
+      v-if="subagentsSupported" :key="sessionId" :calls="maxSubagentCalls" :concurrent="maxConcurrentSubagents"
+      :model-options="modelOptions" :model-ids="subagentModelIds" :model-selection-supported="subagentModelsSupported"
+      :saving="savingSubagents" :disabled="isSubmitting" @change="emit('subagents-change', $event)"
+    />
     <p class="composer-help">
       {{
         isStopping
-          ? '正在请求停止，等待服务确认…'
+          ? $t('正在请求停止，等待服务确认…')
           : isSubmitting
-            ? '正在发送，草稿会保留…'
+            ? $t('正在发送，草稿会保留…')
           : isSending
-            ? '可继续写，当前回合成功后发送 · Esc 中断'
-            : 'Enter 发送 · Shift + Enter 换行'
+            ? $t('可继续写，当前任务成功后发送 · Esc 中断')
+            : $t('Enter 发送 · Shift + Enter 换行')
       }}
     </p>
     <router-link v-if="!modelOptions.length" class="configure-link" to="/settings?tab=models"
-      >先连接一个模型</router-link
+      >{{ $t('连接模型') }}</router-link
     >
   </div>
 </template>

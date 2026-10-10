@@ -13,11 +13,10 @@ onMounted(() => {
   <main class="page-shell data-page">
     <header class="page-header">
       <div>
-        <h1 class="page-title">数据概览</h1>
-        <p class="page-subtitle">查看当前工作区保存的数据数量。</p>
+        <h1 class="page-title">{{ $t('数据概览') }}</h1>
       </div>
       <button class="secondary-button" type="button" :disabled="phase2.dataLoading" @click="phase2.loadDataSummary">
-        <IconSymbol name="refresh" :size="15" />{{ phase2.dataLoading ? '刷新中…' : '刷新' }}
+        <IconSymbol name="refresh" :size="15" />{{ phase2.dataLoading ? $t('刷新中…') : $t('刷新') }}
       </button>
     </header>
 
@@ -25,26 +24,26 @@ onMounted(() => {
     <section v-if="phase2.dataSummary" class="summary-grid">
       <article class="glass-card">
         <span><IconSymbol name="review" :size="20" /></span><strong>{{ phase2.dataSummary.conversation_count }}</strong
-        ><small>对话</small>
+        ><small>{{ $t('对话') }}</small>
       </article>
       <article class="glass-card">
         <span><IconSymbol name="compose" :size="20" /></span><strong>{{ phase2.dataSummary.message_count }}</strong
-        ><small>消息</small>
+        ><small>{{ $t('消息') }}</small>
       </article>
       <article class="glass-card">
         <span><IconSymbol name="brain" :size="20" /></span><strong>{{ phase2.dataSummary.memory_count }}</strong
-        ><small>用户记忆</small>
+        ><small>{{ $t('用户记忆') }}</small>
       </article>
       <article class="glass-card">
         <span><IconSymbol name="activity" :size="20" /></span><strong>{{ phase2.dataSummary.task_count }}</strong
-        ><small>任务</small>
+        ><small>{{ $t('任务') }}</small>
       </article>
       <article class="glass-card">
         <span><IconSymbol name="shield" :size="20" /></span><strong>{{ phase2.dataSummary.audit_event_count }}</strong
-        ><small>操作记录</small>
+        ><small>{{ $t('操作记录') }}</small>
       </article>
     </section>
-    <div v-else-if="phase2.dataLoading" class="loading-card glass-card">正在统计数据…</div>
+    <div v-else-if="phase2.dataLoading" class="loading-card glass-card">{{ $t('正在统计数据…') }}</div>
   </main>
 </template>
 

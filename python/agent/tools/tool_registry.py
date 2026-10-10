@@ -2,8 +2,7 @@
 from __future__ import annotations
 from typing import Any
 from collections.abc import Sequence
-from agent.tools.base import BaseTool, ExecutionContext, ToolResult, ToolResultStream
-from agent.tools.validator import ToolValidator
+from agent.tools.base import BaseTool
 
 class ToolRegistry:
     DEFAULT_TOOLS = (
@@ -13,7 +12,6 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, BaseTool] = {}
-        self.validator = ToolValidator(self.schema_for)
 
     def register(self, tool: BaseTool) -> None:
         if not tool.name or tool.name in self._tools:
@@ -43,13 +41,3 @@ class ToolRegistry:
             self.register(tool)
             discovered.append(tool)
         return discovered
-
-    def schema_for(self, tool_name: str) -> dict[str, Any] | None:
-        tool = self.get(tool_name)
-        return None if tool is None else tool.parameters_schema
-
-    async def invoke(self, tool_name: str, arguments: dict[str, Any], context: ExecutionContext) -> ToolResult | ToolResultStream:
-        tool = self.get(tool_name)
-        if tool is None:
-            raise KeyError(f"unknown tool: {tool_name}")
-        return await tool.execute(context, self.validator.sanitize(tool_name, arguments))

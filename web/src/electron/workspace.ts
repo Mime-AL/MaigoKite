@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { realpathSync } from 'node:fs'
 import path from 'node:path'
 
@@ -10,16 +11,16 @@ export async function registeredWorkspaceRoot(folderId: string): Promise<string>
     base.username ||
     base.password
   )
-    throw new Error('本机文件打开功能只支持本地 Gateway。')
+    throw new Error(t("只能打开本机工作区的文件。"))
   const response = await fetch(new URL('/api/v1/workspaces/personal/folders', base), {
     signal: AbortSignal.timeout(5000),
     redirect: 'error',
   })
-  if (!response.ok) throw new Error('无法确认工作区，请检查本地服务。')
+  if (!response.ok) throw new Error(t("无法确认工作区，请检查本地服务。"))
   const data: unknown = await response.json()
   const folders =
     data && typeof data === 'object' ? (data as Record<string, unknown>).folders : undefined
-  if (!Array.isArray(folders)) throw new Error('工作区信息不正确。')
+  if (!Array.isArray(folders)) throw new Error(t("工作区信息不正确。"))
   for (const value of folders as unknown[]) {
     if (!value || typeof value !== 'object') continue
     const item = value as Record<string, unknown>
@@ -30,8 +31,8 @@ export async function registeredWorkspaceRoot(folderId: string): Promise<string>
     )
       continue
     const root = realpathSync(item.root_path)
-    if (root !== item.root_path) throw new Error('工作区路径已变更，请重新选择文件夹。')
+    if (root !== item.root_path) throw new Error(t("工作区路径已变更，请重新选择文件夹。"))
     return root
   }
-  throw new Error('工作区不存在，请重新选择文件夹。')
+  throw new Error(t("工作区不存在，请重新选择文件夹。"))
 }

@@ -13,7 +13,7 @@ const expanded = ref(true)
       class="end-glyph"
       :data-rail-node="`${turn.id}:end`"
       :aria-expanded="expanded"
-      aria-label="展开或收起回合小结"
+      :aria-label="$t('展开或收起执行小结')"
       @click="expanded = !expanded"
     >
       {{ turn.status === 'cancelled' ? '×' : turn.status === 'failed' ? '×' : '◆' }}
@@ -21,26 +21,19 @@ const expanded = ref(true)
     <div>
       <header>
         <h3>
-          {{ turn.status === 'cancelled' ? '你叫停了' : turn.status === 'failed' ? '这回遇到了问题' : '回合小结' }}
+          {{ turn.status === 'cancelled' ? $t('已停止') : turn.status === 'failed' ? $t('执行未完成') : $t('执行小结') }}
         </h3>
         <time>{{ formatDuration(turn.summary.durationMs) }}</time>
       </header>
       <template v-if="expanded">
         <div class="receipt-rule" />
-        <p>
-          改动 {{ turn.summary.files }} 个文件
-          <span v-if="turn.changes.length">+{{ turn.summary.added }} −{{ turn.summary.removed }}</span
-          ><span v-else-if="turn.summary.files">行数见变更</span
-          ><button v-if="turn.summary.files" @click="ui.openDrawer('changes')">查看变更</button>
+        <p>{{ $t('改动 {0} 个文件', [turn.summary.files]) }}<span v-if="turn.changes.length">+{{ turn.summary.added }} −{{ turn.summary.removed }}</span
+          ><span v-else-if="turn.summary.files">{{ $t('行数见变更') }}</span
+          ><button v-if="turn.summary.files" @click="ui.openDrawer('changes')">{{ $t('查看变更') }}</button>
         </p>
-        <p>
-          执行 {{ turn.summary.commands }} 条命令
-          <span>{{ turn.summary.failed ? `${turn.summary.failed} 项失败` : '未发现失败步骤' }}</span>
+        <p>{{ $t('执行 {0} 条命令', [turn.summary.commands]) }}<span>{{ turn.summary.failed ? $t('{0} 项失败', [turn.summary.failed]) : $t('无失败项') }}</span>
         </p>
-        <p>
-          等你 {{ turn.summary.awaits }} 次
-          <span>上下文 {{ turn.summary.contextPct === null ? '未提供' : `${turn.summary.contextPct}%` }}</span>
-        </p>
+        <p>{{ $t('等你 {0} 次', [turn.summary.awaits]) }}</p>
       </template>
     </div>
   </section>

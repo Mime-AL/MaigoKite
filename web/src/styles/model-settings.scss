@@ -30,12 +30,35 @@
   align-items: center;
   gap: 6px;
 }
+.service-group {
+  border-bottom: 1px solid var(--rule);
+  padding: 14px 20px;
+}
+.service-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.service-count {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.service-models {
+  margin: 8px 0 0 58px;
+  padding: 0;
+  list-style: none;
+}
 .profile-row {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--rule);
-  padding: 14px 20px;
+  min-width: 0;
+  padding: 8px 6px;
   gap: 12px;
+  border-top: 1px solid var(--rule);
+}
+.profile-row strong {
+  overflow-wrap: anywhere;
 }
 .profile-main {
   @include mixins.interactive-row;
@@ -137,6 +160,27 @@
   color: var(--ink-3);
   font-size: var(--text-sm);
 }
+.provider-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--ink-3);
+}
+.provider-search > svg {
+  position: absolute;
+  left: 12px;
+  pointer-events: none;
+}
+.provider-search input {
+  width: 100%;
+  padding-left: 38px;
+  font-size: var(--text-sm);
+}
+.provider-empty {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  padding-block: 16px;
+}
 .choice-group h4 {
   margin: 24px 0 12px;
   color: var(--ink-2);
@@ -188,8 +232,14 @@
   .credential-state {
     display: none;
   }
-  .profile-row {
+  .service-group {
     padding-inline: 12px;
+  }
+  .service-models {
+    margin-left: 0;
+  }
+  .service-count {
+    display: none;
   }
   .panel-heading {
     padding: 16px;

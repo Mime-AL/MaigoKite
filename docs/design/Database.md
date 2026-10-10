@@ -17,6 +17,14 @@
 
 当前 Repository 采用单进程写入模型。不能仅凭接口抽象，就推断它已支持多实例并发或 PostgreSQL。
 
+2026-10-10 会话级子 Agent 源码增量（未运行数据库/恢复验收）：启动迁移为 conversations 增加
+`max_subagent_calls DEFAULT 0`、`max_concurrent_subagents DEFAULT 1`、`subagent_model_ids_json DEFAULT '[]'`；新任务准入事务复制三项设置到 tasks，
+并记录 `model_call_limit / model_calls_used`。`tool_calls.subagent_admitted` 保存不可退还的派发准入收据；
+计数与占位在 Repository 锁/事务中完成，同一调用 ID 的恢复不会重领派发额度。配置更新与准入共用锁，
+活动任务的预算不跟随会话设置改变。旧任务默认为不启用委派；缺少预算快照时沿用原生模型调用限制。
+这些是产品额度，不保存子 Agent 执行状态；LangGraph checkpoint 仍为唯一执行事实来源。
+模型 ID 清单保存允许显式指定的配置项引用，不保存密钥/URL，不锁定配置内容版本；空列表表示仅跟随父模型。模型名称和实际路由身份在子 Agent 活动事件中记录。清单更新只影响后续任务；旧库启动迁移为两个表增列，不丢弃既有历史。本次多模型增量尚未运行数据库/重启验收。
+
 ## 2. 当前归属模型
 
 - `workspaces.kind` 保留 `personal / team` 兼容值，当前产品只推进个人使用，不继续建设团队管理。
@@ -35,9 +43,9 @@
 | `messages` | 会话、`role / content / created_at`；没有显式 sequence/词元列 |
 | `user_preferences` | `(workspace_id, subject_user_id, key)` 唯一，保存非敏感 JSON |
 | `workspace_settings` | `(workspace_id, key)` 唯一，保存非敏感 JSON |
-| `tasks` | 工作区/会话、输入、状态、最后错误、版本和时间 |
+| `tasks` | 工作区/会话、输入、状态、最后错误、版本、时间与可选聊天提交指纹 `request_hash` |
 | `task_events` | 任务/会话、会话内 sequence、类型、payload 和发生时间 |
-| `tool_calls` | 任务、工具名、参数、结果、摘要、风险、状态和审批续接数据 |
+| `tool_calls` | 任务、工具名、参数、结果、摘要、风险和状态；旧续接列只保留历史兼容 |
 | `approvals` | 任务/工具调用、principal、参数摘要值、风险、版本、过期和决定时间 |
 | `audit_events` | 工作区、actor、action、resource、result、脱敏详情和时间 |
 | `todos` | 工作区内的文本、完成状态和时间 |
@@ -65,7 +73,14 @@ erDiagram
 
 图中任务到工作区/会话是逻辑归属，并非已建立全部数据库外键。运行上下文从消息派生，不再复制一份消息表。
 
-新路径的 LangGraph 检查点是独立执行存储，不添加到此业务 ER 图；恢复和业务投影边界见 [智能体运行时设计](AgentRuntime.md)。legacy 续接数据列暂保留兼容，不能要求新路径读它。
+个人扩展配置复用 `workspace_settings`，不新增插件表：
+
+- `extensions.config`：用户保存的期望配置，含 revision、MCP 程序/参数/凭证变量名、Skill 目录和托管 Markdown/启停选择；保存不代表已加载。
+- `extensions.applied_config`：执行入口准备成功后保存的生效配置，Core 重启与恢复原连接以它为准，不误用尚未应用的编辑。它不是执行状态或工具执行记录，实际恢复仍读取 LangGraph checkpoint；外部程序/目录内容也不因此成为不可变快照。
+
+原始凭证仅在系统密钥链；加载状态留在 Core 资源状态中，不落凭证值、生命周期日志或第二份执行状态。首次无数据库配置时读取 YAML 建立初始值；没有期望配置行时以生效配置作为编辑基线。升级前没有生效快照时沿用当时保存配置/YAML，不能追溯重建历史生效版本。
+
+新路径的 LangGraph 检查点是独立执行存储，不添加到此业务 ER 图；恢复和业务投影边界见 [智能体运行时设计](AgentRuntime.md)。continuation_json 列仅保留历史数据库兼容；生产已删除该字段的续接读写代码，新的调用采用数据库默认空值，不破坏性删列。
 
 ## 4. 当前状态值
 
@@ -110,14 +125,17 @@ pending, consumed, rejected, expired
 - 创建审批，并把工具调用/任务切换为等待；
 - 决定、过期或取消审批，并同步更新关联工具调用/任务；
 - 单次 Repository 方法内部的数据修改。
+- 聊天准入时检查归属/归档/未结束任务，创建任务与用户消息并更新会话时间；单一 LangGraph 路径使用 `start_chat_turn`。带幂等键的 task ID 按工作区/会话/主体/键派生，`request_hash` 校验 content/attachments。重发返回原任务，不触发模型或副作用；不额外创建通用幂等请求库。
 
 尚未原子完成：
 
-- 创建用户消息、任务与首个任务事件；
+- 已原子创建的用户消息/任务与首个任务事件之间；
 - 任务状态转换与对应任务事件；
 - 工具调用结果、任务推进与事件发布。
 
 `EventBus` 当前先写 `task_events`，再实时投递事件，因此断线后可以回放。但领域状态与事件的写入不在同一事务中。尚无正式 Unit of Work/Outbox。应先修复需要原子提交的最小事务，不预设必须建设完整事件溯源或通用 Outbox 框架。
+
+会话 snapshot 在单 Core Repository 锁内读取各产品列表与事件水位，最大行数和响应预算见 API。它不承诺多个 Core 共用数据库的一致性，不从产品记录重建 LangGraph checkpoint。任务 inspection 的用量为事件只读聚合，没有第二份持久 token 账本。新增 `request_hash` 使用既有受限 ALTER 迁移，旧任务默认空指纹；不会把旧任务猜测为某次新提交的重放。
 
 ## 7. 当前迁移方式
 

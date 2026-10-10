@@ -12,9 +12,27 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from agent.models.usage import aggregate_usage_events
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def validate_subagent_limits(calls: int, concurrent: int) -> None:
+    if type(calls) is not int or not 0 <= calls <= 32:
+        raise ValueError("每轮子 Agent 上限须为 0–32，0 表示关闭。")
+    if type(concurrent) is not int or not 1 <= concurrent <= 8 or (calls and concurrent > calls):
+        raise ValueError("子 Agent 并行上限须为 1–8，启用时不能超过每轮派发上限。")
+
+
+def validate_subagent_model_ids(value: list[str]) -> list[str]:
+    if (not isinstance(value, list) or len(value) > 32
+            or any(not isinstance(item, str) or not item or len(item) > 100 for item in value)):
+        raise ValueError("子 Agent 模型须为最多 32 个已配置模型 ID。")
+    if len(set(value)) != len(value):
+        raise ValueError("子 Agent 模型不能重复。")
+    return value
 
 
 class ConversationBusyError(ValueError):
@@ -200,12 +218,19 @@ class SQLiteRepository:
         }
         if "response_mode" not in conversation_columns:
             connection.execute("ALTER TABLE conversations ADD COLUMN response_mode TEXT NOT NULL DEFAULT 'balanced'")
-        for column, definition in (("folder_id", "TEXT NOT NULL DEFAULT ''"), ("archived", "INTEGER NOT NULL DEFAULT 0")):
+        for column, definition in (
+            ("folder_id", "TEXT NOT NULL DEFAULT ''"), ("archived", "INTEGER NOT NULL DEFAULT 0"),
+            ("max_subagent_calls", "INTEGER NOT NULL DEFAULT 0"),
+            ("max_concurrent_subagents", "INTEGER NOT NULL DEFAULT 1"),
+            ("subagent_model_ids_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ):
             if column not in conversation_columns:
                 connection.execute(f"ALTER TABLE conversations ADD COLUMN {column} {definition}")
         tool_call_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(tool_calls)").fetchall()}
         if "continuation_json" not in tool_call_columns:
             connection.execute("ALTER TABLE tool_calls ADD COLUMN continuation_json TEXT NOT NULL DEFAULT '{}'")
+        if "subagent_admitted" not in tool_call_columns:
+            connection.execute("ALTER TABLE tool_calls ADD COLUMN subagent_admitted INTEGER NOT NULL DEFAULT 0")
         approval_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(approvals)").fetchall()}
         if "note" not in approval_columns:
             connection.execute("ALTER TABLE approvals ADD COLUMN note TEXT NOT NULL DEFAULT ''")
@@ -215,6 +240,11 @@ class SQLiteRepository:
             ("last_error", "TEXT NOT NULL DEFAULT ''"),
             ("version", "INTEGER NOT NULL DEFAULT 1"),
             ("request_hash", "TEXT NOT NULL DEFAULT ''"),
+            ("max_subagent_calls", "INTEGER NOT NULL DEFAULT 0"),
+            ("max_concurrent_subagents", "INTEGER NOT NULL DEFAULT 1"),
+            ("model_call_limit", "INTEGER NOT NULL DEFAULT 0"),
+            ("model_calls_used", "INTEGER NOT NULL DEFAULT 0"),
+            ("subagent_model_ids_json", "TEXT NOT NULL DEFAULT '[]'"),
         ):
             if column not in task_columns:
                 connection.execute(f"ALTER TABLE tasks ADD COLUMN {column} {definition}")
@@ -267,7 +297,12 @@ class SQLiteRepository:
         permission_mode: str = "workspace",
         response_mode: str = "balanced",
         folder_id: str = "",
+        max_subagent_calls: int = 0,
+        max_concurrent_subagents: int = 1,
+        subagent_model_ids: list[str] | None = None,
     ) -> dict[str, Any]:
+        validate_subagent_limits(max_subagent_calls, max_concurrent_subagents)
+        model_ids = validate_subagent_model_ids([] if subagent_model_ids is None else subagent_model_ids)
         conversation_id = f"conv_{uuid.uuid4().hex}"
         now = _now()
         title = title.strip() or "新对话"
@@ -275,9 +310,11 @@ class SQLiteRepository:
             self._require_folder(workspace_id, folder_id)
             self._db().execute(
                 """INSERT INTO conversations(
-                     id,workspace_id,title,model_id,permission_mode,response_mode,created_at,updated_at,folder_id
-                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                (conversation_id, workspace_id, title, model_id, permission_mode, response_mode, now, now, folder_id),
+                     id,workspace_id,title,model_id,permission_mode,response_mode,created_at,updated_at,folder_id,
+                     max_subagent_calls,max_concurrent_subagents,subagent_model_ids_json
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (conversation_id, workspace_id, title, model_id, permission_mode, response_mode, now, now, folder_id,
+                 max_subagent_calls, max_concurrent_subagents, json.dumps(model_ids)),
             )
             self._db().commit()
         return await self.get_conversation(workspace_id, conversation_id)
@@ -414,6 +451,9 @@ class SQLiteRepository:
         title: str | None = None,
         folder_id: str | None = None,
         archived: bool | None = None,
+        max_subagent_calls: int | None = None,
+        max_concurrent_subagents: int | None = None,
+        subagent_model_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         assignments: list[str] = []
         values: list[Any] = []
@@ -424,6 +464,10 @@ class SQLiteRepository:
             ("title", title),
             ("folder_id", folder_id),
             ("archived", archived),
+            ("max_subagent_calls", max_subagent_calls),
+            ("max_concurrent_subagents", max_concurrent_subagents),
+            ("subagent_model_ids_json", None if subagent_model_ids is None
+             else json.dumps(validate_subagent_model_ids(subagent_model_ids))),
         ):
             if value is not None:
                 assignments.append(f"{column}=?")
@@ -433,6 +477,15 @@ class SQLiteRepository:
         assignments.append("updated_at=?")
         values.extend([_now(), workspace_id, conversation_id])
         async with self._lock:
+            current = self._db().execute(
+                "SELECT * FROM conversations WHERE workspace_id=? AND id=?", (workspace_id, conversation_id),
+            ).fetchone()
+            if current is None:
+                raise KeyError(conversation_id)
+            validate_subagent_limits(
+                current["max_subagent_calls"] if max_subagent_calls is None else max_subagent_calls,
+                current["max_concurrent_subagents"] if max_concurrent_subagents is None else max_concurrent_subagents,
+            )
             if folder_id is not None:
                 self._require_folder(workspace_id, folder_id)
             if folder_id is not None or archived is not None:
@@ -616,6 +669,7 @@ class SQLiteRepository:
 
     async def start_chat_turn(
         self, task_id: str, workspace_id: str, conversation_id: str, prompt: str, request_hash: str = "",
+        *, model_call_limit: int = 8,
     ) -> None:
         """Atomically admit one turn and append its user message (not an execution checkpoint).
 
@@ -634,7 +688,7 @@ class SQLiteRepository:
                         raise MessageConflictError("submission conflicts with an existing task")
                     raise MessageReplay(dict(existing))
                 conversation = db.execute(
-                    "SELECT archived FROM conversations WHERE workspace_id=? AND id=?", (workspace_id, conversation_id),
+                    "SELECT * FROM conversations WHERE workspace_id=? AND id=?", (workspace_id, conversation_id),
                 ).fetchone()
                 if conversation is None:
                     raise KeyError(conversation_id)
@@ -649,15 +703,61 @@ class SQLiteRepository:
                     raise ConversationBusyError("conversation has unfinished work; finish or cancel it first")
                 db.execute(
                     """INSERT INTO tasks(id,workspace_id,conversation_id,title,status,input_text,request_hash,
-                       created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                       created_at,updated_at,max_subagent_calls,max_concurrent_subagents,model_call_limit,subagent_model_ids_json)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (task_id, workspace_id, conversation_id, prompt[:80] or "Agent task", "running", prompt,
-                     request_hash, now, now),
+                     request_hash, now, now, conversation["max_subagent_calls"],
+                     conversation["max_concurrent_subagents"], model_call_limit, conversation["subagent_model_ids_json"]),
                 )
                 db.execute(
                     "INSERT INTO messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?)",
                     (f"msg_{uuid.uuid4().hex}", conversation_id, "user", prompt, now),
                 )
                 db.execute("UPDATE conversations SET updated_at=? WHERE id=?", (now, conversation_id))
+
+    async def reserve_subagent_call(self, workspace_id: str, task_id: str, call_id: str) -> tuple[int, int]:
+        """Product admission receipt only; LangGraph remains the execution authority.
+
+        Failed calls keep their slot. Replaying the same tool call reuses its slot.
+        """
+        async with self._lock:
+            db = self._db()
+            with db:
+                task = db.execute("SELECT * FROM tasks WHERE workspace_id=? AND id=?", (workspace_id, task_id)).fetchone()
+                call = db.execute(
+                    "SELECT * FROM tool_calls WHERE workspace_id=? AND task_id=? AND id=? AND tool_name='delegate'",
+                    (workspace_id, task_id, call_id),
+                ).fetchone()
+                if task is None or call is None or task["status"] != "running":
+                    raise ValueError("当前任务不可委派。")
+                used = db.execute(
+                    "SELECT COUNT(*) FROM tool_calls WHERE task_id=? AND subagent_admitted=1", (task_id,),
+                ).fetchone()[0]
+                limit = task["max_subagent_calls"]
+                if not call["subagent_admitted"]:
+                    if used >= limit:
+                        raise ValueError("本轮子 Agent 派发额度已用完（或未启用），请由主 Agent 完成剩余工作。")
+                    db.execute("UPDATE tool_calls SET subagent_admitted=1 WHERE id=?", (call_id,))
+                    used += 1
+                return used, limit
+
+    async def reserve_model_call(self, workspace_id: str, task_id: str, *, child: bool = False) -> None:
+        """Shared parent/child request budget, including failed attempts and summaries.
+
+        Old tasks with no admission snapshot retain their native graph limit.
+        One call is held back from children for the parent's final synthesis.
+        """
+        async with self._lock:
+            db = self._db()
+            with db:
+                task = db.execute("SELECT * FROM tasks WHERE workspace_id=? AND id=?", (workspace_id, task_id)).fetchone()
+                if task is None or task["status"] != "running":
+                    raise ValueError("任务已停止，不能继续请求模型。")
+                if not task["model_call_limit"]:
+                    return
+                if task["model_calls_used"] >= task["model_call_limit"] - int(child):
+                    raise ValueError("本轮共享模型调用预算已用完。子 Agent 不会获得额外预算。")
+                db.execute("UPDATE tasks SET model_calls_used=model_calls_used+1 WHERE id=?", (task_id,))
 
     async def update_task_status(self, task_id: str, status: str, last_error: str = "") -> None:
         self._require_status(status, self.TASK_STATUSES, "task")
@@ -682,6 +782,31 @@ class SQLiteRepository:
             raise KeyError(task_id)
         return dict(row)
 
+    async def resume_interrupted_task(self, workspace_id: str, task_id: str, version: int) -> None:
+        """Commit product admission, not execution state or a continuation.
+
+        Recheck under the same lock as conversation archive/move operations so
+        they cannot slip between runtime preparation and the running projection.
+        """
+        async with self._lock:
+            db = self._db()
+            task = db.execute(
+                """SELECT t.*,c.archived FROM tasks t JOIN conversations c ON c.id=t.conversation_id
+                   WHERE t.workspace_id=? AND t.id=?""", (workspace_id, task_id),
+            ).fetchone()
+            if task is None:
+                raise KeyError(task_id)
+            if task["status"] != "interrupted" or task["version"] != version:
+                raise ValueError("task is not interrupted at this version; refresh its status")
+            if task["archived"]:
+                raise ValueError("archived conversations cannot resume execution")
+            self._require_idle_conversation(workspace_id, task["conversation_id"])
+            db.execute(
+                "UPDATE tasks SET status='running',last_error='',version=version+1,updated_at=? WHERE id=?",
+                (_now(), task_id),
+            )
+            db.commit()
+
     async def list_tasks(self, workspace_id: str, conversation_id: str = "", limit: int = 100) -> list[dict[str, Any]]:
         limit = min(max(limit, 1), 500)
         sql = "SELECT * FROM tasks WHERE workspace_id=?"
@@ -694,6 +819,16 @@ class SQLiteRepository:
         async with self._lock:
             rows = self._db().execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    async def has_unfinished_tasks(self, *, include_waiting: bool = True) -> bool:
+        """Global Core resources cannot be replaced underneath any active turn."""
+        async with self._lock:
+            sql = "SELECT 1 FROM tasks WHERE status IN ('created','queued','running','retry_wait')"
+            if include_waiting:
+                sql += """ UNION ALL SELECT 1 FROM tasks WHERE status='waiting_approval'
+                           UNION ALL SELECT 1 FROM approvals WHERE status='pending'
+                           UNION ALL SELECT 1 FROM questions WHERE status='pending'"""
+            return self._db().execute(sql + " LIMIT 1").fetchone() is not None
 
     async def latest_conversation_task(self, workspace_id: str, conversation_id: str) -> dict[str, Any] | None:
         """Creation order, not updated_at: a resumed old task is not a new turn."""
@@ -896,15 +1031,16 @@ class SQLiteRepository:
         tool_name: str,
         arguments: dict[str, Any],
         assistant_content: str = "",
-        continuation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # continuation_json remains only for non-destructive compatibility with
+        # existing databases. Execution never reads or writes that legacy payload.
         now = _now()
         async with self._lock:
             self._db().execute(
                 """INSERT INTO tool_calls(
                      id,workspace_id,conversation_id,task_id,tool_name,arguments_json,
-                     assistant_content,continuation_json,status,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                     assistant_content,status,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (
                     tool_call_id,
                     workspace_id,
@@ -913,7 +1049,6 @@ class SQLiteRepository:
                     tool_name,
                     json.dumps(arguments, ensure_ascii=False, sort_keys=True),
                     assistant_content,
-                    json.dumps(continuation or {}, ensure_ascii=False, sort_keys=True, default=str),
                     "proposed",
                     now,
                     now,
@@ -1110,8 +1245,12 @@ class SQLiteRepository:
                                        (task_id,)).fetchone()[0]
             questions = db.execute("SELECT id,tool_call_id,title,options_json,status,version,answer FROM questions WHERE task_id=?",
                                    (task_id,)).fetchall()
+            usage_events = db.execute("""SELECT id,event_type,payload_json FROM task_events WHERE task_id=?
+                AND event_type IN ('model.usage','model.call.started','model.call.failed','context.compacted')
+                ORDER BY sequence""", (task_id,)).fetchall()
         projection: dict[str, Any] = {
             "plan": None, "context": None, "changes": [], "summary": None,
+            "usage": aggregate_usage_events([dict(row) for row in usage_events]),
             "questions": [{**{key: row[key] for key in row.keys() if key != "options_json"},
                            "options": json.loads(row["options_json"])} for row in questions],
             "truncated": len(calls) > 50 or len(approvals) > 50 or len(events) > 100,
@@ -1148,6 +1287,47 @@ class SQLiteRepository:
         projection["questions"] = bounded(projection["questions"])
         return {"task": dict(task), "tool_calls": tool_calls, "approvals": approval_values,
                 "projection": projection, "last_sequence": int(last_sequence)}
+
+    async def conversation_snapshot(self, workspace_id: str, conversation_id: str) -> dict[str, Any]:
+        """One bounded product snapshot and cursor, not runtime/event sourcing state.
+
+        Clients must subscribe/buffer live events before reading this snapshot.
+        The cursor covers product facts only; activity/text deltas need event history.
+        """
+        async with self._lock:
+            db = self._db()
+            if db.execute("SELECT id FROM conversations WHERE workspace_id=? AND id=?",
+                          (workspace_id, conversation_id)).fetchone() is None:
+                raise KeyError(conversation_id)
+            rows = {
+                "messages": db.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 201",
+                                       (conversation_id,)).fetchall(),
+                "tasks": db.execute("SELECT * FROM tasks WHERE workspace_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 201",
+                                    (workspace_id, conversation_id)).fetchall(),
+                "approvals": db.execute("""SELECT a.*,t.tool_name,t.arguments_json FROM approvals a
+                    JOIN tool_calls t ON t.id=a.tool_call_id WHERE a.workspace_id=? AND a.conversation_id=?
+                    AND a.status='pending' ORDER BY a.created_at DESC LIMIT 201""", (workspace_id, conversation_id)).fetchall(),
+                "questions": db.execute("SELECT * FROM questions WHERE workspace_id=? AND conversation_id=? AND status='pending' ORDER BY created_at DESC LIMIT 201",
+                                        (workspace_id, conversation_id)).fetchall(),
+            }
+            sequence = db.execute("SELECT COALESCE(MAX(sequence),0) FROM task_events WHERE workspace_id=? AND conversation_id=?",
+                                  (workspace_id, conversation_id)).fetchone()[0]
+        result: dict[str, Any] = {"last_sequence": int(sequence), "truncated": False}
+        remaining = 900_000
+        for name, values in rows.items():
+            result[name] = []
+            result["truncated"] |= len(values) > 200
+            for row in values[:200]:
+                value = self._approval_value(row) if name == "approvals" else dict(row)
+                value.pop("request_hash", None)
+                size = len(json.dumps(value, ensure_ascii=False).encode())
+                if size > remaining:
+                    result["truncated"] = True
+                    continue
+                remaining -= size
+                result[name].append(value)
+            result[name].reverse()
+        return result
 
     async def list_command_calls(self, workspace_id: str, conversation_id: str = "") -> list[dict[str, Any]]:
         async with self._lock:
@@ -1247,6 +1427,14 @@ class SQLiteRepository:
         item = dict(row)
         item["arguments"] = json.loads(item.pop("arguments_json"))
         return item
+
+    @staticmethod
+    def approval_matches_arguments(approval: dict[str, Any], arguments: dict[str, Any]) -> bool:
+        """Bind execution to the audit hash, not the mutable tool-call projection."""
+        normalized = json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hmac.compare_digest(
+            str(approval["arguments_hash"]), hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+        )
 
     async def get_approval(self, workspace_id: str, approval_id: str) -> dict[str, Any]:
         async with self._lock:

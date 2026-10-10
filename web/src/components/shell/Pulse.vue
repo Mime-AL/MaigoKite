@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PulseState } from '@/api/events'
 withDefaults(defineProps<{ state?: PulseState; size?: number }>(), { state: 'idle', size: 10 })
-const labels = { idle: '静息', thinking: '思考', acting: '行动', waiting: '等你', error: '出错', offline: '离线' }
+const labels = { idle: '静息', thinking: '思考', acting: '行动', waiting: '等待确认', error: '出错', offline: '离线' }
 </script>
 <template>
   <svg
@@ -11,7 +11,7 @@ const labels = { idle: '静息', thinking: '思考', acting: '行动', waiting: 
     class="pulse"
     :class="state"
     role="img"
-    :aria-label="labels[state]"
+    :aria-label="$t(labels[state])"
   >
     <path v-if="state === 'error'" d="M4 4l8 8M12 4l-8 8" />
     <path v-else-if="state === 'waiting'" d="M8 2l6 6-6 6-6-6Z" />

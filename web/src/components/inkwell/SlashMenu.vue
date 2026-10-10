@@ -7,7 +7,7 @@ defineProps<{ items: SlashCommand[]; selected: number }>()
 const emit = defineEmits<{ (event: 'select', item: SlashCommand): void }>()
 </script>
 <template>
-  <div class="slash-menu" role="listbox" aria-label="命令">
+  <div class="slash-menu" role="listbox" :aria-label="$t('命令')">
     <button
       v-for="(item, index) in items"
       :key="item.id"
@@ -17,7 +17,7 @@ const emit = defineEmits<{ (event: 'select', item: SlashCommand): void }>()
       @click="emit('select', item)"
     >
       <code>/{{ item.id }}</code
-      ><span>{{ item.label }}</span>
+      ><span>{{ $t(item.label) }}</span>
     </button>
   </div>
 </template>

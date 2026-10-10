@@ -17,6 +17,9 @@ export interface ToolSettings {
 }
 
 export interface Conversation {
+  subagent_model_ids?: string[]
+  max_subagent_calls?: number
+  max_concurrent_subagents?: number
   folder_id?: string
   archived?: boolean
   id: string
@@ -68,6 +71,22 @@ export interface Approval {
   status: 'pending' | 'approved' | 'consumed' | 'rejected' | 'denied' | 'expired'
   version: number
   expires_at: string
+  note?: string
+  decided_at?: string
+}
+
+export interface AgentQuestion {
+  id: string
+  workspace_id: string
+  conversation_id: string
+  task_id: string
+  tool_call_id: string
+  title: string
+  options: { label: string; recommended?: boolean }[]
+  status: 'pending' | 'answered' | 'cancelled'
+  version: number
+  answer?: string
+  created_at: string
 }
 
 export type AgentActivityKind = 'reasoning' | 'tool' | 'subagent'
@@ -249,6 +268,44 @@ export interface MCPServerStatus {
   tool_names: string[]
 }
 
+export interface MCPConfiguration {
+  namespace: string
+  transport: 'stdio'
+  command: string
+  args: string[]
+  cwd: string
+  enabled: boolean
+  env_allowlist: string[]
+  secret_env: string[]
+  enabled_tools: string[] | null
+  disabled_tools: string[]
+}
+export interface ManagedSkill {
+  name: string
+  content: string
+  enabled: boolean
+}
+export interface ExtensionConfig {
+  revision: number
+  mcp_servers: MCPConfiguration[]
+  skill_directories: string[]
+  skills: ManagedSkill[]
+  disabled_skills: string[]
+}
+export interface ExtensionSettings {
+  config: ExtensionConfig
+  active_config?: Pick<ExtensionConfig, 'revision' | 'mcp_servers'>
+  extension_error?: string
+  applied_revision: number
+  reload_required: boolean
+  reloading: boolean
+  runtime_ready: boolean
+  servers: MCPServerStatus[]
+  skills: (InstalledSkill & { enabled: boolean })[]
+  skill_errors: string[]
+  management_available?: boolean
+}
+
 export interface AgentTask {
   id: string
   workspace_id: string
@@ -279,6 +336,21 @@ export interface InstalledSkill {
   kind: 'instruction' | 'workflow'
   source_path: string
   parameters_schema: Record<string, unknown>
+}
+
+export interface ConversationSnapshot {
+  messages: ChatMessage[]
+  tasks: AgentTask[]
+  approvals: Approval[]
+  questions: AgentQuestion[]
+  last_sequence: number
+  truncated: boolean
+}
+
+export interface MessageReceipt {
+  task_id: string
+  status: AgentTask['status'] | 'processing'
+  replayed?: boolean
 }
 
 function chatModelFromWire(value: ChatModelWire): ChatModelSettings {
@@ -395,11 +467,15 @@ export const api = {
       defaultModelId: body.default_model_id || '',
     }
   },
-  async saveChatModel(profile: ChatModelProfile, apiKey = ''): Promise<ChatModelProfile> {
+  async saveChatModel(profile: ChatModelProfile, apiKey = '', credentialSourceId = ''): Promise<ChatModelProfile> {
     const url = profile.id ? `${path}/models/${encodeURIComponent(profile.id)}` : `${path}/models`
     const body = await request<ChatModelWire>(url, {
       method: profile.id ? 'PUT' : 'POST',
-      body: JSON.stringify({ ...chatModelProfileToWire(profile), api_key: apiKey || undefined }),
+      body: JSON.stringify({
+        ...chatModelProfileToWire(profile),
+        api_key: apiKey || undefined,
+        credential_source_id: !apiKey && credentialSourceId ? credentialSourceId : undefined,
+      }),
     })
     return chatModelProfileFromWire(body)
   },
@@ -436,9 +512,11 @@ export const api = {
   async discoverChatModels(
     settings: Pick<ChatModelSettings, 'provider' | 'baseUrl'> & Partial<Pick<ChatModelProfile, 'id'>>,
     apiKey = '',
+    signal?: AbortSignal,
   ): Promise<DiscoveredChatModel[]> {
     const body = await request<{ models: DiscoveredChatModel[] }>(`${path}/models/actions/discover`, {
       method: 'POST',
+      signal,
       body: JSON.stringify({
         id: settings.id || undefined,
         provider: settings.provider,
@@ -493,10 +571,28 @@ export const api = {
     const body = await request<{ skills: InstalledSkill[] }>(`${path}/skills`)
     return body.skills || []
   },
+  getExtensions(): Promise<ExtensionSettings> {
+    return request(`${path}/extension-settings`)
+  },
+  saveExtensions(config: ExtensionConfig): Promise<ExtensionSettings> {
+    return request(`${path}/extension-settings`, { method: 'PUT', body: JSON.stringify(config) })
+  },
+  applyExtensions(revision: number, restoreOnly = false): Promise<ExtensionSettings> {
+    return request(`${path}/extension-settings/apply`, { method: 'POST', body: JSON.stringify({ revision, restore_only: restoreOnly }) })
+  },
   async listTasks(conversationId?: string): Promise<AgentTask[]> {
     const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ''
     const body = await request<{ tasks: AgentTask[] }>(`${path}/tasks${query}`)
     return body.tasks || []
+  },
+  async getCapabilities(): Promise<Record<string, boolean>> {
+    const body = await request<{ capabilities: Record<string, boolean> }>(`${path}/capabilities`)
+    return body.capabilities || {}
+  },
+  resumeTask(taskId: string, version: number): Promise<MessageReceipt> {
+    return request(`${path}/tasks/${encodeURIComponent(taskId)}/resume`, {
+      method: 'POST', body: JSON.stringify({ version }),
+    })
   },
   cancelTask(taskId: string): Promise<AgentTask> {
     return request(`${path}/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
@@ -529,6 +625,9 @@ export const api = {
     return request(`${path}/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
   createConversation(data: {
+    subagent_model_ids?: string[]
+    max_subagent_calls?: number
+    max_concurrent_subagents?: number
     title?: string
     permission_mode?: PermissionMode
     model_id?: string
@@ -545,7 +644,7 @@ export const api = {
   },
   updateConversationSettings(
     id: string,
-    settings: { permission_mode?: PermissionMode; model_id?: string; response_mode?: ResponseMode; title?: string; folder_id?: string; archived?: boolean },
+    settings: { permission_mode?: PermissionMode; model_id?: string; response_mode?: ResponseMode; title?: string; folder_id?: string; archived?: boolean; max_subagent_calls?: number; max_concurrent_subagents?: number; subagent_model_ids?: string[] },
   ): Promise<Conversation> {
     return request(`${path}/conversations/${id}`, {
       method: 'PATCH',
@@ -556,9 +655,27 @@ export const api = {
     const body = await request<{ messages: ChatMessage[] }>(`${path}/conversations/${id}/messages`)
     return body.messages || []
   },
-  sendMessage(id: string, content: string): Promise<{ task_id: string }> {
+  async getConversationSnapshot(id: string): Promise<ConversationSnapshot> {
+    // Snapshot approvals currently use the protobuf JSON shape; keep it out of stores.
+    const body = await request<Omit<ConversationSnapshot, 'approvals' | 'questions'> & {
+      approvals: (Approval & { arguments_json?: string })[]
+      questions: (AgentQuestion & { options_json?: string })[]
+    }>(`${path}/conversations/${encodeURIComponent(id)}/snapshot`)
+    return {
+      messages: body.messages || [], tasks: body.tasks || [],
+      questions: (body.questions || []).map(({ options_json, ...question }) => ({
+        ...question, options: options_json ? JSON.parse(options_json) : question.options || [],
+      })),
+      approvals: (body.approvals || []).map(({ arguments_json, ...approval }) => ({
+        ...approval, arguments: arguments_json ? JSON.parse(arguments_json) : approval.arguments || {},
+      })),
+      last_sequence: Number(body.last_sequence || 0), truncated: Boolean(body.truncated),
+    }
+  },
+  sendMessage(id: string, content: string, idempotencyKey: string): Promise<MessageReceipt> {
     return request(`${path}/conversations/${id}/messages`, {
       method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
       body: JSON.stringify({ content }),
     })
   },
@@ -567,10 +684,20 @@ export const api = {
     const body = await request<{ approvals: Approval[] }>(`${path}/approvals${query}`)
     return body.approvals || []
   },
-  decideApproval(id: string, decision: 'allow' | 'deny', version: number): Promise<{ task_id: string }> {
+  async listQuestions(conversationId?: string): Promise<AgentQuestion[]> {
+    const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ''
+    const body = await request<{ questions: AgentQuestion[] }>(`${path}/questions${query}`)
+    return body.questions || []
+  },
+  answerQuestion(id: string, answer: string, version: number): Promise<{ task_id: string }> {
+    return request(`${path}/questions/${encodeURIComponent(id)}/answer`, {
+      method: 'POST', body: JSON.stringify({ answer, version }),
+    })
+  },
+  decideApproval(id: string, decision: 'allow' | 'deny', version: number, note?: string): Promise<{ task_id: string }> {
     return request(`${path}/approvals/${encodeURIComponent(id)}/decision`, {
       method: 'POST',
-      body: JSON.stringify({ decision, version }),
+      body: JSON.stringify({ decision, version, note }),
     })
   },
   getPermissionSettings(): Promise<PermissionSettings> {

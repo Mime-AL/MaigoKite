@@ -32,26 +32,28 @@ type discoveredModel struct {
 	Details       string `json:"details,omitempty"`
 }
 
+type modelCatalogEntry struct {
+	ID                 string `json:"id"`
+	Key                string `json:"key"`
+	Model              string `json:"model"`
+	Name               string `json:"name"`
+	DisplayName        string `json:"display_name"`
+	OwnedBy            string `json:"owned_by"`
+	ContextLength      int64  `json:"context_length"`
+	ContextWindow      int64  `json:"context_window"`
+	ContextWindowCamel int64  `json:"contextWindow"`
+	Details            struct {
+		Family            string `json:"family"`
+		ParameterSize     string `json:"parameter_size"`
+		QuantizationLevel string `json:"quantization_level"`
+	} `json:"details"`
+}
+
 type modelCatalogPayload struct {
-	Data []struct {
-		ID            string `json:"id"`
-		Name          string `json:"name"`
-		DisplayName   string `json:"display_name"`
-		OwnedBy       string `json:"owned_by"`
-		ContextLength int64  `json:"context_length"`
-		ContextWindow int64  `json:"context_window"`
-	} `json:"data"`
-	Models []struct {
-		ID      string `json:"id"`
-		Key     string `json:"key"`
-		Name    string `json:"name"`
-		Model   string `json:"model"`
-		Details struct {
-			Family            string `json:"family"`
-			ParameterSize     string `json:"parameter_size"`
-			QuantizationLevel string `json:"quantization_level"`
-		} `json:"details"`
-	} `json:"models"`
+	Data    []modelCatalogEntry `json:"data"`
+	Models  json.RawMessage     `json:"models"`
+	HasMore bool                `json:"has_more"`
+	LastID  string              `json:"last_id"`
 }
 
 func normalizeModelBaseURL(provider, rawBaseURL string) string {
@@ -105,6 +107,10 @@ func catalogURL(provider, rawBaseURL string) (*url.URL, error) {
 			path += "/api/tags"
 		}
 	} else if !strings.HasSuffix(path, "/models") {
+		// Anthropic accepts an API root or a root already ending in /v1.
+		if provider == "anthropic" && !strings.HasSuffix(path, "/v1") {
+			path += "/v1"
+		}
 		path += "/models"
 	}
 	endpoint.Path = path
@@ -162,68 +168,133 @@ func discoverAvailableModels(
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	client := modelDiscoveryClient()
+	defer client.CloseIdleConnections()
+	models := make([]discoveredModel, 0)
+	seen := make(map[string]struct{})
+	cursors := make(map[string]struct{})
+	remainingBytes := maxModelCatalogBytes
+	if provider == "anthropic" {
+		query := endpoint.Query()
+		query.Set("limit", "1000")
+		endpoint.RawQuery = query.Encode()
+	}
+	for page := 0; page < 10; page++ {
+		payload, err := fetchModelCatalog(ctx, client, endpoint, provider, apiKey, &remainingBytes)
+		if err != nil {
+			return nil, err
+		}
+		candidates, err := catalogCandidates(payload)
+		if err != nil {
+			return nil, err
+		}
+		for _, model := range candidates {
+			if _, exists := seen[model.ID]; exists {
+				continue
+			}
+			seen[model.ID] = struct{}{}
+			models = append(models, model)
+		}
+		if provider != "anthropic" || !payload.HasMore {
+			sort.SliceStable(models, func(i, j int) bool {
+				return strings.ToLower(models[i].ID) < strings.ToLower(models[j].ID)
+			})
+			return models, nil
+		}
+		if _, repeated := cursors[payload.LastID]; payload.LastID == "" || repeated {
+			return nil, errors.New("模型目录的分页游标无效，请手动输入模型 ID")
+		}
+		cursors[payload.LastID] = struct{}{}
+		query := endpoint.Query()
+		query.Set("after_id", payload.LastID)
+		endpoint.RawQuery = query.Encode()
+	}
+	return nil, errors.New("模型目录分页过多，请手动输入模型 ID")
+}
+
+func fetchModelCatalog(
+	ctx context.Context, client *http.Client, endpoint *url.URL,
+	provider, apiKey string, remainingBytes *int,
+) (modelCatalogPayload, error) {
+	var payload modelCatalogPayload
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return nil, errors.New("无法创建模型目录请求")
+		return payload, errors.New("无法创建模型目录请求")
 	}
 	request.Header.Set("Accept", "application/json")
-	if apiKey != "" {
-		if provider == "anthropic" {
+	if provider == "anthropic" {
+		request.Header.Set("anthropic-version", "2023-06-01")
+		if apiKey != "" {
 			request.Header.Set("x-api-key", apiKey)
-			request.Header.Set("anthropic-version", "2023-06-01")
-		} else {
-			request.Header.Set("Authorization", "Bearer "+apiKey)
 		}
+	} else if apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+apiKey)
 	}
-	response, err := modelDiscoveryClient().Do(request)
+	response, err := client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("无法连接模型目录: %w", err)
+		return payload, fmt.Errorf("无法连接模型目录: %w", err)
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxModelCatalogBytes+1))
+	body, err := io.ReadAll(io.LimitReader(response.Body, int64(*remainingBytes)+1))
 	if err != nil {
-		return nil, errors.New("读取模型目录失败")
+		return payload, errors.New("读取模型目录失败")
 	}
-	if len(body) > maxModelCatalogBytes {
-		return nil, errors.New("模型目录响应过大")
+	*remainingBytes -= len(body)
+	if *remainingBytes < 0 {
+		return payload, errors.New("模型目录响应过大")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("模型目录返回 HTTP %d", response.StatusCode)
+		switch response.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return payload, fmt.Errorf("模型服务拒绝访问（HTTP %d），请检查 API Key 和模型访问权限", response.StatusCode)
+		case http.StatusNotFound, http.StatusMethodNotAllowed:
+			return payload, fmt.Errorf("模型服务未开放该列表接口（HTTP %d），请检查 Base URL 或手动输入模型 ID", response.StatusCode)
+		default:
+			return payload, fmt.Errorf("模型目录返回 HTTP %d", response.StatusCode)
+		}
 	}
-	var payload modelCatalogPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, errors.New("模型目录没有返回可识别的 JSON")
+		return payload, errors.New("模型目录没有返回可识别的 JSON，请检查 Base URL 或手动输入模型 ID")
 	}
-	models := make([]discoveredModel, 0, len(payload.Data)+len(payload.Models))
-	seen := make(map[string]struct{})
-	appendModel := func(model discoveredModel) {
-		model.ID = strings.TrimSpace(model.ID)
-		if model.ID == "" || len(model.ID) > 200 {
-			return
+	return payload, nil
+}
+
+func catalogCandidates(payload modelCatalogPayload) ([]discoveredModel, error) {
+	entries := payload.Data
+	if entries == nil {
+		// Alias keys, not nested canonical IDs, are the callable gateway routes.
+		raw := strings.TrimSpace(string(payload.Models))
+		switch {
+		case strings.HasPrefix(raw, "["):
+			if err := json.Unmarshal(payload.Models, &entries); err != nil {
+				return nil, errors.New("模型列表格式不受支持，请手动输入模型 ID")
+			}
+		case strings.HasPrefix(raw, "{"):
+			var aliases map[string]json.RawMessage
+			if err := json.Unmarshal(payload.Models, &aliases); err != nil {
+				return nil, errors.New("模型列表格式不受支持，请手动输入模型 ID")
+			}
+			for alias, value := range aliases {
+				if !strings.HasPrefix(strings.TrimSpace(string(value)), "{") {
+					continue
+				}
+				var item modelCatalogEntry
+				if err := json.Unmarshal(value, &item); err != nil {
+					continue
+				}
+				if strings.TrimSpace(alias) != "" {
+					item.ID = alias
+				}
+				entries = append(entries, item)
+			}
+		default:
+			return nil, errors.New("服务端没有返回受支持的模型列表，请检查 Base URL 或手动输入模型 ID")
 		}
-		if _, exists := seen[model.ID]; exists {
-			return
-		}
-		seen[model.ID] = struct{}{}
-		if model.Name == "" {
-			model.Name = model.ID
-		}
-		models = append(models, model)
 	}
-	for _, item := range payload.Data {
-		name := item.DisplayName
-		if name == "" {
-			name = item.Name
-		}
-		contextWindow := item.ContextWindow
-		if contextWindow == 0 {
-			contextWindow = item.ContextLength
-		}
-		appendModel(discoveredModel{
-			ID: item.ID, Name: name, OwnedBy: item.OwnedBy, ContextWindow: contextWindow,
-		})
-	}
-	for _, item := range payload.Models {
+	models := make([]discoveredModel, 0, len(entries))
+	for _, item := range entries {
 		id := item.ID
 		if id == "" {
 			id = item.Model
@@ -234,22 +305,34 @@ func discoverAvailableModels(
 		if id == "" {
 			id = item.Name
 		}
+		id = strings.TrimSpace(id)
+		if id == "" || len(id) > 200 {
+			continue
+		}
+		name := item.DisplayName
+		if name == "" {
+			name = item.Name
+		}
+		if name == "" {
+			name = id
+		}
+		contextWindow := item.ContextWindow
+		if contextWindow == 0 {
+			contextWindow = item.ContextLength
+		}
+		if contextWindow == 0 {
+			contextWindow = item.ContextWindowCamel
+		}
 		detailParts := make([]string, 0, 3)
 		for _, part := range []string{item.Details.Family, item.Details.ParameterSize, item.Details.QuantizationLevel} {
 			if part != "" {
 				detailParts = append(detailParts, part)
 			}
 		}
-		appendModel(discoveredModel{ID: id, Name: item.Name, Details: strings.Join(detailParts, " · ")})
-	}
-	if len(models) == 0 {
-		return nil, errors.New("模型目录为空，或响应格式不受支持")
-	}
-	sort.SliceStable(models, func(i, j int) bool {
-		return strings.ToLower(models[i].ID) < strings.ToLower(models[j].ID)
-	})
-	if len(models) > 500 {
-		models = models[:500]
+		models = append(models, discoveredModel{
+			ID: id, Name: name, OwnedBy: item.OwnedBy, ContextWindow: contextWindow,
+			Details: strings.Join(detailParts, " · "),
+		})
 	}
 	return models, nil
 }

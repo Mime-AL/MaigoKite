@@ -1,7 +1,6 @@
 """Native LangChain model construction and Core-owned client cleanup.
 
-No message protocol, fallback loop or tool-call parsing lives here. The legacy
-ChatAdapter also delegates construction here until its callers are migrated.
+No message protocol, fallback loop or tool-call parsing lives here.
 """
 from __future__ import annotations
 
@@ -70,6 +69,9 @@ def build_chat_model(provider: str, model: str, **extra: Any) -> BaseChatModel:
             "model": model,
             "temperature": extra.get("temperature", 0.7),
             "api_key": openai_key,
+            # Ask the SDK for the provider's final streamed usage receipt. Custom
+            # endpoints don't enable this by default; unsupported data stays absent.
+            "stream_usage": True,
         }
         if extra.get("max_tokens"):
             kwargs["max_completion_tokens"] = extra["max_tokens"]
@@ -86,7 +88,7 @@ def build_chat_model(provider: str, model: str, **extra: Any) -> BaseChatModel:
         return ChatOpenAI(**kwargs)
 
     if provider_lower == "anthropic":
-        from langchain_anthropic import ChatAnthropic
+        from agent.models.anthropic_lifecycle import OwnedStreamChatAnthropic
         kwargs = {
             "model": model,
             "temperature": extra.get("temperature", 0.7),
@@ -99,7 +101,7 @@ def build_chat_model(provider: str, model: str, **extra: Any) -> BaseChatModel:
         if extra.get("timeout"):
             kwargs["timeout"] = extra["timeout"]
         kwargs.update({k: v for k, v in extra.items() if k not in ("temperature", "max_tokens", "api_key", "base_url", "timeout")})
-        return ChatAnthropic(**kwargs)
+        return OwnedStreamChatAnthropic(**kwargs)
 
     if provider_lower == "ollama":
         try:
@@ -132,6 +134,7 @@ def build_chat_model(provider: str, model: str, **extra: Any) -> BaseChatModel:
 async def close_chat_models(models: Iterable[Any]) -> None:
     """Close only clients owned by these models; Core calls this after runs stop."""
     closed: set[int] = set()
+    errors: list[Exception] = []
     for llm in models:
         if llm is None:
             continue
@@ -153,6 +156,11 @@ async def close_chat_models(models: Iterable[Any]) -> None:
             close = getattr(client, "aclose", None) or getattr(client, "close", None)
             if close is None:
                 continue
-            result = close()
-            if inspect.isawaitable(result):
-                await result
+            try:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                errors.append(exc)
+    if errors:
+        raise ExceptionGroup("Provider client cleanup failed", errors)

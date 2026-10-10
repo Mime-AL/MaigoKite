@@ -32,11 +32,13 @@ class BashParams(BaseModel):
         default=None,
         description="Working directory inside the current workspace.",
     )
+    max_output_bytes: int = Field(default=8000, ge=256, le=32_000,
+                                  description="Preview bytes per stream. Full output is saved in workspace log files.")
 
 
 BASH_DESCRIPTION = (
     "Execute a command without shell expansion in a workspace-confined process sandbox. "
-    "Returns stdout, stderr, exit code, and execution duration."
+    "Returns bounded stdout/stderr, exit code and log paths. Use file_read with offset to inspect more output."
 )
 
 
@@ -61,7 +63,9 @@ class ExecCommandTool(BaseTool):
         ).expanduser().resolve()
         workdir = Path(str(arguments.get("workdir") or workspace_root)).expanduser().resolve()
         executor = SandboxExecutor(
-            {"workspace_root": str(workspace_root), "workdir": str(workdir)}
+            {"workspace_root": str(workspace_root), "workdir": str(workdir),
+             "output_limit": int(arguments.get("max_output_bytes", 8000)),
+             "output_directory": str(workspace_root / ".maigokite" / "outputs")}
         )
         registry = context.metadata.get("process_registry")
         def on_spawn(process, stdout, stderr, stop):
@@ -78,10 +82,6 @@ class ExecCommandTool(BaseTool):
         parts = [f"Exit code {result.exit_code}"]
         if result.timed_out:
             parts.insert(0, "Timed out")
-        if result.stdout:
-            parts.append(f"stdout: {result.stdout[:200]}")
-        if result.stderr:
-            parts.append(f"stderr: {result.stderr[:200]}")
         parts.append(f"Duration: {result.duration_ms / 1000:.2f}s")
 
         return ToolResult(
@@ -93,6 +93,8 @@ class ExecCommandTool(BaseTool):
                 "timed_out": result.timed_out,
                 "output_truncated": result.output_truncated,
                 "sandboxed": result.sandboxed,
+                "stdout_path": result.stdout_path,
+                "stderr_path": result.stderr_path,
             },
             summary="; ".join(parts),
             raw=result.stdout or result.stderr or "",
@@ -109,7 +111,7 @@ class ExecCommandTool(BaseTool):
 
 
 class BashTool(ExecCommandTool):
-    """Retained for historical /tool calls and pending legacy approvals only."""
+    """Historical command alias; not exposed as a second model tool."""
 
     @property
     def name(self) -> str:

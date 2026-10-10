@@ -10,7 +10,7 @@ withDefaults(defineProps<{ content: string; assistantName?: string; timestamp?: 
   <article class="agent-message">
     <header>
       <strong>{{ assistantName }}</strong
-      ><time v-if="timestamp">{{ timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</time
+      ><time v-if="timestamp">{{ timestamp.toLocaleTimeString($i18n.locale, { hour: '2-digit', minute: '2-digit' }) }}</time
       ><Pulse v-if="isStreaming" state="thinking" />
     </header>
     <MarkdownContent :content="content" :is-streaming="isStreaming" />

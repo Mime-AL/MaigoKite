@@ -7,7 +7,7 @@ const conversations: Conversation[] = [
   {
     id: 'inkline-demo',
     workspace_id: 'personal',
-    title: '把一个想法写成计划',
+    title: '整理一个想法',
     model_id: 'demo',
     permission_mode: 'read_only',
     response_mode: 'balanced',
@@ -24,9 +24,10 @@ const tasks: AgentTask[] = [],
   memories: UserMemory[] = []
 const resumes = new Map<string, () => void>(),
   timers = new Map<string, Set<ReturnType<typeof setTimeout>>>()
+const submissions = new Map<string, { content: string; taskId: string }>()
 const model = {
   id: 'demo',
-  name: '墨线演示',
+  name: '本地预览',
   provider: 'openai_compatible',
   model: 'demo',
   base_url: 'http://localhost:1234/v1',
@@ -105,7 +106,7 @@ function start(sessionId: string, content: string) {
         workspace_id: 'personal',
         subject_user_id: 'local-user',
         category: 'preference',
-        content: '喜欢把大目标拆成可以马上开始的小步骤。',
+        content: '偏好简短的任务清单。',
         source_type: 'agent',
         source_id: sessionId,
         confidence: 1,
@@ -140,7 +141,7 @@ function start(sessionId: string, content: string) {
       })
     },
   })
-  return { task_id: id }
+  return { task_id: id, status: 'processing' }
 }
 export function mockConnect(id: string, receive: (event: AgentEvent) => void): WebSocket {
   const listeners = subscribers.get(id) || new Set<(event: AgentEvent) => void>()
@@ -161,6 +162,7 @@ export function mockConnect(id: string, receive: (event: AgentEvent) => void): W
     if (socket.readyState !== 3) {
       socket.readyState = 1
       socket.onopen?.(new Event('open'))
+      receive({ type: 'stream.ready', payload: {} } as AgentEvent)
     }
   }, 0)
   return socket as unknown as WebSocket
@@ -173,6 +175,9 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
     body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {}
   let result: unknown
   if (url === '/health') result = { status: 'ok', version: 'demo' }
+  else if (parsed.pathname.endsWith('/capabilities'))
+    // The demo does not implement durable recovery; never advertise a fake resume action.
+    result = { capabilities: { task_resume: false } }
   else if (parsed.pathname.endsWith('/preferences')) {
     if (method === 'PATCH') assistantName = String(body.assistant_name)
     result = { assistant_name: assistantName }
@@ -197,7 +202,7 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
   }
   else if (parsed.pathname.endsWith('/permissions')) result = { default_mode: body.default_mode || 'workspace' }
   else if (parsed.pathname.includes('/models/actions/validate'))
-    result = { ok: true, message: '演示连接', model: 'demo' }
+    result = { ok: true, message: '本地预览', model: 'demo' }
   else if (parsed.pathname.includes('/models/actions/discover')) result = { models: [{ id: 'demo' }] }
   else if (parsed.pathname.endsWith('/models') || parsed.pathname.endsWith('/default'))
     result = { models: [model], default_model_id: 'demo' }
@@ -206,6 +211,12 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
   else if (parsed.pathname.includes('/credential-references')) result = { engines: [] }
   else if (parsed.pathname.endsWith('/tool-settings')) result = { tools: [] }
   else if (parsed.pathname.endsWith('/mcp-servers')) result = { servers: [] }
+  else if (parsed.pathname.endsWith('/extension-settings') && method === 'GET') result = {
+    config: { revision: 0, mcp_servers: [], skills: [], skill_directories: [], disabled_skills: [] },
+    applied_revision: 0, reload_required: false, reloading: false, runtime_ready: true,
+    servers: [], skills: [], skill_errors: [], management_available: false,
+  }
+  else if (parsed.pathname.includes('/extension-settings')) throw new Error('演示模式不启动进程或安装扩展，请连接实际服务。')
   else if (parsed.pathname.endsWith('/skills')) result = { skills: [] }
   else if (parsed.pathname.endsWith('/audit-events')) result = { events: [] }
   else if (parsed.pathname.endsWith('/data-summary'))
@@ -241,7 +252,10 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       else memories.push(memory)
       result = memory
     }
-  } else if (parsed.pathname.endsWith('/approvals'))
+  } else if (parsed.pathname.endsWith('/questions')) result = { questions: [] }
+  else if (parsed.pathname.endsWith('/answer') && parts.includes('questions'))
+    throw new Error('没有待回答的提问。')
+  else if (parsed.pathname.endsWith('/approvals'))
     result = {
       approvals: approvals.filter(
         (a) =>
@@ -255,10 +269,14 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
     if (!approval || approval.status !== 'pending' || approval.version !== body.version)
       throw new Error('审批已处理或版本已变化。')
     approval.status = body.decision === 'allow' ? 'approved' : 'denied'
+    approval.note = String(body.note || '')
+    approval.decided_at = now()
+    approval.version++
     const task = tasks.find((t) => t.id === approval.task_id)
     emit(approval.conversation_id, approval.task_id, 'approval.decided', {
       approval_id: approval.id,
       decision: body.decision,
+      note: approval.note,
     })
     if (task) task.status = body.decision === 'allow' ? 'running' : 'cancelled'
     if (body.decision === 'allow') resumes.get(approval.id)?.()
@@ -294,11 +312,36 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
         .filter((e) => e.sequence > Number(parsed.searchParams.get('after') || 0))
         .slice(0, 1000),
     }
-  else if (parsed.pathname.endsWith('/messages')) {
-    const sessionId = parts[parts.length - 2]
-    if (method === 'POST' && conversations.find((item) => item.id === sessionId)?.archived)
-      throw new Error('请先恢复归档对话，再发送消息。')
-    result = method === 'POST' ? start(sessionId, String(body.content)) : { messages: messages.get(sessionId) || [] }
+  else if (parsed.pathname.endsWith('/snapshot')) {
+    const sessionId = decodeURIComponent(parts[parts.length - 2])
+    if (!conversations.some((item) => item.id === sessionId)) throw new Error('对话不存在。')
+    const history = events.get(sessionId) || []
+    result = {
+      messages: messages.get(sessionId) || [],
+      tasks: tasks.filter((item) => item.conversation_id === sessionId),
+      approvals: approvals.filter((item) => item.conversation_id === sessionId && item.status === 'pending'),
+      questions: [], last_sequence: history[history.length - 1]?.sequence || 0, truncated: false,
+    }
+  } else if (parsed.pathname.endsWith('/messages')) {
+    const sessionId = decodeURIComponent(parts[parts.length - 2])
+    const conversation = conversations.find((item) => item.id === sessionId)
+    if (!conversation) throw new Error('对话不存在。')
+    if (method === 'POST') {
+      const content = String(body.content)
+      const key = new Headers(init?.headers).get('Idempotency-Key')
+      const identity = `${sessionId}:${key}`
+      const saved = key ? submissions.get(identity) : undefined
+      if (saved) {
+        if (saved.content !== content) throw new Error('同一请求标识不能用于不同消息。')
+        const task = tasks.find((item) => item.id === saved.taskId)
+        result = { task_id: saved.taskId, status: task?.status, replayed: true }
+      } else {
+        if (conversation.archived) throw new Error('对话已归档，恢复后可发送消息。')
+        const receipt = start(sessionId, content)
+        if (key) submissions.set(identity, { content, taskId: receipt.task_id })
+        result = receipt
+      }
+    } else result = { messages: messages.get(sessionId) || [] }
   } else if (parsed.pathname.endsWith('/conversations')) {
     if (method === 'POST') {
       const conversation: Conversation = {
@@ -321,7 +364,7 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
     const conversation = conversations.find((c) => c.id === id)
     if (!conversation) throw new Error('对话不存在。')
     if ((method === 'DELETE' || body.archived !== undefined || body.folder_id !== undefined) && tasks.some((task) => task.conversation_id === id && ['running', 'waiting_approval'].includes(task.status)))
-      throw new Error('请先停止或完成此对话中的任务。')
+      throw new Error('任务尚未结束，暂时无法移动、归档或删除对话。')
     if (method === 'DELETE') {
       const owned = tasks.filter((task) => task.conversation_id === id)
       owned.forEach((task) => stopTimers(task.id))
@@ -332,6 +375,7 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       conversations.splice(conversations.indexOf(conversation), 1)
       messages.delete(id)
       events.delete(id)
+      for (const key of submissions.keys()) if (key.startsWith(`${id}:`)) submissions.delete(key)
     } else {
       Object.assign(conversation, body, method === 'PATCH' ? { updated_at: now() } : {})
       result = conversation
@@ -348,7 +392,7 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
   else if (parsed.pathname.endsWith('/files/content'))
     result = {
       path: parsed.searchParams.get('path'),
-      content: '# 个人手记\n把想法写下来，慢慢完成。',
+      content: '# 个人手记\n想法与待办事项。',
       binary: false,
       truncated: false,
       size: 50,
@@ -360,12 +404,12 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       status: 'added',
       additions: 2,
       deletions: 0,
-      diff: '+# 下一步\n+从一个小目标开始。',
+      diff: '+# 下一步\n+整理资料，列出待办事项。',
       diff_truncated: false,
     }
     result = parsed.pathname.endsWith('/diff')
       ? change
       : { changes: tasks.some((t) => t.status === 'succeeded') ? [change] : [], git: true, truncated: false }
-  } else throw new Error(`演示未提供此操作：${parsed.pathname}`)
+  } else throw new Error('此操作不可用。')
   return structuredClone(result) as T
 }

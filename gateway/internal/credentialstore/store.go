@@ -5,6 +5,7 @@ package credentialstore
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	keyring "github.com/zalando/go-keyring"
@@ -125,6 +126,13 @@ func (m *Manager) validateAPIKey(engine, apiKey string) error {
 	if trimmed == "" {
 		return errors.New("API key is required")
 	}
+	if strings.HasPrefix(engine, "mcp.") {
+		if strings.ContainsRune(apiKey, 0) || len(apiKey) > 65536 {
+			return errors.New("invalid MCP credential value")
+		}
+		_, _, err := credentialLocation("validation", engine)
+		return err
+	}
 	if !strings.HasPrefix(engine, "model.") && len(trimmed) < 8 {
 		return errors.New("API key is too short")
 	}
@@ -156,6 +164,12 @@ func credentialLocation(workspace, service string) (string, string, error) {
 	case "model.openai", "model.anthropic", "model.openai_compatible":
 		return "model/" + workspace, strings.TrimPrefix(service, "model."), nil
 	default:
+		if strings.HasPrefix(service, "mcp.") {
+			if !regexp.MustCompile(`^mcp\.[a-z][a-z0-9_-]{0,47}\.[A-Za-z_][A-Za-z0-9_]{0,127}$`).MatchString(service) {
+				return "", "", errors.New("invalid MCP credential reference")
+			}
+			return "mcp/" + workspace, strings.TrimPrefix(service, "mcp."), nil
+		}
 		if strings.HasPrefix(service, "model-profile.") {
 			modelID := strings.TrimPrefix(service, "model-profile.")
 			if !strings.HasPrefix(modelID, "model_") || len(modelID) > 86 {

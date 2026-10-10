@@ -10,26 +10,22 @@ const modes: Array<{
   id: PermissionMode
   label: string
   badge?: string
-  description: string
   behavior: string
 }> = [
   {
     id: 'read_only',
     label: '只读',
-    description: '安全地检查项目，不自动修改内容。',
     behavior: '读取与搜索自动执行；编辑、命令和联网操作会请求批准。',
   },
   {
     id: 'workspace',
     label: '工作区',
     badge: '推荐',
-    description: '适合日常任务，在当前工作区内自主执行。',
     behavior: '读取、编辑和安全命令自动执行；联网与高风险命令会请求批准。',
   },
   {
     id: 'full_access',
     label: '完全访问',
-    description: '减少中断，在应用允许的范围内自动执行。',
     behavior: '普通工具与联网操作自动执行；重大影响操作仍会请求批准。',
   },
 ]
@@ -52,8 +48,8 @@ function save() {
     <header class="panel-heading">
       <span><IconSymbol name="shield" :size="21" /></span>
       <div>
-        <h2>执行权限</h2>
-        <p>为新对话选择一个清晰的权限档位；聊天框中仍可按对话切换。</p>
+        <h2>{{ $t('执行权限') }}</h2>
+        <p>{{ $t('新对话的默认权限') }}</p>
       </div>
     </header>
 
@@ -67,11 +63,10 @@ function save() {
           @click="draft.default_mode = mode.id"
         >
           <span
-            ><strong>{{ mode.label }}</strong
-            ><b v-if="mode.badge">{{ mode.badge }}</b></span
+            ><strong>{{ $t(mode.label) }}</strong
+            ><b v-if="mode.badge">{{ $t(mode.badge) }}</b></span
           >
-          <small>{{ mode.description }}</small>
-          <p>{{ mode.behavior }}</p>
+          <p>{{ $t(mode.behavior) }}</p>
         </button>
       </div>
     </section>
@@ -79,14 +74,14 @@ function save() {
     <section class="safety-note">
       <IconSymbol name="shield" :size="17" />
       <div>
-        <strong>系统安全边界始终生效</strong>
-        <p>路径越界、破坏性系统命令等硬性规则不会因选择“完全访问”而被绕过。</p>
+        <strong>{{ $t('安全限制') }}</strong>
+        <p>{{ $t('即使选择“完全访问”，越界访问和危险的系统命令仍会受到限制。') }}</p>
       </div>
     </section>
 
     <footer>
       <button class="primary-button" type="button" :disabled="settings.saving" :aria-busy="settings.saving || undefined" @click="save">
-        {{ settings.saving ? '正在保存…' : '保存权限策略' }}
+        {{ settings.saving ? $t('正在保存…') : $t('保存权限设置') }}
       </button>
     </footer>
   </section>

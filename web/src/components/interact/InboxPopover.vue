@@ -16,22 +16,22 @@ useDialog(dialog, () => ui.inboxOpen)
   <dialog
     ref="dialog"
     class="inbox-shade"
-    aria-label="等你收件箱"
+    :aria-label="$t('通知')"
     @cancel.prevent="ui.inboxOpen = false"
     @keydown.esc.stop
     @click.self="ui.inboxOpen = false"
   >
     <section class="inbox-popover">
       <header>
-        <strong>等你 · {{ inbox.items.length }}</strong
-        ><button class="icon-button" aria-label="关闭收件箱" @click="ui.inboxOpen = false">
+        <strong>{{ $t('通知 · {0}', [inbox.items.length]) }}</strong
+        ><button class="icon-button" :aria-label="$t('关闭收件箱')" @click="ui.inboxOpen = false">
           ×
         </button>
       </header>
-      <p v-if="!inbox.items.length && !inbox.error" class="empty-copy">暂时没有需要你处理的事。</p>
+      <p v-if="!inbox.items.length && !inbox.error" class="empty-copy">{{ $t('暂无待处理通知') }}</p>
       <article v-for="item in inbox.items" :key="item.id">
         <router-link :to="`/chat/${item.sessionId}`" @click="ui.inboxOpen = false">{{
-          session.sessions.find((s) => s.id === item.sessionId)?.title || '对话'
+          session.sessions.find((s) => s.id === item.sessionId)?.title || $t('对话')
         }}</router-link>
         <ApprovalCard v-if="item.mode === 'approval'" :item="item" /><QuestionCard
           v-else
@@ -39,7 +39,7 @@ useDialog(dialog, () => ui.inboxOpen)
         />
       </article>
       <p v-if="inbox.error" class="empty-copy" role="alert">
-        {{ inbox.error }} <button class="secondary-button" @click="inbox.refresh">重新读取</button>
+        {{ inbox.error }} <button class="secondary-button" @click="inbox.refresh">{{ $t('重新读取') }}</button>
       </p>
     </section>
   </dialog>

@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
+	"github.com/gin-gonic/gin"
 	"maigokite/gateway/internal/credentialstore"
 	agentgrpc "maigokite/gateway/internal/grpc"
 	ws "maigokite/gateway/internal/websocket"
 	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
-	"github.com/gin-gonic/gin"
 )
 
 type ApprovalHandler struct {
@@ -96,12 +95,16 @@ func (h *ApprovalHandler) Decide(c *gin.Context) {
 	}
 	// A refusal must work even if the model was removed or the keychain is locked.
 	if req.Decision == "allow" {
-		if err := prepareExecutionCredentials(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), conversationID); err != nil {
+		if err := prepareExecutionCredentials(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), conversationID, pending.TaskId); err != nil {
+			grpcError(c, err)
+			return
+		}
+		if err := prepareMCPApproval(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), pending.ToolName); err != nil {
 			grpcError(c, err)
 			return
 		}
 	}
-	streamContext, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	streamContext, cancel := context.WithCancel(context.Background())
 	events, errs := h.client.DecideApproval(streamContext, &agentv1.ApprovalDecisionRequest{
 		WorkspaceId: c.Param("workspaceID"), ApprovalId: c.Param("approvalID"),
 		PrincipalId: c.GetString("principal_id"), Decision: req.Decision, Version: req.Version,
@@ -122,21 +125,6 @@ func (h *ApprovalHandler) Decide(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": first.Code, "message": first.Message}})
 		return
 	}
-	broadcast := func(event *agentv1.AgentEvent) {
-		payload := json.RawMessage(event.PayloadJson)
-		if len(payload) == 0 || !json.Valid(payload) {
-			payload, _ = json.Marshal(gin.H{"content": event.Content, "message": event.Message, "code": event.Code})
-		}
-		h.hub.BroadcastPersistedEvent(event.ConversationId, event.TaskId, event.Type, payload, event.EventId, uint64(event.Sequence), event.OccurredAt)
-	}
-	broadcast(first)
-	go func() {
-		defer cancel()
-		for event := range events {
-			broadcast(event)
-		}
-		for range errs {
-		}
-	}()
+	forwardExecutionEvents(h.hub, first, events, errs, cancel)
 	c.JSON(http.StatusAccepted, gin.H{"approval_id": c.Param("approvalID"), "task_id": first.TaskId, "status": "processing"})
 }

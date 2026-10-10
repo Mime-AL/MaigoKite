@@ -10,8 +10,8 @@
 | AgentCore | Python 组合根，组织产品命令、资源和业务写入 |
 | 智能体运行时 | 执行模型/工具循环及暂停恢复；新路径复用 LangChain/LangGraph，见 [智能体运行时设计](../design/AgentRuntime.md) |
 | 运行时适配层 | 执行入口、审批桥接、UI 投影与业务持久化的桥接代码，不是第二个运行时 |
-| legacy | 暂留旧自研主循环/ExecutionEngine/TaskManager 的迁移兼容分支 |
-| ExecutionEngine | 旧路径工具策略与执行协调组件，不是新路径调度器 |
+| legacy | 已移除的旧自研执行链；仅用于指代历史记录，不是可选运行后端 |
+| LangGraphRuntime | create_agent/LangGraph 与产品权限、事件、持久投影之间的薄适配层 |
 | ToolRegistry | 工具发现、结构定义、权限/产品元数据和公开转换入口 |
 | 工具调用 / ToolMessage | 模型工具请求与结果，必须保持调用配对，不混入最终回复 |
 | Checkpoint | LangGraph 执行状态，新路径恢复的事实来源；不同于业务库 |

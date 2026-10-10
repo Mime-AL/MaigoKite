@@ -29,7 +29,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import ToolCall as NativeToolCall
-from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.tools import StructuredTool
 from langchain_anthropic import ChatAnthropic
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
@@ -37,9 +36,9 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphInterrupt
 from langgraph.types import Command
 
-from agent.repository import SQLiteRepository
-from agent.models.usage import message_usage
+from agent.repository import ConversationBusyError, SQLiteRepository
 from agent.runtime.context import ContextBudgetMiddleware, SafeSummarizationMiddleware
+from agent.runtime.subagents import CHILD_TAG, ChildContext, DelegateTool, ListSubagentModelsTool, create_readonly_agent
 from agent.tools.base import BaseTool
 from agent.tools.native.file_read import FileReadTool
 from agent.tools.native.file_write import FileWriteTool
@@ -56,7 +55,7 @@ class MaigoKiteEvent:
 
 
 EventPublisher = Callable[[str, dict[str, Any]], Awaitable[None]]
-ModelResolver = Callable[[str, str], Awaitable[tuple[str, BaseChatModel]]]
+ModelResolver = Callable[[str, str, str], Awaitable[tuple[str, BaseChatModel]]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +88,12 @@ class RunHandle:
         request: RuntimeRunRequest,
         root_task: asyncio.Task[None],
         queue: asyncio.Queue[MaigoKiteEvent | object],
+        started: asyncio.Event,
     ) -> None:
         self.request = request
         self.root_task = root_task
         self._queue = queue
+        self._started = started
 
     async def events(self) -> AsyncIterator[MaigoKiteEvent]:
         while True:
@@ -106,15 +107,22 @@ class RunHandle:
         return [event async for event in self.events()]
 
     async def wait(self) -> None:
-        await self.root_task
+        await asyncio.shield(self.root_task)
 
     async def cancel(self) -> None:
+        # Let the root enter its try/finally before cancellation. Otherwise an
+        # immediate stop can prevent all cleanup/status/queue-finalization code
+        # from running. The root yields at this barrier before doing any work.
         if not self.root_task.done():
+            await self._started.wait()
+        if not self.root_task.done() and not self.root_task.cancelling():
             self.root_task.cancel()
         try:
-            await self.root_task
+            # Repeated stop/shutdown callers must not interrupt root cleanup.
+            await asyncio.shield(self.root_task)
         except asyncio.CancelledError:
-            pass
+            if not self.root_task.done():
+                raise
 
 
 @dataclass(slots=True)
@@ -126,13 +134,20 @@ class _RunContext:
     tool_calls: dict[str, dict[str, Any]] = field(default_factory=dict)
     latest_tool_calls: list[dict[str, Any]] = field(default_factory=list)
     finished_tool_calls: set[str] = field(default_factory=set)
+    terminal_emitted: bool = False
     reasoning_parts: list[str] = field(default_factory=list)
     reasoning_started: bool = False
     reasoning_completed: bool = False
     final_saved: bool = False
     interrupted: bool = False
     tool_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    event_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    started: asyncio.Event = field(default_factory=asyncio.Event)
     direct_tool: NativeToolCall | None = None
+    max_subagent_calls: int = 0
+    subagent_model_ids: list[str] = field(default_factory=list)
+    child_slots: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
+    child_scope: asyncio.TaskGroup | None = None
 
 
 class _ProductToolMiddleware(AgentMiddleware):
@@ -152,14 +167,6 @@ class _ProductToolMiddleware(AgentMiddleware):
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         context = request.runtime.context
-        consumed = await context.adapter.repository.consume_task_inputs(
-            context.request.workspace_id, context.request.task_id,
-            {str(message.id) for message in request.messages if isinstance(message, HumanMessage)},
-        )
-        for item in consumed:
-            await context.adapter._emit(context, "task.input.consumed", {
-                "input_id": item["id"], "content": item["content"], "status": "consumed",
-            })
         if context.direct_tool is not None:
             # /tool is explicit user intent, not a second execution engine.
             # Native model-node output still passes through HITL and ToolNode.
@@ -175,7 +182,21 @@ class _ProductToolMiddleware(AgentMiddleware):
         if enabled is not None:
             request = request.override(tools=[tool for tool in request.tools
                                              if getattr(tool, "name", "") in {*enabled, "write_todos"}])
-        return await handler(request)
+        if context.max_subagent_calls == 0:
+            request = request.override(tools=[tool for tool in request.tools if getattr(tool, "name", "") not in {"delegate", "list_subagent_models"}])
+        response = await handler(request)
+        # A budget rejection or failed/cancelled request is not a confirmed
+        # consumption receipt. A successful model response confirms this input;
+        # remote consumption after a lost response remains deliberately unknown.
+        consumed = await context.adapter.repository.consume_task_inputs(
+            context.request.workspace_id, context.request.task_id,
+            {str(message.id) for message in request.messages if isinstance(message, HumanMessage)},
+        )
+        for item in consumed:
+            await context.adapter._emit(context, "task.input.consumed", {
+                "input_id": item["id"], "content": item["content"], "status": "consumed",
+            })
+        return response
 
     async def awrap_tool_call(
         self,
@@ -185,6 +206,17 @@ class _ProductToolMiddleware(AgentMiddleware):
         context = request.runtime.context
         if not isinstance(context, _RunContext):
             raise RuntimeError("LangGraph runtime context is missing")
+        if request.tool_call["name"] == "delegate":
+            # ToolNode fans out independent investigations. Their own semaphore
+            # limits concurrency; holding the file-mutation lock here would
+            # silently turn every user's parallel setting into one.
+            if context.child_scope is None or context.terminal_emitted:
+                raise RuntimeError("delegation requires an active root task scope")
+            work = context.child_scope.create_task(
+                context.adapter._execute_product_tool_call(request, handler),
+                name=f"delegate:{request.tool_call['id']}",
+            )
+            return await work
         # ToolNode retains orchestration and results. Serialize tool bodies
         # during migration, including writes to the same file in one batch.
         async with context.tool_lock:
@@ -208,6 +240,7 @@ class LangGraphRuntime:
         *,
         model: BaseChatModel | None = None,
         model_resolver: ModelResolver | None = None,
+        model_catalog: Callable[[str], Awaitable[list[dict[str, Any]]]] | None = None,
         workspace_root: str | Path,
         checkpoint_path: str | Path,
         product_db_path: str | Path | None = None,
@@ -231,6 +264,7 @@ class LangGraphRuntime:
         self.context_max_tokens = context_max_tokens
         self.max_model_calls = max_model_calls
         self.model_resolver = model_resolver
+        self.model_catalog = model_catalog
         self._execution_metadata = execution_metadata
         self.workspace_root = Path(workspace_root).expanduser().resolve()
         self.checkpoint_path = (
@@ -265,6 +299,7 @@ class LangGraphRuntime:
         self._checkpointer_context: Any | None = None
         self._checkpointer: AsyncSqliteSaver | None = None
         self._graphs: dict[str, Any] = {}
+        self._readonly_graphs: dict[str, Any] = {}
         self._active_runs: dict[str, RunHandle] = {}
         self._conversation_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._checkpoint_threads: set[str] = set()
@@ -286,8 +321,18 @@ class LangGraphRuntime:
         if self.model is not None:
             self._graphs["fixed"] = self._create_graph(self.model)
 
-    def _create_graph(self, model: BaseChatModel) -> Any:
-        runtime_tools = [spec.runtime_tool for spec in self.tool_specs]
+    def readonly_graph(self, key: str, model: BaseChatModel) -> Any:
+        """Cache compiled native child graphs, not execution state or HTTP clients."""
+        if key not in self._readonly_graphs:
+            self._readonly_graphs[key] = create_readonly_agent(model, self.tool_specs, self.context_max_tokens, self.max_model_calls)
+        return self._readonly_graphs[key]
+
+    def _create_graph(self, model: BaseChatModel, model_info: dict[str, Any] | None = None) -> Any:
+        child = create_readonly_agent(model, self.tool_specs, self.context_max_tokens, self.max_model_calls)
+        info = {**(model_info or {}), "model": getattr(model, "model_name", None) or getattr(model, "model", "")}
+        runtime_tools = [DelegateTool(child, info).to_langchain_tool() if spec.tool.name == "delegate"
+                         else ListSubagentModelsTool(info).to_langchain_tool() if spec.tool.name == "list_subagent_models"
+                         else spec.runtime_tool for spec in self.tool_specs]
         interrupt_on: dict[str, bool | InterruptOnConfig] = {
             spec.tool.name: InterruptOnConfig(
                 allowed_decisions=["approve", "reject"],
@@ -296,22 +341,15 @@ class LangGraphRuntime:
             )
             for spec in self.tool_specs
         }
-        overhead = count_tokens_approximately(
-            [SystemMessage(self.system_prompt)] if self.system_prompt else [],
-            tools=[*runtime_tools],
-        )
-        history_budget = max(1, self.context_max_tokens - overhead)
+        planning = TodoListMiddleware()
         middleware: list[AgentMiddleware[Any, Any, Any]] = [
-            TodoListMiddleware(),
+            planning,
             ModelCallLimitMiddleware(thread_limit=self.max_model_calls, exit_behavior="error"),
             SafeSummarizationMiddleware(
                 model=model,
-                trigger=("tokens", max(1, int(history_budget * 0.8))),
-                keep=("tokens", max(1, int(history_budget * 0.4))),
-                # Do not silently drop the beginning before summarizing it.
-                # An already oversized import may fail at the provider; the
-                # safety wrapper keeps its checkpoint rather than losing data.
-                trim_tokens_to_summarize=None,
+                input_budget=self.context_max_tokens,
+                system_prompt="\n\n".join(part for part in (self.system_prompt, planning.system_prompt) if part),
+                tools=[*runtime_tools, *planning.tools],
             ),
             # Append queued user input after compaction so it cannot be reduced
             # to a summary before its first consumption receipt.
@@ -331,29 +369,58 @@ class LangGraphRuntime:
             name="maigokite-langgraph-runtime",
         )
 
-    async def close(self) -> None:
-        handles = list(self._active_runs.values())
+    async def cancel_active_runs(self) -> None:
+        """Stop the current roots using the same cancellation path as one run."""
+        # A finished root may still be waiting for its release callback. Its
+        # failure belongs to wait(), not a fresh cancellation request; replaying
+        # that exception here would prevent closing already-idle resources.
+        handles = [handle for handle in self._active_runs.values() if not handle.root_task.done()]
         if handles:
-            await asyncio.gather(
-                *(handle.cancel() for handle in handles), return_exceptions=True
-            )
+            results = await asyncio.gather(*(handle.cancel() for handle in handles), return_exceptions=True)
+            # Finish draining every root even if one cleanup fails. Do not
+            # silently report successful shutdown after a cleanup error.
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
+
+    async def close(self) -> None:
+        self._opened = False  # No new admissions while owned runs drain.
+        errors: list[Exception] = []
+        try:
+            await self.cancel_active_runs()
+        except Exception as exc:
+            # cancel_active_runs waits for every root before reporting errors.
+            errors.append(exc)
         self._active_runs.clear()
         self._conversation_locks.clear()
         self._graphs.clear()
+        self._readonly_graphs.clear()
         await asyncio.sleep(0)
         if self._checkpointer is not None:
             for task_id in self._checkpoint_threads:
-                await self._checkpointer.aget_tuple(
-                    {"configurable": {"thread_id": task_id}}
-                )
+                try:
+                    await self._checkpointer.aget_tuple(
+                        {"configurable": {"thread_id": task_id}}
+                    )
+                except Exception as exc:
+                    errors.append(exc)
         self._checkpoint_threads.clear()
         self._checkpointer = None
         if self._checkpointer_context is not None:
-            await self._checkpointer_context.__aexit__(None, None, None)
-            self._checkpointer_context = None
+            try:
+                await self._checkpointer_context.__aexit__(None, None, None)
+            except Exception as exc:
+                errors.append(exc)
+            else:
+                self._checkpointer_context = None
         if self._owns_repository:
-            await self.repository.close()
+            try:
+                await self.repository.close()
+            except Exception as exc:
+                errors.append(exc)
         self._opened = False
+        if errors:
+            raise ExceptionGroup("Runtime cleanup failed after draining runs", errors)
 
     async def __aenter__(self) -> "LangGraphRuntime":
         await self.open()
@@ -376,16 +443,22 @@ class LangGraphRuntime:
             request.workspace_id, request.conversation_id
         )
         key, model = await self.model_resolver(
-            request.workspace_id, str(conversation.get("model_id") or "")
+            request.workspace_id, str(conversation.get("model_id") or ""),
+            str(conversation.get("response_mode") or "balanced"),
         )
+        self._require_open()
         graph = self._graphs.get(key)
         if graph is None:
-            graph = self._create_graph(model)
+            catalog = await self.model_catalog(request.workspace_id) if self.model_catalog else []
+            info = next((item for item in catalog if item["model_id"] == conversation.get("model_id")), {})
+            if not conversation.get("model_id"):
+                info = next((item for item in catalog if item.get("is_default")), {})
+            graph = self._create_graph(model, info)
             self._graphs[key] = graph
         return graph
 
     def _policy_decision(
-        self, name: str, arguments: dict[str, Any], context: _RunContext, *, approved: bool = False,
+        self, name: str, arguments: dict[str, Any], context: _RunContext | ChildContext, *, approved: bool = False,
     ) -> PolicyDecision:
         spec = self._specs_by_name.get(name)
         enabled = context.execution_metadata.get("enabled_tools", self._specs_by_name)
@@ -473,20 +546,22 @@ class LangGraphRuntime:
         await self.repository.check_message_replay(actual.workspace_id, actual.task_id, actual.request_hash)
         previous = await self.repository.latest_conversation_task(actual.workspace_id, actual.conversation_id)
         if previous and previous["status"] in {"created", "queued", "running", "waiting_approval", "retry_wait"}:
-            raise ValueError("conversation has unfinished work; finish or cancel it before sending another turn")
+            raise ConversationBusyError("conversation has unfinished work; finish or cancel it before sending another turn")
         if self.has_active_conversation(actual.conversation_id):
-            raise ValueError("conversation is still finishing its previous run")
+            raise ConversationBusyError("conversation is still finishing its previous run")
         # Resolve credentials/model before committing product state. Failure to
         # prepare a run must not leave a phantom running task behind.
         graph = await self._graph_for(actual)
         self._direct_tool_call(prompt, actual.task_id)  # Validate command syntax before persisting.
         messages: list[Any] = []
+        history_source = "product_history"
         if previous and previous["status"] == "succeeded":
             snapshot = await graph.aget_state({"configurable": {"thread_id": str(previous["id"])}})
             if snapshot.values and not snapshot.next and not snapshot.interrupts:
                 # Carry the framework's retained messages, including its summary
                 # and ToolMessages. Counters/interrupts belong to the old run.
                 messages = list(snapshot.values.get("messages", []))
+                history_source = "checkpoint"
         if not messages:
             # First migration/legacy or interrupted history: no invented tool
             # results or continuation. Import only the visible product history.
@@ -495,18 +570,41 @@ class LangGraphRuntime:
                 {"role": str(item["role"]), "content": str(item["content"])}
                 for item in history if str(item.get("role")) in {"user", "assistant", "system"}
             ]
+            if previous and previous["status"] != "succeeded":
+                messages.insert(0, SystemMessage(
+                    "Execution boundary: the previous task ended with status " + str(previous["status"]) +
+                    ". Only visible conversation history was imported, not a runnable continuation. "
+                    "Earlier tool side effects may have occurred. Inspect the actual state before repeating actions; "
+                    "this note does not grant permission or imply a rollback."
+                ))
         await self.repository.start_chat_turn(
             actual.task_id, actual.workspace_id, actual.conversation_id, prompt, actual.request_hash,
+            model_call_limit=self.max_model_calls,
         )
         messages.append({"role": "user", "content": prompt})
-        return await self._launch(
-            {"messages": messages},
-            actual,
-            graph=graph,
-            initial_events=[
-                ("task.started", {"trace_id": actual.trace_id, "input_text": prompt})
-            ],
-        )
+        try:
+            return await self._launch(
+                {"messages": messages},
+                actual,
+                graph=graph,
+                initial_events=[
+                    ("task.started", {"trace_id": actual.trace_id, "input_text": prompt}),
+                    ("context.history", {"source": history_source, "previous_task_id": previous["id"] if previous else None,
+                                         "execution_resumed": False}),
+                ],
+            )
+        except asyncio.CancelledError:
+            # No root task owns this admission yet. Drain this entry before Core
+            # closes Repository; do not leave a phantom running task until restart.
+            await self.repository.cancel_task(actual.workspace_id, actual.task_id)
+            await self._publish_event(actual, "task.cancelled", {"message": "cancelled before execution started"})
+            raise
+        except Exception as exc:
+            task = await self.repository.get_task(actual.workspace_id, actual.task_id)
+            if task["status"] != "cancelled":
+                await self.repository.update_task_status(actual.task_id, "failed", str(exc))
+                await self._publish_event(actual, "task.failed", {"message": str(exc), "error_type": type(exc).__name__})
+            raise
 
     async def resume_approval(
         self,
@@ -535,33 +633,51 @@ class LangGraphRuntime:
             raise ValueError("decision must be allow or deny")
         pending = await self.repository.get_approval(workspace_id, approval_id)
         pending_task = await self.repository.get_task(workspace_id, str(pending["task_id"]))
+        conversation = await self.repository.get_conversation(
+            workspace_id, str(pending_task["conversation_id"])
+        )
+        request = RuntimeRunRequest(
+            workspace_id=workspace_id,
+            conversation_id=str(pending_task["conversation_id"]),
+            task_id=str(pending_task["id"]),
+            principal_id=principal_id,
+            permission_mode=str(conversation["permission_mode"]),
+        )
         # Allow may resume execution and needs a model. Deny cancels the turn;
         # it must not depend on credentials or provider availability.
         graph = None
         if decision != "deny":
-            graph = await self._graph_for(RuntimeRunRequest(
-                workspace_id=workspace_id, conversation_id=str(pending_task["conversation_id"]),
-            ))
+            graph = await self._graph_for(request)
+            snapshot = await graph.aget_state({"configurable": {"thread_id": str(pending_task["id"])}})
+            proposal = next((message for message in reversed(snapshot.values.get("messages", []))
+                             if isinstance(message, AIMessage)), None)
+            if not snapshot.interrupts or proposal is None:
+                raise ValueError("approval has no matching runtime interrupt; cancel and start a new task")
+            try:
+                calls = self._review_calls(snapshot.interrupts, [dict(call) for call in proposal.tool_calls])
+            except RuntimeError as exc:
+                raise ValueError("approval no longer matches the runtime checkpoint") from exc
+            call = next((call for call in calls if call["id"] == pending["tool_call_id"]
+                         and call["name"] == pending["tool_name"]), None)
+            if call is None:
+                raise ValueError("approval no longer matches the runtime checkpoint")
+            review_context = _RunContext(self, request, asyncio.Queue())
+            if self._execution_metadata is not None:
+                review_context.execution_metadata = await self._execution_metadata(request)
+            policy = self._policy_decision(call["name"], call["args"], review_context)
+            if policy.outcome != "approval_required" or not self._matches_approval(pending, call["name"], policy):
+                # Do not consume the user's version for a different normalized
+                # path/payload, even if the checkpoint reused the same call ID.
+                raise PermissionError("approval parameters or policy changed; cancel and start a new task")
         approval = await self.repository.decide_approval(
             workspace_id, approval_id, principal_id, decision, version, note
         )
         if decision == "allow":
-            # The legacy API marks an approved tool running immediately. Here
-            # it still waits for the rest of the native HITL batch to be reviewed.
+            # Approval consumption is not execution. The tool still waits for
+            # the rest of the native HITL batch to be reviewed.
             await self.repository.update_tool_call(
                 str(approval["tool_call_id"]), "waiting_approval"
             )
-        task = await self.repository.get_task(workspace_id, str(approval["task_id"]))
-        conversation = await self.repository.get_conversation(
-            workspace_id, str(task["conversation_id"])
-        )
-        request = RuntimeRunRequest(
-            workspace_id=workspace_id,
-            conversation_id=str(task["conversation_id"]),
-            task_id=str(task["id"]),
-            principal_id=principal_id,
-            permission_mode=str(conversation["permission_mode"]),
-        )
         return await self._launch(
             # Repository stores the user's decision, not execution state.
             # _drive resumes the native HITL batch only when review is complete.
@@ -579,22 +695,89 @@ class LangGraphRuntime:
             ],
         )
 
-    async def recover(self, workspace_id: str, task_id: str) -> RunHandle:
+    async def recover(
+        self, workspace_id: str, task_id: str, *,
+        principal_id: str = "local-user", version: int | None = None, trace_id: str = "",
+    ) -> RunHandle:
         """Continue the latest checkpoint without inventing a continuation payload."""
         self._require_open()
+        # The public entry requires an optimistic version and an explicit owner.
+        # Unversioned recovery remains internal to the existing runtime spike.
+        if version is not None:
+            if await self.repository.check_workspace_access(workspace_id, principal_id) != "owner":
+                raise PermissionError("only the workspace owner can resume interrupted execution")
+            if version < 1:
+                raise ValueError("a positive task version is required")
         task = await self.repository.get_task(workspace_id, task_id)
         conversation = await self.repository.get_conversation(
             workspace_id, str(task["conversation_id"])
         )
-        if str(task["status"]) not in {"cancelled", "succeeded", "failed"}:
-            await self.repository.update_task_status(task_id, "running")
         request = RuntimeRunRequest(
             workspace_id=workspace_id,
             conversation_id=str(task["conversation_id"]),
             task_id=task_id,
+            principal_id=principal_id,
             permission_mode=str(conversation["permission_mode"]),
+            trace_id=trace_id,
         )
-        return await self._launch(None, request)
+        async with self._conversation_locks[request.conversation_id]:
+            task = await self.repository.get_task(workspace_id, task_id)
+            if task["status"] in {"cancelled", "succeeded", "failed", "expired", "timed_out", "rejected"}:
+                raise ValueError("terminal tasks cannot be replayed; send a new message")
+            if version is not None and (task["status"] != "interrupted" or task["version"] != version):
+                raise ValueError("task is not interrupted at this version; refresh its status")
+            latest = await self.repository.latest_conversation_task(workspace_id, request.conversation_id)
+            if latest and latest["id"] != task_id:
+                raise ValueError("cannot recover an older turn after a newer turn was admitted")
+            if self.has_active_conversation(request.conversation_id):
+                raise ConversationBusyError("conversation still has an active run")
+            if not await self.has_checkpoint(task_id):
+                raise ValueError("no execution checkpoint is available for this task")
+            graph = await self._graph_for(request)
+            if version is not None:
+                conversation = await self.repository.get_conversation(workspace_id, request.conversation_id)
+                if conversation.get("archived"):
+                    raise ValueError("archived conversations cannot resume execution")
+                snapshot = await graph.aget_state({"configurable": {"thread_id": task_id}})
+                if not snapshot.next and not snapshot.interrupts:
+                    raise ValueError("checkpoint has no unfinished execution; send a new message")
+                direct = self._direct_tool_call(str(task["input_text"]), task_id)
+                if direct is not None and direct["name"] not in {"file_read", "file_write"}:
+                    raise ValueError("direct command recovery supports only file_read/file_write")
+                # Initial production recovery is deliberately file-only. Inspect
+                # native retained history, not a truncated UI projection. This
+                # may reject a turn that inherited earlier non-file tool calls.
+                if any(
+                    call["name"] not in {"file_read", "file_write"}
+                    for message in snapshot.values.get("messages", []) if isinstance(message, AIMessage)
+                    for call in message.tool_calls
+                ):
+                    raise ValueError("checkpoint includes tools outside file_read/file_write; replay is not supported")
+            admitted = False
+            try:
+                if version is None:
+                    await self.repository.update_task_status(task_id, "running")
+                else:
+                    await self.repository.resume_interrupted_task(workspace_id, task_id, version)
+                admitted = True
+                return await self._launch(None, request, graph=graph, initial_events=[
+                    ("task.resumed", {"trace_id": trace_id, "execution_resumed": True,
+                                      "principal_id": principal_id, "previous_version": task["version"]}),
+                ])
+            except asyncio.CancelledError:
+                if not admitted:
+                    raise
+                await self.repository.cancel_task(workspace_id, task_id)
+                await self._publish_event(request, "task.cancelled", {"message": "cancelled before recovery started"})
+                raise
+            except Exception:
+                if not admitted:
+                    raise
+                # Admission failed before a root took ownership. Preserve the
+                # checkpoint for an explicit retry, not a phantom running task.
+                await self.repository.update_task_status(task_id, "interrupted", "recovery could not start")
+                await self._publish_event(request, "task.interrupted", {"message": "recovery could not start"})
+                raise
 
     async def answer_question(self, workspace_id: str, question_id: str, principal_id: str,
                               answer: str, version: int) -> RunHandle:
@@ -636,8 +819,8 @@ class LangGraphRuntime:
         if handle is None or handle.root_task.done():
             raise ValueError("task is not executing; send a new turn")
         item = await self.repository.submit_task_input(workspace_id, task_id, content, idempotency_key)
-        # Queued is only a receipt. The consumed event is emitted after the
-        # HumanMessage is present in the graph's persisted model input.
+        # Queued is only a receipt. Consumption is confirmed after a successful
+        # model response containing this input, not merely after enqueueing it.
         await self._publish_event(RuntimeRunRequest(workspace_id=workspace_id,
             conversation_id=str(task["conversation_id"]), task_id=task_id),
             "task.input.queued", {"input_id": item["id"], "content": item["content"], "status": item["status"]})
@@ -688,6 +871,7 @@ class LangGraphRuntime:
         initial_events: Sequence[tuple[str, dict[str, Any]]] = (),
         graph: Any = None,
     ) -> RunHandle:
+        self._require_open()
         existing = self._active_runs.get(request.task_id)
         if existing is not None:
             if existing.root_task.done():
@@ -702,25 +886,18 @@ class LangGraphRuntime:
         queue: asyncio.Queue[MaigoKiteEvent | object] = asyncio.Queue()
         context = _RunContext(self, request, queue)
         context.direct_tool = None if cancelled else self._direct_tool_call(str(product_task["input_text"]), request.task_id)
-        context.execution_metadata = (
-            await self._execution_metadata(request) if self._execution_metadata and not cancelled else {
-                "workspace_id": request.workspace_id,
-                "workspace_root": str(self.workspace_root),
-                "conversation_id": request.conversation_id,
-                "principal_id": request.principal_id,
-                "permission_mode": request.permission_mode,
-            }
-        )
+        self._require_open()
         for event_type, payload in initial_events:
             await self._emit(context, event_type, payload)
         task = asyncio.create_task(
             self._drive(graph, graph_input, context),
             name=f"maigokite-langgraph:{request.task_id}",
         )
-        handle = RunHandle(request, task, queue)
+        handle = RunHandle(request, task, queue, context.started)
         self._active_runs[request.task_id] = handle
 
         def release(_completed: asyncio.Task[None]) -> None:
+            context.started.set()
             if self._active_runs.get(request.task_id) is handle:
                 self._active_runs.pop(request.task_id, None)
 
@@ -743,12 +920,34 @@ class LangGraphRuntime:
     async def _drive(self, graph: Any, graph_input: Any, context: _RunContext) -> None:
         config = {"configurable": {"thread_id": context.request.task_id}}
         try:
+            context.started.set()
+            await asyncio.sleep(0)
             task = await self.repository.get_task(context.request.workspace_id, context.request.task_id)
+            context.max_subagent_calls = int(task.get("max_subagent_calls", 0))
+            context.subagent_model_ids = json.loads(task.get("subagent_model_ids_json", "[]"))
+            context.child_slots = asyncio.Semaphore(int(task.get("max_concurrent_subagents", 1)))
             if task["status"] == "cancelled":
                 # A rejected/cancelled turn must never re-enter its checkpoint,
                 # invoke tools, or ask a provider to acknowledge the rejection.
                 await self._emit(context, "task.cancelled", {"message": "Task cancelled"})
                 return
+            # Preparation belongs to the root's cancellation/error boundary too,
+            # including approval/question resumes whose decision already committed.
+            request = context.request
+            context.execution_metadata = (
+                await self._execution_metadata(request) if self._execution_metadata else {
+                    "workspace_id": request.workspace_id,
+                    "workspace_root": str(self.workspace_root),
+                    "conversation_id": request.conversation_id,
+                    "principal_id": request.principal_id,
+                    "permission_mode": request.permission_mode,
+                }
+            )
+            if context.max_subagent_calls == 0 or "delegate" not in context.execution_metadata.get("enabled_tools", self._specs_by_name):
+                context.execution_metadata["enabled_tools"] = [
+                    name for name in context.execution_metadata.get("enabled_tools", self._specs_by_name)
+                    if name not in {"delegate", "list_subagent_models"}
+                ]
             if graph_input is None:
                 snapshot = await graph.aget_state(config)
                 if snapshot.interrupts:
@@ -776,15 +975,19 @@ class LangGraphRuntime:
                         # do not restart the graph while its interrupt is pending.
                         await self._handle_interrupts(snapshot.interrupts, context)
                         return
-            async for event in graph.astream(
-                graph_input,
-                config=config,
-                context=context,
-                stream_mode=["messages", "updates"],
-                durability="sync",
-                version="v2",
-            ):
-                await self._map_runtime_event(event, context)
+            # Scope exits (including cancellation cleanup) before any parent
+            # terminal status is published. No detached child task survives it.
+            async with asyncio.TaskGroup() as children:
+                context.child_scope = children
+                async for event in graph.astream(
+                    graph_input,
+                    config=config,
+                    context=context,
+                    stream_mode=["messages", "updates"],
+                    durability="sync",
+                    version="v2",
+                ):
+                    await self._map_runtime_event(event, context)
             if context.interrupted:
                 return
             if context.reasoning_started and not context.reasoning_completed:
@@ -809,16 +1012,25 @@ class LangGraphRuntime:
                 )
                 await self._emit(context, "task.succeeded", {})
         except asyncio.CancelledError:
-            await self.repository.cancel_task(
+            task = await self.repository.cancel_task(
                 context.request.workspace_id, context.request.task_id
             )
+            # Completion may have committed immediately before stop arrived.
+            # Do not publish cancelled over an immutable succeeded/failed row.
+            status = str(task["status"])
             await self._emit(
                 context,
-                "task.cancelled",
-                {"message": "cancelled by user"},
+                "task.cancelled" if status == "cancelled" else (
+                    "task.succeeded" if status == "succeeded" else "task.failed"
+                ),
+                {"message": "cancelled by user" if status == "cancelled" else task.get("last_error", "")},
             )
             raise
         except Exception as exc:
+            # Native TaskGroup groups a body error after draining children.
+            # Keep a lone original error useful to users/inspection.
+            while isinstance(exc, ExceptionGroup) and len(exc.exceptions) == 1:
+                exc = exc.exceptions[0]
             task = await self.repository.get_task(
                 context.request.workspace_id, context.request.task_id
             )
@@ -848,30 +1060,39 @@ class LangGraphRuntime:
         )
         return checkpoint is not None
 
-    async def owns_task(self, task_id: str) -> bool:
-        return task_id in self._active_runs or await self.has_checkpoint(task_id)
-
     async def cancel(self, workspace_id: str, task_id: str) -> dict[str, Any]:
         """Cancel and await an active root task before publishing completion."""
+        # Validate ownership before touching an in-memory handle.
+        task = await self.repository.get_task(workspace_id, task_id)
         handle = self._active_runs.get(task_id)
-        if handle is not None:
+        if handle is not None and not handle.root_task.done():
             await handle.cancel()
             return await self.repository.get_task(workspace_id, task_id)
-        task = await self.repository.get_task(workspace_id, task_id)
-        if str(task["status"]) in {"succeeded", "failed", "cancelled", "timed_out", "expired"}:
-            return task
-        cancelled = await self.repository.cancel_task(workspace_id, task_id)
-        request = RuntimeRunRequest(
-            workspace_id=workspace_id,
-            conversation_id=str(cancelled["conversation_id"]),
-            task_id=task_id,
-        )
-        await self._publish_event(
-            request,
-            "task.cancelled",
-            {"message": "Cancelled by user"},
-        )
-        return cancelled
+        # Admission/resume owns this lock until its root is registered. Stop
+        # must not race that gap and publish a terminal event before task.started.
+        # Active execution above remains immediately cancellable without the lock.
+        async with self._conversation_locks[str(task["conversation_id"])]:
+            handle = self._active_runs.get(task_id)
+            if handle is not None and not handle.root_task.done():
+                await handle.cancel()
+                return await self.repository.get_task(workspace_id, task_id)
+            task = await self.repository.get_task(workspace_id, task_id)
+            if str(task["status"]) in {"succeeded", "failed", "cancelled", "rejected", "timed_out", "expired"}:
+                return task
+            cancelled = await self.repository.cancel_task(workspace_id, task_id)
+            if cancelled["status"] != "cancelled":
+                return cancelled
+            request = RuntimeRunRequest(
+                workspace_id=workspace_id,
+                conversation_id=str(cancelled["conversation_id"]),
+                task_id=task_id,
+            )
+            await self._publish_event(
+                request,
+                "task.cancelled",
+                {"message": "Cancelled by user"},
+            )
+            return cancelled
 
     async def _map_runtime_event(self, event: dict[str, Any], context: _RunContext) -> None:
         event_type = str(event.get("type") or "")
@@ -880,7 +1101,7 @@ class LangGraphRuntime:
             metadata = data[1] if len(data) > 1 and isinstance(data[1], dict) else {}
             # Native summarization makes a model call too; its tokens are not
             # the user's answer. Only the public model node streams to the UI.
-            if metadata.get("langgraph_node") != "model":
+            if metadata.get("langgraph_node") != "model" or CHILD_TAG in metadata.get("tags", []):
                 return
             await self._map_message(data[0], context)
             return
@@ -909,8 +1130,6 @@ class LangGraphRuntime:
                     continue
                 if not isinstance(message, AIMessage):
                     continue
-                if usage := message_usage(message):
-                    await self._emit(context, "model.usage", {"usage": usage, "purpose": "response"})
                 if message.tool_calls:
                     await self._record_tool_proposals(message, context)
                 else:
@@ -1011,10 +1230,12 @@ class LangGraphRuntime:
                 "name": str(raw_call.get("name") or ""),
                 "args": dict(raw_call.get("args") or {}),
             }
+            if call["name"] == "delegate" and any(item["id"] == call["id"] for item in context.latest_tool_calls):
+                raise ValueError("delegate call IDs must be unique within a model turn")
             context.latest_tool_calls.append(call)
             context.tool_calls[call["id"]] = call
             try:
-                await self.repository.get_tool_call(call["id"])
+                stored = await self.repository.get_tool_call(call["id"])
             except KeyError:
                 await self.repository.create_tool_call(
                     call["id"],
@@ -1034,11 +1255,29 @@ class LangGraphRuntime:
                         "arguments": call["args"],
                     },
                 )
+            else:
+                if (stored["workspace_id"] != context.request.workspace_id
+                        or stored["conversation_id"] != context.request.conversation_id
+                        or stored["task_id"] != context.request.task_id
+                        or stored["tool_name"] != call["name"]):
+                    raise ValueError("tool call ID already belongs to a different product operation")
+                if call["name"] == "delegate" and (
+                    stored["arguments_json"] != json.dumps(call["args"], ensure_ascii=False, sort_keys=True)
+                    or call["id"] in context.finished_tool_calls
+                ):
+                    raise ValueError("delegate call IDs cannot be reused for another dispatch")
+
+    def _matches_approval(self, record: dict[str, Any], name: str, decision: PolicyDecision) -> bool:
+        return (
+            record["tool_name"] == name
+            and record["risk_level"] == decision.risk.name
+            and self.repository.approval_matches_arguments(record, decision.arguments)
+        )
 
     @staticmethod
-    def _review_calls(interrupts: Any, context: _RunContext) -> list[dict[str, Any]]:
+    def _review_calls(interrupts: Any, ordered_calls: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         """Match native HITL actions to the checkpoint's ordered call IDs."""
-        remaining = list(context.latest_tool_calls)
+        remaining = list(ordered_calls)
         calls: list[dict[str, Any]] = []
         for interrupt_value in interrupts:
             value = getattr(interrupt_value, "value", None)
@@ -1077,7 +1316,7 @@ class LangGraphRuntime:
         separate batch state is stored; a new process derives this from the
         same checkpoint and Repository decisions.
         """
-        calls = self._review_calls(interrupts, context)
+        calls = self._review_calls(interrupts, context.latest_tool_calls)
         required = [
             call["id"] for call in context.latest_tool_calls
             if self._policy_decision(call["name"], call["args"], context).outcome == "approval_required"
@@ -1097,7 +1336,7 @@ class LangGraphRuntime:
         for call, record in zip(calls, reviewed, strict=True):
             assert record is not None
             decision = self._policy_decision(call["name"], call["args"], context)
-            if record["arguments"] != decision.arguments:
+            if not self._matches_approval(record, call["name"], decision):
                 raise PermissionError("approved arguments no longer match the checkpoint tool call")
         return Command(resume={"decisions": [{"type": "approve"} for _ in calls]})
 
@@ -1115,7 +1354,7 @@ class LangGraphRuntime:
             context.interrupted = True
             return
         records = await self._review_records(context)
-        for call in self._review_calls(interrupts, context):
+        for call in self._review_calls(interrupts, context.latest_tool_calls):
             approval = records.get(call["id"])
             if approval is not None and approval["status"] == "consumed":
                 # Also correct this projection after a crash between committing
@@ -1203,7 +1442,21 @@ class LangGraphRuntime:
                 content="New user input arrived. This proposed tool was not executed; reconsider it after reading the user's message.",
                 tool_call_id=str(request.tool_call["id"]), name=tool_name, status="error",
             )
-        decision = self._policy_decision(tool_name, arguments, context, approved=True)
+        decision = self._policy_decision(tool_name, arguments, context)
+        approved = next((record for record in await self.repository.list_approvals(
+            context.request.workspace_id, context.request.conversation_id, "consumed",
+        ) if record["task_id"] == context.request.task_id
+            and record["tool_call_id"] == request.tool_call["id"]), None)
+        if approved is not None or decision.outcome == "approval_required":
+            # HITL owns suspension/resume. The product audit still owns the
+            # authorization, including replay directly into a ToolNode after
+            # the approval interrupt has already been checkpointed away.
+            decision = self._policy_decision(tool_name, arguments, context, approved=approved is not None)
+            if approved is None or not self._matches_approval(approved, tool_name, decision):
+                return ToolMessage(
+                    content="No matching approval for these tool parameters; this tool was not executed.",
+                    tool_call_id=str(request.tool_call["id"]), name=tool_name, status="error",
+                )
         if decision.outcome != "allow":
             # ToolNode still projects the returned failure to the model and UI;
             # a hidden/disabled call never reaches the actual tool body.
@@ -1233,11 +1486,7 @@ class LangGraphRuntime:
             },
         )
         try:
-            result = self._reconcile_file_write(
-                tool_name, call_id, decision.arguments
-            )
-            if result is None:
-                result = await handler(request)
+            result = await handler(request)
         except GraphInterrupt:
             # LangGraph owns the suspension; asking a question is not a failed tool.
             raise
@@ -1298,51 +1547,19 @@ class LangGraphRuntime:
             await self._emit(context, "file.changed", {**change, "tool_call_id": call_id})
         return result
 
-    @staticmethod
-    def _reconcile_file_write(
-        tool_name: str, call_id: str, arguments: dict[str, Any]
-    ) -> ToolMessage | None:
-        """Treat an already-satisfied file content write as safely reconciled."""
-        if tool_name != "file_write":
-            return None
-        path = arguments.get("path")
-        content = arguments.get("content")
-        encoding = arguments.get("encoding", "utf-8")
-        if (
-            not isinstance(path, str)
-            or not isinstance(content, str)
-            or not isinstance(encoding, str)
-        ):
-            return None
-        target = Path(path)
-        if not target.is_file():
-            return None
-        try:
-            current = target.read_text(encoding=encoding)
-        except (LookupError, OSError, UnicodeError):
-            return None
-        if current != content:
-            return None
-        payload = {
-            "path": path,
-            "bytes_written": len(content.encode(encoding)),
-            "reconciled": True,
-        }
-        return ToolMessage(
-            content=json.dumps(payload, ensure_ascii=False),
-            tool_call_id=call_id,
-            name=tool_name,
-            status="success",
-        )
-
     async def _emit(
         self,
         context: _RunContext,
         event_type: str,
         payload: dict[str, Any],
     ) -> None:
-        enriched = await self._publish_event(context.request, event_type, payload)
-        await context.queue.put(MaigoKiteEvent(event_type, enriched))
+        async with context.event_lock:
+            if context.terminal_emitted:
+                return
+            enriched = await self._publish_event(context.request, event_type, payload)
+            if event_type in {"task.cancelled", "task.failed", "task.succeeded", "task.interrupted"}:
+                context.terminal_emitted = True
+            await context.queue.put(MaigoKiteEvent(event_type, enriched))
 
     async def _publish_event(
         self,

@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /**
  * Settings Store — 管理用户配置（模型、API Key、权限、搜索工具等）
  */
@@ -75,7 +76,7 @@ export const useSettingsStore = defineStore('settings', () => {
       profile.value = await api.updateUserPreferences({ assistantName })
       cacheAssistantName(profile.value.assistantName)
       profileLoaded.value = true
-      success.value = '界面称呼已更新。'
+      success.value = t("界面称呼已更新。")
       return true
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
@@ -96,7 +97,7 @@ export const useSettingsStore = defineStore('settings', () => {
     success.value = null
     try {
       permissions.value = await api.updatePermissionSettings(value)
-      success.value = '权限策略已保存，新任务将立即使用。'
+      success.value = t("默认权限已保存。")
       return true
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
@@ -149,6 +150,14 @@ export const useSettingsStore = defineStore('settings', () => {
     defaultModelId.value = catalog.defaultModelId
   }
 
+  function projectModelProfile(saved: ChatModelProfile) {
+    if (saved.isDefault) modelProfiles.value.forEach(item => { item.isDefault = false })
+    const index = modelProfiles.value.findIndex(item => item.id === saved.id)
+    if (index >= 0) modelProfiles.value[index] = saved
+    else modelProfiles.value.push(saved)
+    if (saved.isDefault || !defaultModelId.value) defaultModelId.value = saved.id
+  }
+
   async function saveModelProfile(profile: ChatModelProfile, apiKey = '') {
     saving.value = true
     error.value = null
@@ -156,16 +165,59 @@ export const useSettingsStore = defineStore('settings', () => {
     validation.value = null
     try {
       const saved = await api.saveChatModel(profile, apiKey)
-      const index = modelProfiles.value.findIndex(item => item.id === saved.id)
-      if (index >= 0) modelProfiles.value[index] = saved
-      else modelProfiles.value.push(saved)
-      if (saved.isDefault || !defaultModelId.value) {
-        defaultModelId.value = saved.id
-      }
-      success.value = `模型配置“${saved.name}”已保存。`
+      projectModelProfile(saved)
+      success.value = t("模型配置“{0}”已保存。", [saved.name])
       return saved
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
+      return null
+    } finally {
+      saving.value = false
+    }
+  }
+
+  async function saveModelProfiles(profiles: ChatModelProfile[], apiKey = '', credentialSourceId = '', removedIds: string[] = []) {
+    if (saving.value || !profiles.length) return null
+    saving.value = true
+    error.value = null
+    success.value = null
+    validation.value = null
+    const saved: ChatModelProfile[] = []
+    let key = apiKey
+    let sourceId = credentialSourceId
+    let removedCount = 0
+    try {
+      // The existing catalog is read/modify/write: save serially, not in parallel.
+      for (const item of profiles) {
+        // Grouping is presentation, not proof of shared credentials. Only copy to a
+        // new/unconfigured model, or when the user explicitly replaces the service key.
+        const existing = modelProfiles.value.find(profile => profile.id === item.id)
+        const endpointEdited = existing && (existing.provider !== item.provider || existing.baseUrl !== item.baseUrl)
+        const copyFrom = !apiKey && item.credentialConfigured && endpointEdited
+          ? item.id
+          : item.id !== sourceId && (Boolean(apiKey) || !item.credentialConfigured) ? sourceId : ''
+        const result = await api.saveChatModel(item, key, copyFrom)
+        projectModelProfile(result)
+        saved.push(result)
+        if (result.credentialConfigured) {
+          if (key || !sourceId) sourceId = result.id
+          key = ''
+        }
+      }
+      // Save first: a partial update must not discard the old, still usable models.
+      for (const id of removedIds) {
+        await api.deleteChatModel(id)
+        removedCount++
+      }
+      await loadModelProfiles()
+      success.value = saved.length === 1 ? t("模型配置“{0}”已保存。", [saved[0].name]) : t("已保存 {0} 个模型。", [saved.length])
+      return saved
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : String(reason)
+      const message = t("已保存 {0} 个模型{1}，更新未完成：{2}。请重试。", [saved.length, removedIds.length ? t("，已移除 {0} 个", [removedCount]) : '', detail])
+      // A failed HTTP response may follow a successful server write; reload reality.
+      try { await loadModelProfiles() } catch { /* Keep confirmed local results. */ }
+      error.value = message
       return null
     } finally {
       saving.value = false
@@ -179,7 +231,7 @@ export const useSettingsStore = defineStore('settings', () => {
       const catalog = await api.setDefaultChatModel(modelId)
       modelProfiles.value = catalog.models
       defaultModelId.value = catalog.defaultModelId
-      success.value = '默认模型已更新，新对话将自动使用它。'
+      success.value = t("默认模型已更新。")
       return true
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
@@ -193,10 +245,32 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       await api.deleteChatModel(modelId)
       await loadModelProfiles()
-      success.value = '模型配置已删除。'
+      success.value = t("模型配置已删除。")
       return true
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
+      return false
+    } finally { saving.value = false }
+  }
+
+  async function removeModelProfiles(modelIds: string[]) {
+    if (saving.value || !modelIds.length) return false
+    saving.value = true
+    error.value = null
+    success.value = null
+    let removed = 0
+    try {
+      for (const id of modelIds) {
+        await api.deleteChatModel(id)
+        removed++
+      }
+      await loadModelProfiles()
+      success.value = t("模型服务已删除。")
+      return true
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : String(reason)
+      try { await loadModelProfiles() } catch { /* Keep the error visible for retry. */ }
+      error.value = t("已删除 {0} 个模型，删除未完成：{1}", [removed, detail])
       return false
     } finally { saving.value = false }
   }
@@ -208,7 +282,7 @@ export const useSettingsStore = defineStore('settings', () => {
     validation.value = null
     try {
       const result = await api.validateChatModel(cfg, apiKey)
-      validation.value = { ok: result.ok, message: result.ok ? `连接成功：${result.model}` : result.message }
+      validation.value = { ok: result.ok, message: result.ok ? t("连接成功：{0}", [result.model]) : result.message }
       return result.ok
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
@@ -240,7 +314,7 @@ export const useSettingsStore = defineStore('settings', () => {
         validated: false,
         updated_at: new Date().toISOString(),
       }
-      success.value = '联网工具凭证已保存并立即生效。'
+      success.value = t("联网工具凭证已保存。")
       return true
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
@@ -260,7 +334,7 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       await api.deleteCredential(service)
       delete credentials.value[service]
-      success.value = '联网工具凭证已移除。'
+      success.value = t("联网工具凭证已移除。")
       return true
     } catch (reason) {
       error.value = reason instanceof Error ? reason.message : String(reason)
@@ -294,8 +368,10 @@ export const useSettingsStore = defineStore('settings', () => {
     loadSettings,
     loadModelProfiles,
     saveModelProfile,
+    saveModelProfiles,
     setDefaultModel,
     removeModelProfile,
+    removeModelProfiles,
     validateChatModel,
     clearModelFeedback,
     saveCredential,

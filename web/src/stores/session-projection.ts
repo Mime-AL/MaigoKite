@@ -82,7 +82,7 @@ export function activityGroups(turns: Turn[]): AgentActivityGroup[] {
         task_id: turn.id,
         kind: 'reasoning',
         status: turn.status === 'running' ? 'running' : 'completed',
-        title: '过程说明',
+        title: '思考',
         summary: turn.thinking,
         sequence: -1,
         created_at: new Date(turn.startedAt).toISOString(),

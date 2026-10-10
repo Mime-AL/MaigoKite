@@ -25,13 +25,11 @@ const columns = computed(() => [
   {
     id: 'persona',
     title: '人设',
-    description: '名字、语气、相处方式',
     items: memory.orderedItems.filter((m) => m.content.startsWith('人设：')),
   },
   {
     id: 'preference',
     title: '偏好',
-    description: '常用习惯、希望遵循的规则',
     items: memory.orderedItems.filter(
       (m) => !m.content.startsWith('人设：') && ['preference', 'constraint'].includes(m.category),
     ),
@@ -39,7 +37,6 @@ const columns = computed(() => [
   {
     id: 'memory',
     title: '记忆',
-    description: '那些值得留下的事',
     items: memory.orderedItems.filter(
       (m) => !m.content.startsWith('人设：') && !['preference', 'constraint'].includes(m.category),
     ),
@@ -100,64 +97,60 @@ async function submit() {
   <main class="page-shell memory-page">
     <header class="page-header">
       <div>
-        <h1 class="page-title">它记得</h1>
-        <p class="page-subtitle">留下习惯，也可以让它遗忘。</p>
+        <h1 class="page-title">{{ $t('它记得') }}</h1>
       </div>
-      <button class="primary-button" @click="startCreate()">添加记忆</button>
+      <button class="primary-button" @click="startCreate()">{{ $t('添加记忆') }}</button>
     </header>
     <form class="memory-search" @submit.prevent="memory.load(search)">
-      <input v-model="search" type="search" placeholder="找一条记忆…" maxlength="200" /><button
+      <input v-model="search" type="search" :placeholder="$t('找一条记忆…')" maxlength="200" /><button
         class="secondary-button"
         :disabled="memory.loading"
-      >
-        搜索
-      </button>
+      >{{ $t('搜索') }}</button>
     </form>
     <InkLoader v-if="memory.loading" />
     <p v-if="memory.error" class="error-banner" role="alert">{{ memory.error }}</p>
     <form v-if="editing" class="memory-editor glass-card" @submit.prevent="submit">
-      <h2>{{ draft.id ? '编辑' : '写下一条' }}</h2>
+      <h2>{{ draft.id ? $t('编辑记忆') : $t('添加记忆') }}</h2>
       <label
-        >类型<select v-model="draft.category">
-          <option value="preference">偏好</option>
-          <option value="constraint">约束</option>
-          <option value="fact">事实</option>
-          <option value="project">项目</option>
-          <option value="other">其他</option>
+        >{{ $t('类型') }}<select v-model="draft.category">
+          <option value="preference">{{ $t('偏好') }}</option>
+          <option value="constraint">{{ $t('约束') }}</option>
+          <option value="fact">{{ $t('事实') }}</option>
+          <option value="project">{{ $t('项目') }}</option>
+          <option value="other">{{ $t('其他') }}</option>
         </select></label
       >
-      <label>内容<textarea v-model="draft.content" rows="4" maxlength="4000" required /></label>
+      <label>{{ $t('内容') }}<textarea v-model="draft.content" rows="4" maxlength="4000" required /></label>
       <footer>
-        <button class="secondary-button" type="button" @click="editing = false">取消</button
+        <button class="secondary-button" type="button" @click="editing = false">{{ $t('取消') }}</button
         ><button class="primary-button" :disabled="memory.saving || !draft.content.trim()" :aria-busy="memory.saving || undefined">
-          {{ memory.saving ? '正在保存…' : '保存' }}
+          {{ memory.saving ? $t('正在保存…') : $t('保存') }}
         </button>
       </footer>
     </form>
     <div class="memory-columns">
       <section v-for="column in columns" :key="column.id">
         <header>
-          <h2>{{ column.title }}</h2>
+          <h2>{{ $t(column.title) }}</h2>
           <button
             class="icon-button"
-            :aria-label="'添加' + column.title"
+            :aria-label="$t('添加{0}', [$t(column.title)])"
             @click="startCreate(column.id)"
           >
             +
           </button>
         </header>
-        <p class="column-description">{{ column.description }}</p>
         <div v-if="column.id === 'persona'" class="persona-name">
-          <label>助手名字<input v-model="name" maxlength="32" /></label
+          <label>{{ $t('助手名字') }}<input v-model="name" maxlength="32" /></label
           ><button
             class="secondary-button"
             :disabled="!name.trim() || settings.saving"
             :aria-busy="settings.saving || undefined"
             @click="settings.savePreferences(name)"
           >
-            {{ settings.saving ? '正在保存…' : '保存称呼' }}</button
+            {{ settings.saving ? $t('正在保存…') : $t('保存称呼') }}</button
           ><label
-            >头像字<input
+            >{{ $t('头像字') }}<input
               :value="ui.appearance.avatar"
               @input="
                 ui.setAppearance({
@@ -173,8 +166,7 @@ async function submit() {
           :class="{ 'focused-memory': focusedId === item.id }"
           @edit="startEdit"
         />
-        <p v-if="!column.items.length && !memory.loading" class="empty-copy">
-          {{ column.id === 'persona' ? '写下希望它怎样与你相处。' : '这里还没有记忆。' }}
+        <p v-if="!column.items.length && !memory.loading" class="empty-copy">{{ $t('暂无{0}', [$t(column.title)]) }}
         </p>
       </section>
     </div>
@@ -223,11 +215,6 @@ h2 {
   margin: 0;
   font-size: var(--text-md);
   font-weight: var(--weight-semibold);
-}
-.column-description {
-  margin: 10px 0 20px;
-  color: var(--ink-3);
-  font-size: var(--text-xs);
 }
 .persona-name {
   display: grid;

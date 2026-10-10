@@ -5,14 +5,18 @@
  */
 
 import type { Router } from 'vue-router'
+import { watch } from 'vue'
+import { i18n, t } from '@/i18n'
 
 export function setupGuards(router: Router) {
-  router.beforeEach((to, _from, next) => {
-    // 更新页面标题
-    const title = to.meta.title as string | undefined
-    if (title) {
-      document.title = `${title} - MaigoKite`
-    }
-    next()
-  })
+  watch(
+    [router.currentRoute, i18n.global.locale],
+    ([route]) => {
+      const title = route.meta.title as string | undefined
+      if (title) {
+        document.title = `${t(title)} - MaigoKite`
+      }
+    },
+    { immediate: true },
+  )
 }

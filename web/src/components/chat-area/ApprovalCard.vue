@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, ref } from 'vue'
 import type { AwaitItem } from '@/api/events'
 import type { Approval } from '@/api/client'
@@ -14,7 +15,7 @@ const item = computed<AwaitItem | undefined>(
           sessionId: props.approval.conversation_id,
           turnId: props.approval.task_id,
           mode: 'approval',
-          title: `批准 ${props.approval.tool_name}`,
+          title: t("批准 {0}", [props.approval.tool_name]),
           detail: JSON.stringify(props.approval.arguments, null, 2),
           risk: props.approval.risk_level,
           version: props.approval.version,
@@ -47,7 +48,7 @@ async function decide(decision: 'allow' | 'deny') {
     </header>
     <pre>{{ item.detail }}</pre>
     <div v-if="rejecting">
-      <label>备注（仅本机显示）<textarea v-model="note" rows="2" maxlength="500" /></label>
+      <label>{{ $t('驳回理由（可选）') }}<textarea v-model="note" rows="2" maxlength="2000" /></label>
     </div>
     <p v-if="failure" role="alert">{{ failure }}</p>
     <footer>
@@ -57,7 +58,7 @@ async function decide(decision: 'allow' | 'deny') {
         :disabled="inbox.busy.includes(item.id) || pendingDecision !== null"
         :loading="pendingDecision === 'allow'"
         @click="decide('allow')"
-        >{{ pendingDecision === 'allow' ? '正在提交…' : '允许' }} <small>Y</small></InkButton
+        >{{ pendingDecision === 'allow' ? $t('正在提交…') : $t('允许') }} <small>Y</small></InkButton
       >
       <InkButton
         tone="danger"
@@ -65,9 +66,9 @@ async function decide(decision: 'allow' | 'deny') {
         :disabled="inbox.busy.includes(item.id) || pendingDecision !== null"
         :loading="pendingDecision === 'deny'"
         @click="rejecting ? decide('deny') : (rejecting = true)"
-        >{{ pendingDecision === 'deny' ? '正在提交…' : rejecting ? '确认驳回' : '驳回' }} <small>N</small></InkButton
+        >{{ pendingDecision === 'deny' ? $t('正在提交…') : rejecting ? $t('确认驳回') : $t('驳回') }} <small>N</small></InkButton
       >
-      <button v-if="rejecting" class="cancel-note secondary-button" :disabled="pendingDecision !== null" @click="rejecting = false">取消</button>
+      <button v-if="rejecting" class="cancel-note secondary-button" :disabled="pendingDecision !== null" @click="rejecting = false">{{ $t('取消') }}</button>
     </footer>
   </article>
 </template>

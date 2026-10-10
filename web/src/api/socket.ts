@@ -12,9 +12,11 @@ export class EventSocket {
   private socket: WebSocket | null = null
   private reconnect: ReturnType<typeof setTimeout> | null = null
   private heartbeat: ReturnType<typeof setInterval> | null = null
+  private handshake: ReturnType<typeof setTimeout> | null = null
   private stopped = true
   private attempts = 0
   private recovering = false
+  private subscribed = false
   private queued: AgentEvent[] = []
   private seen = new Set<string>()
   private generation = 0
@@ -32,16 +34,28 @@ export class EventSocket {
     const generation = ++this.generation
     this.controller?.abort()
     this.options.connection(false)
+    this.subscribed = false
     this.recovering = true
     const socket = this.options.connect((event) => {
       if (this.stopped || generation !== this.generation) return
+      if (event.type === 'stream.ready') {
+        this.subscribed = true
+        if (this.handshake) clearTimeout(this.handshake)
+        this.handshake = null
+        // Replay starts only AFTER registration. Live events remain buffered
+        // until history catches up; a snapshot cannot advance this cursor.
+        void this.recover(generation)
+        return
+      }
       if (this.recovering) this.queued.push(event)
       else this.deliver(event, false)
     })
     this.socket = socket
     socket.onopen = () => {
       if (this.stopped || generation !== this.generation) return
-      void this.recover(generation)
+      this.handshake = setTimeout(() => {
+        if (!this.subscribed && generation === this.generation) socket.close()
+      }, 10_000)
       // Gateway has no application pong. HTTP replay checks liveness too.
       this.heartbeat = setInterval(() => {
         void this.recover(generation)
@@ -51,6 +65,8 @@ export class EventSocket {
     socket.onclose = () => {
       if (this.stopped || generation !== this.generation) return
       if (this.heartbeat) clearInterval(this.heartbeat)
+      if (this.handshake) clearTimeout(this.handshake)
+      this.handshake = null
       this.heartbeat = null
       this.options.connection(false)
       this.socket = null
@@ -62,6 +78,9 @@ export class EventSocket {
     }
   }
   recover(generation = this.generation): Promise<void> {
+    // Snapshot loading may request replay before the WS subscription is ready.
+    // stream.ready will start it; never treat browser onopen as registration.
+    if (!this.subscribed) return Promise.resolve()
     if (this.recovery?.generation === generation) return this.recovery.promise
     const controller = new AbortController()
     this.controller = controller
@@ -74,6 +93,7 @@ export class EventSocket {
   private async replay(generation: number, signal: AbortSignal) {
     if (this.stopped || generation !== this.generation) return
     this.recovering = true
+    let completed = false
     try {
       for (;;) {
         const before = this.lastSeq
@@ -82,16 +102,27 @@ export class EventSocket {
         for (const event of events.slice().sort((a, b) => a.sequence - b.sequence)) this.deliver(event, true)
         if (events.length < 1000 || this.lastSeq === before) break
       }
-      if (this.socket?.readyState === 1) {
+      completed = true
+      if (this.subscribed && this.socket?.readyState === 1) {
         this.attempts = 0
         this.options.connection(true)
       }
     } catch {
-      if (!this.stopped && generation === this.generation) this.options.connection(false)
+      if (!this.stopped && generation === this.generation) {
+        this.subscribed = false
+        this.options.connection(false)
+        // Don't release newer live deltas over a missing history segment.
+        // Reconnect and replay from the last confirmed durable cursor.
+        this.socket?.close()
+      }
     } finally {
       if (!this.stopped && generation === this.generation) {
-        this.recovering = false
-        for (const event of this.queued.splice(0).sort((a, b) => a.sequence - b.sequence)) this.deliver(event, false)
+        // close() is asynchronous; messages already queued by the browser must
+        // still be buffered until the replacement connection replays the gap.
+        this.recovering = !completed
+        const pending = this.queued.splice(0)
+        if (completed)
+          for (const event of pending.sort((a, b) => a.sequence - b.sequence)) this.deliver(event, false)
       }
     }
   }
@@ -112,6 +143,8 @@ export class EventSocket {
     this.controller = null
     if (this.reconnect) clearTimeout(this.reconnect)
     if (this.heartbeat) clearInterval(this.heartbeat)
+    if (this.handshake) clearTimeout(this.handshake)
+    this.handshake = null
     this.reconnect = this.heartbeat = null
     this.socket?.close()
     this.socket = null

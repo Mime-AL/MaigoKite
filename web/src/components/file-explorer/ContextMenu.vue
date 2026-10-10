@@ -18,10 +18,10 @@ const emit = defineEmits<{
 <template>
   <div v-if="visible" class="context-menu" :style="{ left: x + 'px', top: y + 'px' }">
     <ul>
-      <li @click="emit('rename')">重命名</li>
-      <li @click="emit('copy')">复制</li>
-      <li @click="emit('paste')">粘贴</li>
-      <li class="separator" @click="emit('delete')">删除</li>
+      <li @click="emit('rename')">{{ $t('重命名') }}</li>
+      <li @click="emit('copy')">{{ $t('复制') }}</li>
+      <li @click="emit('paste')">{{ $t('粘贴') }}</li>
+      <li class="separator" @click="emit('delete')">{{ $t('删除') }}</li>
     </ul>
   </div>
 </template>

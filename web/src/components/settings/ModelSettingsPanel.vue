@@ -1,40 +1,38 @@
 <script setup lang="ts">
-import { reactive, toRefs } from 'vue'
+import { computed, reactive, ref, toRefs, watch } from 'vue'
 import { useModelSettings } from '@/composables/useModelSettings'
 import { providerChoices, choiceGroups } from '@/config/model-provider-choices'
-import { getModelProvider } from '@/config/model-providers'
 import IconSymbol from '@/components/common/IconSymbol.vue'
-import ModelCatalogPicker from './ModelCatalogPicker.vue'
 import ModelProfileEditor from './ModelProfileEditor.vue'
+import { t } from '@/i18n'
 const editor = reactive(useModelSettings())
 const {
   settings,
   mode,
-  catalogOpen,
-  modelOptions,
-  draft,
-  discovering,
-  canDiscover,
-  discoveryMessage,
-  findPreset,
-  profileProviderName,
+  modelGroups,
   profileCredential,
   selectProfile,
   makeDefault,
   showProviderPicker,
   closeEditor,
   beginAdd,
-  discoverModels,
-  useCatalogModel,
 } = toRefs(editor)
+const providerSearch = ref('')
+const filteredGroups = computed(() => {
+  const query = providerSearch.value.trim().toLocaleLowerCase()
+  return choiceGroups.map((group) => ({
+    name: group,
+    choices: providerChoices.filter((item) => item.group === group &&
+      (!query || `${item.name} ${item.description} ${t(item.name)} ${t(item.description)} ${item.id}`.toLocaleLowerCase().includes(query))),
+  })).filter((group) => group.choices.length)
+})
+watch(mode, () => { providerSearch.value = '' })
 </script>
 <template>
   <section class="model-settings glass-card">
     <header class="panel-heading">
       <div>
-        <p>Model providers</p>
-        <h2>模型</h2>
-        <span>添加模型服务，并选择聊天时默认使用的模型。</span>
+        <h2>{{ $t('模型') }}</h2>
       </div>
       <button
         v-if="mode === 'list'"
@@ -43,54 +41,55 @@ const {
         data-testid="add-model"
         @click="showProviderPicker"
       >
-        <IconSymbol name="plus" :size="15" />添加模型
-      </button>
+        <IconSymbol name="plus" :size="15" />{{ $t('添加服务') }}</button>
     </header>
 
     <div v-if="mode === 'list'" class="profile-list">
-      <article v-for="item in settings.modelProfiles" :key="item.id" class="profile-row">
-        <button type="button" class="profile-main" :aria-label="`编辑 ${item.name}`" @click="selectProfile(item.id)">
-          <span class="provider-mark" :class="item.provider">{{
-            findPreset(item.baseUrl)?.name.slice(0, 2) || getModelProvider(item.provider).monogram
-          }}</span>
-          <span class="profile-copy">
-            <span
-              ><strong>{{ item.name }}</strong
-              ><i v-if="item.isDefault">默认</i></span
-            >
-            <small>{{ profileProviderName(item) }} · {{ item.model }}</small>
-          </span>
-          <span class="credential-state" :class="profileCredential(item).tone"
-            ><i />{{ profileCredential(item).label }}</span
-          >
-        </button>
-        <button v-if="!item.isDefault" type="button" class="default-action" :disabled="settings.saving" @click="makeDefault(item.id)">
-          设为默认
-        </button>
-        <button type="button" class="edit-action" :aria-label="`编辑 ${item.name}`" @click="selectProfile(item.id)">
-          ›
-        </button>
+      <article v-for="group in modelGroups" :key="group.id" class="service-group">
+        <header class="service-heading">
+          <button type="button" class="profile-main" :disabled="settings.saving" :aria-label="$t('编辑服务 {0}', [group.name])" @click="selectProfile(group.models[0].id)">
+            <span class="provider-mark">{{ group.monogram }}</span>
+            <span class="profile-copy">
+              <strong>{{ group.name }}</strong>
+              <small>{{ $t(group.providerName) }}<template v-if="group.location"> · {{ group.location }}</template></small>
+            </span>
+          </button>
+          <span class="service-count">{{ $t('{0} 个模型', [group.models.length]) }}</span>
+          <button type="button" class="default-action" :disabled="settings.saving" :aria-label="$t('管理 {0} 的模型', [group.name])" @click="selectProfile(group.models[0].id)">{{ $t('管理模型 ›') }}</button>
+        </header>
+        <ul class="service-models" :aria-label="$t('{0} 的模型', [group.name])">
+          <li v-for="item in group.models" :key="item.id" class="profile-row">
+            <span class="profile-copy">
+              <span><strong>{{ item.model }}</strong><i v-if="item.isDefault">{{ $t('默认') }}</i></span>
+            </span>
+            <span class="credential-state" :class="profileCredential(item).tone"><i />{{ profileCredential(item).label }}</span>
+            <button v-if="!item.isDefault" type="button" class="default-action" :disabled="settings.saving" :aria-label="$t('将 {0} 设为默认', [item.model])" @click="makeDefault(item.id)">{{ $t('设为默认') }}</button>
+          </li>
+        </ul>
       </article>
 
       <div v-if="!settings.modelProfiles.length" class="empty-profile">
         <span class="empty-icon"><IconSymbol name="brain" :size="25" /></span>
-        <h3>连接你的第一个模型</h3>
-        <p>选择云端服务或当前设备上的模型服务。</p>
-        <button type="button" class="primary-button" @click="showProviderPicker">选择模型服务</button>
+        <h3>{{ $t('还没有模型') }}</h3>
+        <button type="button" class="primary-button" @click="showProviderPicker">{{ $t('选择模型服务') }}</button>
       </div>
     </div>
 
     <section v-else-if="mode === 'providers'" class="provider-picker" data-testid="provider-picker">
-      <button type="button" class="back-button" @click="closeEditor">‹ 返回模型列表</button>
+      <button type="button" class="back-button" @click="closeEditor">{{ $t('‹ 返回模型列表') }}</button>
       <div class="picker-heading">
-        <h3>添加模型服务</h3>
-        <p>先选择服务，再填写密钥和模型。每次只处理一个配置。</p>
+        <h3>{{ $t('添加模型服务') }}</h3>
       </div>
-      <div v-for="group in choiceGroups" :key="group" class="choice-group">
-        <h4>{{ group }}</h4>
+      <label class="provider-search">
+        <IconSymbol name="search" :size="16" />
+        <input v-model="providerSearch" type="search" :aria-label="$t('搜索模型服务')" :placeholder="$t('搜索厂商、平台或中转站')" />
+      </label>
+      <p v-if="!filteredGroups.length" class="provider-empty" role="status">{{ $t('未找到服务') }}</p>
+      <div v-for="group in filteredGroups" :key="group.name" class="choice-group">
+        <h4>{{ $t(group.name) }}</h4>
         <div class="choice-grid">
           <button
-            v-for="choice in providerChoices.filter((item) => item.group === group)"
+            v-for="choice in group.choices"
             :key="choice.id"
             type="button"
             class="provider-choice"
@@ -99,8 +98,8 @@ const {
           >
             <span class="provider-mark compatible">{{ choice.monogram }}</span>
             <span
-              ><strong>{{ choice.name }}</strong
-              ><small>{{ choice.description }}</small></span
+              ><strong>{{ $t(choice.name) }}</strong
+              ><small>{{ $t(choice.description) }}</small></span
             >
             <i>›</i>
           </button>
@@ -110,17 +109,6 @@ const {
 
     <ModelProfileEditor v-else :editor="editor" />
 
-    <ModelCatalogPicker
-      v-if="catalogOpen"
-      :models="modelOptions"
-      :selected-model="draft.model"
-      :loading="discovering"
-      :can-refresh="canDiscover"
-      :message="discoveryMessage"
-      @close="catalogOpen = false"
-      @refresh="discoverModels"
-      @select="useCatalogModel"
-    />
   </section>
 </template>
 <style scoped lang="scss">

@@ -7,7 +7,8 @@
   "main": "dist-electron/main.cjs",
   "type": "module",
   "build": {
-    "appId": "com.electron.maigokite-web"
+    "appId": "com.electron.maigokite-web",
+    "icon": "public/brand/app-icon-cat-ribbon-v1.png"
   },
   "scripts": {
     "dev": "vite",
@@ -28,6 +29,7 @@
     "markdown-it": "14.1.0",
     "pinia": "^2.1.0",
     "vue": "^3.4.0",
+    "vue-i18n": "11.4.14",
     "vue-router": "^4.2.0"
   },
   "devDependencies": {

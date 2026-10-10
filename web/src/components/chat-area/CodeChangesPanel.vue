@@ -6,7 +6,7 @@ defineProps<{ changes?: Array<{ file_path: string; status: 'accepted' | 'rejecte
 </script>
 
 <template>
-  <CollapseCard v-if="changes?.length" :title="`${changes.length} 个文件更改`" icon="file">
+  <CollapseCard v-if="changes?.length" :title="$t('{0} 个文件更改', [changes.length])" icon="file">
     <ChangeItem v-for="change in changes" :key="change.file_path" :change="change" />
   </CollapseCard>
 </template>

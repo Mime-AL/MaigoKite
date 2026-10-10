@@ -11,6 +11,7 @@
   --accent: #2f6f6a;
   --stone: #2f6f6a;
   --seal: #b5442e;
+  --notification-dot: #ce4134;
   --ok: #4c7a3f;
   --wait: #b07a1f;
   --accent-blue: #405f88;
@@ -58,8 +59,11 @@
   --noise-opacity: 0.025;
   --transparent: transparent;
   --backdrop: rgb(0 0 0 / 0.15);
-  --titlebar-height: 36px;
+  --titlebar-height: 44px;
+  --titlebar-button-size: 36px;
+  --titlebar-window-button-width: 46px;
   --sidebar-width: 240px;
+  --sidebar-collapsed-width: 56px;
   --drawer-width: 380px;
   --rail-width: 48px;
   --content-width: 720px;
@@ -80,6 +84,7 @@
   --accent: #5fa59d;
   --stone: #5fa59d;
   --seal: #d0644d;
+  --notification-dot: #ee6b58;
   --ok: #7fb06e;
   --wait: #d7a548;
   --accent-blue: #89a6c6;

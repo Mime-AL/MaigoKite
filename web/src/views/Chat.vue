@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
@@ -9,13 +10,16 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useAutoFollow } from '@/composables/useAutoFollow'
 import { railNodes } from '@/stores/run-projection'
 import { remainingMessages } from '@/stores/session-projection'
-import type { PermissionMode, ResponseMode } from '@/api/client'
+import { revealRailNode } from '@/utils/rail-navigation'
+import { pickMygoQuote } from '@/config/mygo-quotes'
+import { api, type PermissionMode, type ResponseMode } from '@/api/client'
 import UserMessage from '@/components/chat-area/UserMessage.vue'
 import AgentMessage from '@/components/chat-area/AgentMessage.vue'
 import RailTrack from '@/components/rail/RailTrack.vue'
 import RailMinimap from '@/components/rail/RailMinimap.vue'
 import InputBox from '@/components/chat-area/InputBox.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
+import AppIcon from '@/components/common/AppIcon.vue'
 const route = useRoute(),
   router = useRouter(),
   session = useSessionStore(),
@@ -32,6 +36,8 @@ const scroll = ref<HTMLElement | null>(null),
 const mode = ref<PermissionMode>('workspace')
 const draftModel = ref(''),
   draftResponse = ref<ResponseMode>('balanced')
+const draftSubagents = ref(0), draftConcurrent = ref(1), savingSubagents = ref(false)
+const draftSubagentModels = ref<string[]>([])
 const turns = computed(() => run.turns[sessionId.value] || [])
 const nodes = computed(() =>
   turns.value.flatMap((t) => [
@@ -60,11 +66,20 @@ const timeline = computed(() =>
   ].sort((a, b) => a.time - b.time),
 )
 const visibleTimeline = computed(() => timeline.value.slice(-visibleCount.value))
+const welcomeQuote = ref('')
+// Route reuse includes newly created empty sessions. Typing and stream updates
+// must not reroll a quote while the same welcome screen is visible.
+watch(
+  () => timeline.value.length ? null : sessionId.value,
+  (id) => { if (id !== null) welcomeQuote.value = pickMygoQuote() },
+  { immediate: true },
+)
 const lastMessage = computed(
   () => savedMessages.value.filter((m) => m.role === 'user').slice(-1)[0]?.content || '',
 )
-const contextPct = computed(() => turns.value.slice(-1)[0]?.summary?.contextPct ?? null)
 const queued = computed(() => session.queuedMessages[sessionId.value] || [])
+const interrupted = computed(() => session.interruptedTask(sessionId.value))
+const submission = computed(() => session.submissions[sessionId.value])
 const { following, onScroll, resume } = useAutoFollow(scroll, () => {
   const latest = timeline.value[timeline.value.length - 1]
   const turn = latest?.turn
@@ -83,14 +98,14 @@ const { following, onScroll, resume } = useAutoFollow(scroll, () => {
 const greeting = computed(() => {
   const hour = new Date().getHours()
   return hour < 6
-    ? '夜深了'
+    ? t("夜深了")
     : hour < 11
-      ? '早上好'
+      ? t("早上好")
       : hour < 14
-        ? '中午好'
+        ? t("中午好")
         : hour < 18
-          ? '午后好'
-          : '晚上好'
+          ? t("午后好")
+          : t("晚上好")
 })
 const unfinished = computed(() =>
   session.sessions
@@ -117,6 +132,7 @@ watch(
 )
 onMounted(() => {
   if (!settings.loaded) void settings.loadSettings()
+  void api.getCapabilities().then((available) => { session.capabilities = available }).catch(() => {})
 })
 async function send(content: string) {
   if (sending.value) return
@@ -135,12 +151,18 @@ async function send(content: string) {
         draftResponse.value,
         id,
       )
+      if (draftSubagents.value || draftSubagentModels.value.length)
+        await session.setSubagentLimits(draftSubagents.value, draftConcurrent.value, id,
+          session.capabilities.subagent_model_selection ? draftSubagentModels.value : undefined)
     }
     await session.sendToSession(id, content)
     resume()
   } catch (reason) {
-    session.error = reason instanceof Error ? reason.message : String(reason)
-    composer.value?.restoreDraft(content)
+    // Keep an uncertain request in its confirmation entry, not in a fresh send draft.
+    if (!session.submissions[id]?.uncertain || session.submissions[id].content !== content) {
+      session.error = reason instanceof Error ? reason.message : String(reason)
+      composer.value?.restoreDraft(content)
+    }
   } finally {
     sending.value = false
   }
@@ -170,6 +192,20 @@ function permission(value: PermissionMode) {
   mode.value = value
   const id = sessionId.value
   if (id) configure(() => session.setPermissionMode(value, id))
+}
+function subagents(value: { calls: number; concurrent: number; modelIds?: string[] }) {
+  const id = sessionId.value
+  if (!id) {
+    draftSubagents.value = value.calls
+    draftConcurrent.value = value.concurrent
+    if (value.modelIds) draftSubagentModels.value = value.modelIds
+    return
+  }
+  savingSubagents.value = true
+  configure(async () => {
+    try { await session.setSubagentLimits(value.calls, value.concurrent, id, value.modelIds) }
+    finally { savingSubagents.value = false }
+  })
 }
 function model(value: string) {
   draftModel.value = value
@@ -205,11 +241,10 @@ async function jump(node: { id: string; turnId: string }) {
   const index = timeline.value.findIndex((item) => item.turn?.id === node.turnId)
   visibleCount.value = Math.max(visibleCount.value, timeline.value.length - index)
   await nextTick()
-  document
+  revealRailNode(document
     .querySelector<HTMLElement>(
       '[data-rail-node="' + CSS.escape(node.turnId + ':' + node.id) + '"]',
-    )
-    ?.scrollIntoView({ block: 'center' })
+    ))
 }
 </script>
 <template>
@@ -217,17 +252,18 @@ async function jump(node: { id: string; turnId: string }) {
     <div class="conversation">
       <div ref="scroll" class="message-list" @scroll.passive="onScroll">
         <section v-if="!turns.length && !unprojectedMessages.length" class="welcome-state">
+          <AppIcon class="welcome-icon" :size="64" />
           <span class="welcome-date">{{
-            new Date().toLocaleDateString('zh-CN', {
+            new Date().toLocaleDateString($i18n.locale, {
               month: 'long',
               day: 'numeric',
               weekday: 'long',
             })
           }}</span>
-          <h1>{{ greeting }}，{{ ui.appearance.greetingName }}</h1>
-          <p>把想做的事写下来。</p>
+          <h1>{{ $t('{0}，{1}', [greeting, ui.appearance.greetingName === '你' ? $t('你') : ui.appearance.greetingName]) }}</h1>
+          <p>{{ welcomeQuote }}</p>
           <nav v-if="unfinished.length" class="unfinished">
-            <span>上次没做完的事</span
+            <span>{{ $t('上次没做完的事') }}</span
             ><router-link
               v-for="turn in unfinished"
               :key="turn.id"
@@ -237,9 +273,8 @@ async function jump(node: { id: string; turnId: string }) {
           </nav>
         </section>
         <div v-else class="messages-inner">
-          <button v-if="timeline.length > visibleCount" class="earlier" @click="visibleCount += 20">
-            再看前面的内容
-          </button>
+          <p v-if="session.historyTruncated[sessionId]" class="chat-error" role="status">{{ $t('较早的记录未完整加载。') }}</p>
+          <button v-if="timeline.length > visibleCount" class="earlier" @click="visibleCount += 20">{{ $t('再看前面的内容') }}</button>
           <section v-for="item in visibleTimeline" :key="item.key" class="turn">
             <template v-if="item.message"
               ><UserMessage
@@ -264,31 +299,43 @@ async function jump(node: { id: string; turnId: string }) {
       </div>
       <RailMinimap :nodes="nodes" @jump="jump" />
       <button v-if="!following" class="follow-button" @click="resume">
-        ↓ {{ session.isSending ? '查看最新进展' : '回到最新消息' }}
+        ↓ {{ session.isSending ? $t('查看最新进展') : $t('回到最新消息') }}
       </button>
     </div>
     <p v-if="session.error" class="chat-error" role="alert">{{ session.error }}</p>
+    <div v-if="submission?.uncertain" class="queued-messages" role="status">
+      <p>{{ $t('尚未确认提交：{0}', [submission.content]) }}</p>
+      <button @click="session.confirmSubmission(sessionId)">{{ $t('确认提交结果') }}</button>
+    </div>
+    <div v-if="interrupted" class="queued-messages" role="status">
+      <p>{{ $t('任务已中断，未自动重试。') }}</p>
+      <template v-if="session.capabilities.task_resume">
+        <button
+          :disabled="!session.canResumeTask(sessionId) || session.resumingTaskIds.includes(interrupted.id)"
+          @click="session.resumeInterruptedTask(sessionId)"
+        >{{ session.resumingTaskIds.includes(interrupted.id) ? $t('正在确认恢复…') : $t('继续任务') }}</button>
+        <p>{{ $t('仅可继续文件读写任务。') }}</p>
+      </template>
+    </div>
     <div v-if="queued.length" class="queued-messages">
       <p v-for="(content, index) in queued" :key="index">
         <span
-          >{{ session.queuedPaused[sessionId] ? '待确认发送：' : '当前回合成功后发送：'
+          >{{ session.queuedPaused[sessionId] ? $t('待确认发送：') : $t('当前任务成功后发送：')
           }}{{ content }}</span
-        ><button aria-label="取回排队消息编辑" @click="editQueued(index)">编辑</button
-        ><button aria-label="移除排队消息" @click="session.removeQueued(sessionId, index)">
+        ><button :aria-label="$t('取回排队消息编辑')" @click="editQueued(index)">{{ $t('编辑') }}</button
+        ><button :aria-label="$t('移除排队消息')" @click="session.removeQueued(sessionId, index)">
           ×
         </button>
       </p>
       <button
         v-if="session.queuedPaused[sessionId]"
-        :disabled="session.isSending"
+        :disabled="session.isSending || Boolean(submission) || session.activeSession?.archived"
         @click="session.resumeQueued(sessionId)"
-      >
-        确认继续发送
-      </button>
+      >{{ $t('确认继续发送') }}</button>
     </div>
     <div v-if="session.activeSession?.archived" class="archived-notice">
-      <span>此对话已归档，可查看历史记录。</span>
-      <button class="secondary-button" :disabled="restoring" :aria-busy="restoring || undefined" @click="restore">{{ restoring ? '正在恢复…' : '恢复对话' }}</button>
+      <span>{{ $t('此对话已归档，可查看历史记录。') }}</span>
+      <button class="secondary-button" :disabled="restoring" :aria-busy="restoring || undefined" @click="restore">{{ restoring ? $t('正在恢复…') : $t('恢复对话') }}</button>
     </div>
     <InputBox
       v-else
@@ -309,7 +356,13 @@ async function jump(node: { id: string; turnId: string }) {
       "
       :permission-mode="session.activeSession?.permission_mode || mode"
       :last-message="lastMessage"
-      :context-pct="contextPct"
+      :subagents-supported="session.capabilities.subagents === true"
+      :subagent-models-supported="session.capabilities.subagent_model_selection === true"
+      :subagent-model-ids="sessionId ? session.activeSession?.subagent_model_ids ?? [] : draftSubagentModels"
+      :max-subagent-calls="sessionId ? session.activeSession?.max_subagent_calls ?? 0 : draftSubagents"
+      :max-concurrent-subagents="sessionId ? session.activeSession?.max_concurrent_subagents ?? 1 : draftConcurrent"
+      :saving-subagents="savingSubagents"
+      @subagents-change="subagents"
       @send="send"
       @cancel="session.cancelActiveTask"
       @permission-mode-change="permission"

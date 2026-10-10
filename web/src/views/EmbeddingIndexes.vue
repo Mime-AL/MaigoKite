@@ -5,17 +5,14 @@ import IconSymbol from '@/components/common/IconSymbol.vue'
 <template>
   <main class="page-shell index-page">
     <header>
-      <h1 class="page-title">知识库</h1>
-      <p class="page-subtitle">使用资料帮助助手理解你的工作内容。</p>
+      <h1 class="page-title">{{ $t('知识库') }}</h1>
     </header>
 
     <section class="state-card glass-card">
       <span class="state-icon"><IconSymbol name="activity" :size="23" /></span>
       <div>
-        <strong>知识库暂未开放</strong>
-        <p>此功能准备好后会在这里提供。</p>
+        <strong>{{ $t('此页面不可用') }}</strong>
       </div>
-      <span class="badge">敬请期待</span>
     </section>
   </main>
 </template>
@@ -48,18 +45,5 @@ import IconSymbol from '@/components/common/IconSymbol.vue'
 }
 .state-card strong {
   font-size: var(--text-sm);
-}
-.state-card p {
-  margin: 5px 0 0;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-.badge {
-  padding: 5px 8px;
-  border-radius: var(--radius-sm);
-  color: var(--warning);
-  background: var(--warning-soft);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-bold);
 }
 </style>

@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useUIStore, accents, type Accent, type ThemeMode } from '@/stores/ui'
 import { useSettingsStore } from '@/stores/settings'
 import { desktopEffects } from '@/composables/useElectron'
+import { t, type Language } from '@/i18n'
 const ui = useUIStore(),
   settings = useSettingsStore()
 const isElectron = Boolean(desktopEffects)
@@ -30,10 +31,10 @@ async function saveName() {
 async function saveShortcut() {
   if (savingShortcut.value) return
   savingShortcut.value = true
-  feedback.value = '正在设置…'
+  feedback.value = t('正在设置…')
   try {
     await ui.setCapsuleShortcut(shortcut.value)
-    feedback.value = '快捷键已更新。'
+    feedback.value = t('快捷键已更新。')
   } catch (reason) {
     feedback.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
@@ -43,29 +44,44 @@ async function saveShortcut() {
 </script>
 <template>
   <section class="appearance-settings glass-card">
-    <header><h2>你的助手，你的纸页</h2></header>
+    <header>
+      <h2>{{ $t('外观与称呼') }}</h2>
+    </header>
+    <label class="setting-row">
+      <span>{{ $t('语言') }}</span>
+      <select
+        :value="ui.appearance.language || 'zh-CN'"
+        @change="
+          ui.setAppearance({ language: ($event.target as HTMLSelectElement).value as Language })
+        "
+      >
+        <option value="zh-CN">{{ $t('简体中文') }}</option>
+        <option value="en">English</option>
+        <option value="system">{{ $t('跟随系统') }}</option>
+      </select>
+    </label>
     <label class="setting-row"
-      ><span>助手名字</span>
+      ><span>{{ $t('助手名字') }}</span>
       <div>
-        <input v-model="name" maxlength="32" placeholder="例如：小墨" /><button
+        <input v-model="name" maxlength="32" :placeholder="$t('助手名字')" /><button
           class="secondary-button"
           :disabled="settings.saving || !name.trim()"
           :aria-busy="settings.saving || undefined"
           @click="saveName"
         >
-          {{ settings.saving ? '正在保存…' : '保存' }}
+          {{ settings.saving ? $t('正在保存…') : $t('保存') }}
         </button>
       </div></label
     >
     <label class="setting-row"
-      ><span>怎么称呼你</span
+      ><span>{{ $t('怎么称呼你') }}</span
       ><input
         :value="ui.appearance.greetingName"
         maxlength="32"
         @input="ui.setAppearance({ greetingName: ($event.target as HTMLInputElement).value })"
     /></label>
     <label class="setting-row"
-      ><span>头像字</span
+      ><span>{{ $t('头像字') }}</span
       ><input
         class="avatar-input"
         :value="ui.appearance.avatar"
@@ -76,43 +92,52 @@ async function saveShortcut() {
         "
     /></label>
     <label class="setting-row"
-      ><span>纸页</span
+      ><span>{{ $t('纸页') }}</span
       ><select
         :value="ui.appearance.theme"
         @change="
           ui.setAppearance({ theme: ($event.target as HTMLSelectElement).value as ThemeMode })
         "
       >
-        <option value="system">跟随系统</option>
-        <option value="light">宣纸</option>
-        <option value="dark">松烟</option>
+        <option value="system">{{ $t('跟随系统') }}</option>
+        <option value="light">{{ $t('宣纸') }}</option>
+        <option value="dark">{{ $t('松烟') }}</option>
       </select></label
     >
     <div class="setting-row">
-      <span>强调色</span>
+      <span>{{ $t('强调色') }}</span>
       <div class="accent-presets">
         <button
           v-for="accent in accents"
           :key="accent.id"
-          :title="accent.label"
-          :aria-label="accent.label"
+          :title="$t(accent.label)"
+          :aria-label="$t(accent.label)"
           :aria-pressed="ui.appearance.accent === accent.id"
           :style="{ '--swatch': `var(${swatches[accent.id]})` }"
           @click="ui.setAppearance({ accent: accent.id })"
         >
-          <i /><span>{{ accent.label }}</span>
+          <i /><span>{{ $t(accent.label) }}</span>
         </button>
       </div>
     </div>
     <label class="setting-row"
-      ><span>纸纹</span
+      ><span>{{ $t('纸纹') }}</span
       ><input
         type="checkbox"
         :checked="ui.appearance.texture"
         @change="ui.setAppearance({ texture: ($event.target as HTMLInputElement).checked })"
     /></label>
+    <label class="setting-row"
+      ><span>{{ $t('显示模型上下文窗口用量') }}</span
+      ><input
+        type="checkbox"
+        :checked="ui.appearance.showContextUsage !== false"
+        @change="
+          ui.setAppearance({ showContextUsage: ($event.target as HTMLInputElement).checked })
+        "
+    /></label>
     <label v-if="isElectron" class="setting-row"
-      ><span>速记快捷键</span>
+      ><span>{{ $t('速记快捷键') }}</span>
       <div>
         <input v-model="shortcut" maxlength="80" placeholder="Alt+Space" /><button
           class="secondary-button"
@@ -120,7 +145,7 @@ async function saveShortcut() {
           :aria-busy="savingShortcut || undefined"
           @click="saveShortcut"
         >
-          {{ savingShortcut ? '正在设置…' : '设置' }}
+          {{ savingShortcut ? $t('正在设置…') : $t('设置') }}
         </button>
       </div></label
     >

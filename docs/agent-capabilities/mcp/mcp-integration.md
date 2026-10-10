@@ -5,10 +5,11 @@
 
 ## 1. 当前生命周期
 
-Python 核心服务是唯一 MCP Client 所有者，Go/Electron 不直接调用 MCP 工具。2026-10-10 第一批轻量化将 stdio 协议实现替换为官方 Python SDK；`agent.mcp.MCPClient` 仅保留配置校验、SDK 生命周期桥接和字典结果转换，调用入口不变。本次替换尚未运行集成或生命周期测试。
+Python 核心服务是唯一 MCP Client 所有者，Go/Electron 不直接调用 MCP 工具。2026-10-10 第一批轻量化将 stdio 协议实现替换为官方 Python SDK；`agent.mcp.MCPClient` 仅保留配置校验、SDK 生命周期桥接和字典结果转换，调用入口不变。随后获准的 Linux 本地验收已覆盖真实 SDK stdio 子进程、发现/调用/审批、取消后连接复用、超时、关闭和启动失败清理，范围见 [前四批收口记录](../../development/RuntimeMigration.md)。
 
 ```text
-部署者显式配置
+用户保存扩展配置（首次可由 YAML 提供）
+→ 空闲时显式应用；Core 重启加载上次生效配置
 → 校验 command/args/cwd/env allowlist
 → SDK stdio_client 启动进程
 → SDK ClientSession 协商 / initialize
@@ -21,7 +22,19 @@ Python 核心服务是唯一 MCP Client 所有者，Go/Electron 不直接调用 
 
 SDK 的 AnyIO 上下文由单个连接所有者 `asyncio.Task` 进入和退出，以适配 Core 初始化/关闭可能位于不同任务的情况；它不调度工具，也不实现请求队列或取消树。单次工具调用取消不关闭共享连接；关闭等待所有者退出。协议解析、请求 ID、响应关联、初始化消息和进程终止由 SDK 承担，不读取 SDK 私有字段。
 
-启动失败不得注册未就绪工具。健康重启、独立目录、资源配额、热切换、SkillVersion/Grant 和远程传输方式都未交付。
+启动/发现限时 30 秒（SDK 退出清理另计），失败不注册部分工具，不阻止其他服务和 Core 启动。页面区分停用、连接中、已连接、缺凭证、目录失效、超时和连接错误；“已连接”仅表示本地 SDK 会话已建立，不是持续远端健康检查。目录扫描在显式应用或启动时进行；恢复原连接不重扫 Skill。健康自动重启、独立沙箱、资源配额、运行中热替换、SkillVersion/Grant 和远程传输方式都未交付。
+
+### 配置与凭证管理
+
+侧栏“扩展 → MCP”可添加/编辑 command、args、cwd、环境变量名，启停或移除服务器。保存写现有 `workspace_settings` 的 `extensions.config`，不改 YAML、不启动进程；revision 防止旧页面覆盖新配置。`extensions.applied_config` 保存上次生效配置，Core 重启优先加载它，未应用的编辑不会悄悄替换待审批任务的服务。两份配置均不含凭证值，也不是执行状态。没有数据库快照时才读取 YAML；升级前没有生效快照时只能沿用当时的保存配置/YAML 建立初始记录，不能重建未知的历史配置。
+
+应用由个人工作区 owner 发起；Gateway 读取现有密钥链，Core 阻止新运行准入，确认没有运行/等待中的任务、审批和提问后准备候选目录、重连 MCP、打开候选执行入口，成功才替换原 LangGraph 实例。原入口保留到切换成功，基础 Runtime 准备失败不会先销毁普通聊天入口；已经断开的 MCP 则需恢复连接，不承诺所有外部资源原样回滚。旧资源关闭失败继续保留其所有权，下一次应用/关闭时再清理，快照通过 `extension_error` 提示。模型客户端、Browser、Repository 与 UI 订阅不更换。
+
+“恢复已有连接”使用上次生效版本，允许存在待审批/待回答任务，但仍拒绝有活动运行时执行；它不应用已保存的新配置，也不重扫当前 Skill 目录。批准 MCP 工具前，Gateway 若发现对应连接未建立，会先按此路径恢复连接，再提交原审批决定；恢复失败不消费审批。Core 仍校验原工具名称、参数 hash、策略和版本，恢复连接不是重新授权，也不是 MCP 副作用重放。拒绝审批不要求恢复凭证。
+
+`secret_env` 只保存环境变量名；值沿用凭证 API，引用为 `mcp.<namespace>.<ENV_NAME>`，位于现有系统密钥链。Gateway 在应用、恢复原连接或上述审批前置步骤中，将所需值经本地 gRPC 传给 Core，不写普通配置、checkpoint、审计或 GET 响应。Core 重启不保留内存凭证；普通新聊天不会自动重连 MCP，可点击“恢复已有连接”，通常无需重新填写。没有密钥链时不退回明文文件。`env_allowlist` 仍可继承 Core 启动环境中的指定变量，两类变量不得重名。
+
+凭证更新/清除与配置保存均不会热改活动进程环境，凭证值在下次应用/恢复连接时注入。移除 MCP 配置不会删除可执行程序、源目录或密钥链内容；清除凭证是单独的显式操作。应用任务由 Core 持有，调用方断线不提前释放准入锁，Core 关闭会等它完成清理；这只是资源生命周期接线，不是插件框架或任务状态机。只提供本地 stdio 接入，不声称已有包市场、远程安装或 HTTP 传输。本次管理链路和恢复修复未运行测试，前述 SDK 定向验收不能替代新增接口、并发应用和 UI 验收。
 
 ## 2. 发现与参数
 
@@ -34,7 +47,7 @@ SDK 的 AnyIO 上下文由单个连接所有者 `asyncio.Task` 进入和退出�
 
 ## 3. 调用与错误
 
-已连接 MCP 工具通过公开转换接入显式启用的新运行时；legacy 与 LangGraph 共用此次 SDK 桥接，不保留第二套 MCP 协议客户端。代码替换不等于远端取消、恢复或 legacy 回归已经验收：
+已连接 MCP 工具通过公开转换接入唯一 LangGraph Runtime，协议由官方 SDK 桥接，不保留第二套 MCP 协议客户端。代码替换不等于远端取消或恢复已经验收：
 
 ```text
 ToolRegistry resolve / 参数规范化
@@ -49,16 +62,16 @@ ToolRegistry resolve / 参数规范化
 
 ## 4. 取消、关闭和隔离限制
 
-`asyncio.CancelledError` 向调用方传播，不被转换成成功结果或重试。当前锁定 SDK 的请求等待取消不能证明已向服务器发送取消通知，更不能证明远端副作用停止；超时也只限制等待。本批不重新实现协议取消通知，不承诺 MCP 远端取消确认。
+`asyncio.CancelledError` 向调用方传播，不被转换成成功结果或重试。原生 `asyncio.timeout` 覆盖整个 SDK `call_tool` 的发送与等待；超时提示远端执行结果可能未知。当前锁定 SDK 的请求等待取消不能证明已向服务器发送取消通知，更不能证明远端副作用停止。本批不重新实现协议取消通知，不承诺 MCP 远端取消确认。
 
-Core 关闭时退出 SDK 上下文，由 SDK 关闭 stdin、等待并按平台回收进程；不再自行轮询 returncode 或发送 killpg。进程崩溃、活动调用关闭、Windows 子进程树和资源释放均未在本批验收。此替换也不修复 legacy Runtime 自身的取消限制。
+Core 关闭先停止并等待自己的调用，再退出 SDK 上下文，由 SDK 关闭 stdin、等待并按平台回收进程；不再自行轮询 returncode 或发送 killpg。单个连接关闭失败不跳过其余连接，错误汇总到 Core。上述本地验收不覆盖任意第三方服务器崩溃、Windows 子进程树或远端副作用停止。
 
-核心服务当前最小环境/cwd 检查不等于完整 OS 沙箱。凭证仅继承显式 allowlist，文件/网络/进程资源隔离尚未完整实现；不得把假想 SkillGrant 写成实际授权器。
+核心服务当前最小环境/cwd 检查不等于完整 OS 沙箱。凭证来自显式环境 allowlist 或密钥链注入，文件/网络/进程资源隔离尚未完整实现；不得把假想 SkillGrant 写成实际授权器。添加 stdio 程序意味着授权以当前用户身份启动它，工具审批不能限制该程序在初始化时自行产生的副作用。
 
 ## 5. 后续准入
 
 本批采用 `mcp>=1.28,<2`（锁文件为 1.30.0），不安装 CLI extra。已调查 [官方 v1 维护线](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x) 和 [v2 迁移说明](https://py.sdk.modelcontextprotocol.io/migration/)：v1 仍接收关键修复，能满足现有 stdio/字段兼容；v2 涉及协议、类型和 HTTP 依赖栈变更，本批不顺带扩大迁移。后续升级需重新核对维护状态及取消需求，不能无限期冻结版本。
 
-本批仅更新依赖清单/锁文件和代码，未安装依赖、未执行测试或构建；使用新代码前按 [开发指南](../../development/DevelopmentGuide.md) 同步根环境。SDK 替换不能标记为 LIVE PASS 或恢复验收通过。
+使用新代码前按 [开发指南](../../development/DevelopmentGuide.md) 同步根环境。后续收口使用已有锁定环境完成定向测试，未安装或升级依赖；本地 fixture 的通过不能标记为外部 MCP 服务 LIVE PASS 或任意工具恢复通过。
 
 远程传输方式只有真实个人服务需求后才设计服务身份、连接会话与网络信任；不预建多租户/插件 Manager。新能力须通过发现、错误、超时、取消、异常退出、资源回收与凭证隔离测试，见 [测试与验收](../../testing/TestPlan.md)。

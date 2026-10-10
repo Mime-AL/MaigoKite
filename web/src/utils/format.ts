@@ -1,3 +1,4 @@
+import { i18n, t } from '@/i18n'
 /**
  * 格式化工具函数
  *
@@ -7,7 +8,7 @@
 /** 格式化日期时间 */
 export function formatDateTime(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date
-  return d.toLocaleString('zh-CN', {
+  return d.toLocaleString(i18n.global.locale.value, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -23,10 +24,10 @@ export function formatRelativeTime(date: Date | string): string {
   const diffMs = now.getTime() - d.getTime()
   const diffSec = Math.floor(diffMs / 1000)
 
-  if (diffSec < 60) return '刚刚'
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`
-  if (diffSec < 604800) return `${Math.floor(diffSec / 86400)} 天前`
+  if (diffSec < 60) return t("刚刚")
+  if (diffSec < 3600) return t("{0} 分钟前", [Math.floor(diffSec / 60)])
+  if (diffSec < 86400) return t("{0} 小时前", [Math.floor(diffSec / 3600)])
+  if (diffSec < 604800) return t("{0} 天前", [Math.floor(diffSec / 86400)])
   return formatDateTime(d)
 }
 
@@ -37,10 +38,10 @@ export function formatDuration(ms: number): string {
   if (sec < 60) return `${sec}s`
   const min = Math.floor(sec / 60)
   const remainSec = sec % 60
-  if (min < 60) return `${min}分${remainSec}秒`
+  if (min < 60) return t("{0}分{1}秒", [min, remainSec])
   const hr = Math.floor(min / 60)
   const remainMin = min % 60
-  return `${hr}时${remainMin}分`
+  return t("{0}时{1}分", [hr, remainMin])
 }
 
 /** 格式化文件大小 */

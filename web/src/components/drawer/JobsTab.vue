@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { api, type AgentTask } from '@/api/client'
 import { useRunStore } from '@/stores/run'
@@ -50,7 +51,7 @@ async function stop(task: AgentTask) {
   if (disposed || task.conversation_id !== session.activeSessionId) return
   if (stopped) {
     await load()
-  } else error.value = session.error || '未能确认停止，请稍后重试。'
+  } else error.value = session.error || t("未能确认停止，请稍后重试。")
 }
 onUnmounted(() => {
   disposed = true
@@ -74,14 +75,14 @@ watch(
 </script>
 <template>
   <section class="jobs-tab">
-    <header>会话任务<button class="icon-button" title="刷新任务" @click="load">↻</button></header>
+    <header>{{ $t('会话任务') }}<button class="icon-button" :title="$t('刷新任务')" @click="load">↻</button></header>
     <p v-if="error" class="empty-copy" role="alert">{{ error }}</p>
-    <p v-else-if="loading && !tasks.length" class="empty-copy">正在读取任务…</p>
-    <p v-else-if="!tasks.length" class="empty-copy">还没有会话任务。</p>
+    <p v-else-if="loading && !tasks.length" class="empty-copy">{{ $t('正在读取任务…') }}</p>
+    <p v-else-if="!tasks.length" class="empty-copy">{{ $t('还没有会话任务。') }}</p>
     <article v-for="task in tasks" :key="task.id">
-      <strong>{{ task.input_text || '当前任务' }}</strong>
+      <strong>{{ task.input_text || $t('当前任务') }}</strong>
       <div>
-        <span>{{ labels[task.status] }}</span
+        <span>{{ $t(labels[task.status]) }}</span
         ><button
           v-if="
             ['created', 'queued', 'running', 'waiting_approval', 'retry_wait'].includes(task.status)
@@ -90,7 +91,7 @@ watch(
           :disabled="session.stoppingTaskIds.includes(task.id)"
           @click="stop(task)"
         >
-          {{ session.stoppingTaskIds.includes(task.id) ? '请求停止中…' : '停止' }}
+          {{ session.stoppingTaskIds.includes(task.id) ? $t('请求停止中…') : $t('停止') }}
         </button>
       </div>
       <p v-if="task.last_error" class="empty-copy">{{ task.last_error }}</p>

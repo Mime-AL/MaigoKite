@@ -78,6 +78,7 @@ func (r *Router) routes() {
 	workspaces.GET("/conversations", s.List)
 	workspaces.POST("/conversations", s.Create)
 	workspaces.GET("/conversations/:conversationID", s.Get)
+	workspaces.GET("/conversations/:conversationID/snapshot", s.Snapshot)
 	workspaces.PATCH("/conversations/:conversationID", s.Update)
 	workspaces.DELETE("/conversations/:conversationID", s.Delete)
 	workspaces.GET("/conversations/:conversationID/messages", s.Messages)
@@ -92,6 +93,8 @@ func (r *Router) routes() {
 	workspaces.GET("/jobs", inspection.Jobs)
 	workspaces.POST("/jobs/:jobID/stop", inspection.StopJob)
 	workspaces.POST("/tasks/:taskID/cancel", tasks.Cancel)
+	resume := &TaskResumeHandler{client: r.client, hub: r.hub, mgr: credentialManager}
+	workspaces.POST("/tasks/:taskID/resume", r.requireWorkspaceOwner(), resume.Resume)
 	workspaces.GET("/conversations/:conversationID/events/history", tasks.Events)
 	workspaces.POST("/conversations/:conversationID/messages", m.Send)
 	workspaces.GET("/events", m.Stream)
@@ -135,6 +138,10 @@ func (r *Router) routes() {
 	workspaces.GET("/data-summary", r.requireWorkspaceOwner(), (&DataHandler{client: r.client}).Summary)
 	workspaces.GET("/mcp-servers", (&MCPRuntimeHandler{client: r.client}).List)
 	workspaces.GET("/skills", (&SkillHandler{client: r.client}).List)
+	extensions := &ExtensionHandler{client: r.client, mgr: credentialManager}
+	workspaces.GET("/extension-settings", r.requireWorkspaceOwner(), extensions.Get)
+	workspaces.PUT("/extension-settings", r.requireWorkspaceOwner(), extensions.Update)
+	workspaces.POST("/extension-settings/apply", r.requireWorkspaceOwner(), extensions.Reload)
 	workspace := newWorkspaceHandler(r.cfg.Workspace.Root)
 	var runtimeHealth agentHealthReader
 	if r.client != nil {

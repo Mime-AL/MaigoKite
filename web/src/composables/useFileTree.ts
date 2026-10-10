@@ -92,6 +92,15 @@ export function useFileTree() {
     }
   }
 
+  /** 关闭预览并使进行中的读取结果失效。 */
+  function closePreview() {
+    previewRequest++
+    selectedNode.value = null
+    selectedContent.value = null
+    previewError.value = null
+    previewLoading.value = false
+  }
+
   /** 选择节点 */
   async function selectNode(node: FileTreeNode) {
     const request = ++previewRequest
@@ -138,6 +147,7 @@ export function useFileTree() {
     loadFileTree,
     toggleExpand,
     selectNode,
+    closePreview,
     getExpandedChildren,
   }
 }

@@ -18,16 +18,17 @@ type ModelHandler struct {
 }
 
 type ChatModelInput struct {
-	ID             string  `json:"id" binding:"omitempty,max=86"`
-	Name           string  `json:"name" binding:"omitempty,max=80"`
-	Provider       string  `json:"provider" binding:"required,oneof=openai anthropic openai_compatible ollama"`
-	Model          string  `json:"model" binding:"required,max=200"`
-	BaseURL        string  `json:"base_url" binding:"omitempty,max=2048"`
-	Temperature    float64 `json:"temperature" binding:"min=0,max=2"`
-	MaxTokens      int32   `json:"max_tokens" binding:"required,min=1,max=65536"`
-	TimeoutSeconds int32   `json:"timeout_seconds" binding:"required,min=1,max=600"`
-	IsDefault      bool    `json:"is_default"`
-	APIKey         string  `json:"api_key" binding:"omitempty,max=8192"`
+	ID                 string  `json:"id" binding:"omitempty,max=86"`
+	Name               string  `json:"name" binding:"omitempty,max=80"`
+	Provider           string  `json:"provider" binding:"required,oneof=openai anthropic openai_compatible ollama"`
+	Model              string  `json:"model" binding:"required,max=200"`
+	BaseURL            string  `json:"base_url" binding:"omitempty,max=2048"`
+	Temperature        float64 `json:"temperature" binding:"min=0,max=2"`
+	MaxTokens          int32   `json:"max_tokens" binding:"required,min=1,max=65536"`
+	TimeoutSeconds     int32   `json:"timeout_seconds" binding:"required,min=1,max=600"`
+	IsDefault          bool    `json:"is_default"`
+	APIKey             string  `json:"api_key" binding:"omitempty,max=8192"`
+	CredentialSourceID string  `json:"credential_source_id" binding:"omitempty,max=86"`
 }
 
 type settingsPatchRequest struct {
@@ -156,6 +157,14 @@ func (h *ModelHandler) Upsert(c *gin.Context) {
 	}
 	if pathID := c.Param("modelID"); pathID != "" {
 		req.ID = pathID
+	}
+	// Copy only a matching workspace/endpoint credential, never expose its value.
+	if req.APIKey == "" && req.CredentialSourceID != "" {
+		req.APIKey = h.profileAPIKey(c.Request.Context(), c.Param("workspaceID"), req.CredentialSourceID, req.Provider, req.BaseURL)
+		if req.APIKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "CREDENTIAL_SOURCE_INVALID", "message": "无法复用此配置的密钥，请确认服务地址和接口一致，或重新填写 API Key"}})
+			return
+		}
 	}
 	var previous *agentv1.ChatModelSettings
 	if req.ID != "" {

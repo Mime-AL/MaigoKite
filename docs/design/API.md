@@ -62,11 +62,18 @@ PATCH  /workspaces/{workspace_id}/conversations/{conversation_id}
 DELETE /workspaces/{workspace_id}/conversations/{conversation_id}
 GET    /workspaces/{workspace_id}/conversations/{conversation_id}/messages
 POST   /workspaces/{workspace_id}/conversations/{conversation_id}/messages
+GET    /workspaces/{workspace_id}/conversations/{conversation_id}/snapshot
 ```
 
 发送消息返回已创建的 `task_id`；增量结果通过事件流提供。
 
+发送消息可带 `Idempotency-Key`（1–128 个无空格可打印 ASCII 字符）。键按工作区、会话、主体隔离，内容指纹覆盖 content 与 attachments；新请求返回 202，相同键/相同内容返回原任务的 200 `{task_id, conversation_id, status, replayed: true}` 和 `Idempotency-Replayed: true`，不同内容返回 409。返回旧任务不会重新发模型请求、写消息或广播历史事件；中断/失败任务也不会因重发键自动恢复。相同文本的新操作必须用新键。省略键保持旧行为；GUI 已为每次逻辑提交生成键，网络/5xx 错误时保留原键，用户点击确认才重试。4xx 明确拒绝会释放键；成功回执后刷新失败不等于提交失败。键仅保留在当前页面会话内，刷新页面后应先查询任务记录，不保证找回原键。服务端的键随任务保留，删除会话/任务后不再保留去重记录。最新 GUI 接线未验收。
+
+`snapshot` 返回 `messages / tasks / approvals / questions / last_sequence / truncated`，其中 approvals/questions 只含待处理项，嵌套审批和问题沿用 protobuf JSON（`arguments_json / options_json`），客户端 API 边界将审批参数和问题选项转换为界面 DTO。在单 Core 的同一个 Repository 锁内读取，每类最多 200 条最新记录并按时间返回，条目合用约 900 KB 序列化预算；省略时明确 `truncated: true`。这解决多个列表分开读取的观察窗口，不提供跨进程一致性或完整事件快照。GUI 已先订阅并缓冲，再取快照、补拉历史并按 event_id 合并；快照水位内的活动卡片与未完成回复仍回放，但不得覆盖较新的任务状态或重新触发排队发送。待审批/待回答卡片直接使用真实快照水位，不制造伪事件。`truncated` 会提示较早记录可能不完整，客户端不能因缺少某个待处理 ID 就关闭对应卡片。接线不等同于断线恢复验收。
+
 会话包含 `folder_id / archived`；创建可指定 `folder_id`，PATCH 可更新 `title / folder_id / archived`。既有会话迁移后仍使用默认目录且未归档。前端按文件夹与归档状态显示列表；直接进入会话时切换到其归属目录。归档会话拒绝发送消息；未结束的任务禁止移动、归档、删除（409）。DELETE 清理产品任务、消息及 LangGraph checkpoint，不删除工作区文件，保留安全审计。
+
+归档仅禁止新执行，不禁止相同幂等键/内容查询已存在的提交回执。幂等请求中的会话若已删除，返回 404，不悄悄新建会话。`snapshot` 的空列表返回 `[]`，不返回 `null`。
 
 `files / files/content / changes / changes/diff / runtime-status` 支持可选 `folder_id` 查询参数，Gateway 通过 Core 解析已登记目录，客户端不能直接传任意根目录。Runtime 权限校验与工具上下文使用会话所属目录，不变更共享全局根目录；MCP 进程启动目录和技能加载目录不因切换而变化。
 
@@ -108,16 +115,31 @@ GET    /workspaces/{workspace_id}/data-summary
 
 ### 3.5 技能与 MCP
 
-当前已注册以下只读运行清单：
+运行清单与个人配置分开：
 
 ```text
 GET /workspaces/{workspace_id}/skills
 GET /workspaces/{workspace_id}/mcp-servers
+GET /workspaces/{workspace_id}/extension-settings
+PUT /workspaces/{workspace_id}/extension-settings
+POST /workspaces/{workspace_id}/extension-settings/apply
 ```
 
-`skills` 返回从配置目录实际加载的本地声明式技能元数据；`mcp-servers` 返回智能体核心实际加载的部署级 stdio Server、状态和工具名。二者都不是安装或 Grant 管理接口。
+`skills` 返回实际启用的声明式技能元数据，`mcp-servers` 返回实际加载的 stdio Server 状态和工具名，不把期望启用当作已经连接。
 
-技能包导入、安装、启停与版本授权 API 尚未实现；不保留与当前路径相似的假接口清单，扩展门槛见 [技能](../agent-capabilities/skills/skill-lifecycle.md)。
+三个 `extension-settings` 接口只允许个人工作区 owner（Core 同时要求 `workspace_id=personal`）。GET/PUT/apply 返回同一个快照：`config / active_config / applied_revision / reload_required / reloading / runtime_ready / servers / skills / skill_errors / extension_error`。其中 skills 包括停用的已扫描元数据；config 是期望配置，active_config 仅含上次生效配置的 `revision / mcp_servers`，不重复返回 Skill 正文；extension_error 提示应用或资源清理失败。配置 revision 已应用不等于所有 MCP 都连接成功，仍须检查每项状态。`runtime_ready=false` 时不宣称聊天链可运行。
+
+PUT 完整替换 `config`（2 MiB 上限）：`revision / mcp_servers / skill_directories / skills / disabled_skills`，校验通过后递增 revision，写现有 `workspace_settings` 并记审计，不操作运行中的进程。MCP 项包括 `namespace / transport=stdio / command / args / cwd / enabled / env_allowlist / secret_env / enabled_tools / disabled_tools`；托管 Skill 项包括 `name / content / enabled`，每个 Markdown 最大 256 KiB。只接受声明字段，不接受原始 env/secret 值。
+
+apply 默认接受 `{"revision": <保存后的版本>}`，应用新配置。Gateway 按 `secret_env` 从现有密钥链读取引用 `mcp.<namespace>.<ENV_NAME>`，经内部 RPC 瞬时传值。Core 拒绝旧版本、重复应用或仍有运行/待审批/待回答的任务（409）；无效配置 400，非 owner 403。
+
+同一接口接受 `{"revision": <active_config.revision>, "restore_only": true}`，只恢复已生效配置的 MCP 连接、复用已加载 Skill；允许等待审批/回答，不允许活动运行，不应用尚未生效的编辑。批准 MCP 工具时，Gateway 会在所需连接缺失时先执行此恢复；缺凭证或连接失败不提交审批决定，成功后仍由 Core 校验审批 hash/version/策略。拒绝审批无需恢复连接。
+
+配置或进程异常有逐项状态，不能用 HTTP 200 推断全部连接成功；基础 Runtime 准备失败返回错误并保留原聊天入口，已断开的 MCP 另行恢复。Core 持有应用任务到清理完成，调用方断线不提前开放新运行；请求超时后先 GET 查看 reloading/结果，不盲目重发 apply。
+
+凭证沿用 3.6 的 POST/PUT/DELETE 接口；值不进入扩展配置/GET/审计。更新/删除凭证不改活动进程环境，下次 apply/恢复连接时生效。卸载配置不删除程序、目录或凭证。当前只支持本地 stdio 与 Markdown/目录技能，不是技能包安装、版本授权或 Grant 平台，扩展边界见 [技能](../agent-capabilities/skills/skill-lifecycle.md)。
+
+本次配置与管理接口是源码接入状态，未运行新增链路测试；只读列表或此前 MCP SDK 的验收不能代替它。
 
 ### 3.6 设置、模型和凭证引用
 
@@ -150,6 +172,10 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 
 读取凭证只返回引用和元数据，不返回敏感凭证值。
 
+模型目录支持多选及手动追加 ID；每个选中模型保存为既有的独立配置，共享本次填写的服务连接信息。前端使用稳定配置 ID，串行调用现有 `PUT models/{model_id}`，避免配置目录的读改写发生并发覆盖；部分失败保留已保存项和草稿，重试更新同一 ID，不承诺跨配置事务。
+
+模型保存请求可携带 `credential_source_id`，由 Gateway 从同工作区、同接口协议、同规范化基础地址的已保存配置复用密钥；来源无效时在写入前拒绝。显式提交 `api_key` 优先，密钥仍按目标模型 ID 存储，不回传前端。此字段不建立新的 Provider 注册表或共享密钥域。
+
 阶段 1 中，模型 API 管理工作区的聊天模型配置集合，并保证最多一个默认模型。`models/actions/validate` 使用提交的草稿配置做一次最小模型调用，不保存草稿。`models/actions/discover` 根据模型提供方与基础地址查询服务端模型目录：OpenAI、Anthropic 和兼容端点使用 `/models`，Ollama 使用 `/api/tags`。
 
 目录发现优先使用本次草稿中的 Key。仅当模型提供方与基础地址同已保存配置完全匹配时，才读取该配置的凭证存储引用。结果和敏感凭证都不持久化。目录请求禁用重定向、系统代理和链路本地地址，防止 Key 被转发到非预期端点。
@@ -159,6 +185,10 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 联网搜索凭证使用 `tavily`、`google` 引用名。网关保存或删除引用时通过内部 gRPC 同步智能体核心，并在每次消息任务开始前重新同步，以覆盖核心服务重启场景。搜索失败事件只携带稳定错误码、用户提示和设置路由，不携带敏感凭证。
 
 阶段 1 另提供 `GET/PATCH /workspaces/{workspace_id}/permissions` 管理三档默认执行模式：`read_only / workspace / full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`response_mode` 和 `permission_mode`。服务端验证模型属于当前工作区；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
+
+创建/PATCH 会话还接受 `max_subagent_calls`（0–32，默认 0 关闭）和 `max_concurrent_subagents`（1–8，默认 1；启用时不能超过前者）。省略字段保留旧值，`0` 不当作省略。GET/List 返回会话设置；Go JSON 可能省略值为 0 的字段，客户端以 0 解读。Core 在持久化事务内校验组合；新任务原子快照限额，运行中修改仅影响后续回合。`capabilities.subagents` 表示支持此接口/执行入口，不绕过工具停用设置和共享模型调用预算。执行限制见 [运行时设计第 7 节](AgentRuntime.md#7-技能子任务与工作流边界)。
+
+`capabilities.subagent_model_selection` 表示支持多模型子 Agent。创建/PATCH 会话接受 `subagent_model_ids: string[]`，最多 32 个、不重复、必须是同工作区已配置模型 ID。PATCH 省略保留旧值，`[]` 清空额外选择（仍可跟随父模型）；GET/List 返回相同字段，空值被 Go JSON 省略时按 `[]` 解读。gRPC PATCH 使用 `ModelIdList subagent_models` 的 message presence 区分省略/清空。Task 返回准入时保存的 `subagent_model_ids`，供重启后的凭证准备使用；不是另一份执行状态。
 
 权限设置请求与响应仅包含 `default_mode`。REST 写入拒绝未知字段（包括旧的 `tool_levels / grants`），不再静默接受无效设置。内部 Proto 的旧 `tool_levels` 字段号 2 和名称均保留为 reserved，Gateway/Core 需一起更新；旧产品库无需删表，旧风险配置不生效，下一次保存只写默认档位。
 
@@ -195,21 +225,35 @@ GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 | `POST /tasks/{task_id}/inputs` | `{"content":"先不要修改，改为说明方案"}`；必须带 `Idempotency-Key`，返回 202 与 input 记录 |
 | `GET /jobs?conversation_id=...` | `{jobs: [...]}`，真实命令进程与已保存的结束结果，最多 100 条命令调用范围内的记录 |
 | `POST /jobs/{job_id}/stop` | 终止本 Core 持有的进程句柄并等待退出，返回 204；不是取消整个 Agent 任务 |
+| `POST /tasks/{task_id}/resume` | 工作区所有者显式恢复被进程中断的文件任务，正文 `{"version":当前任务版本}`；确认接受后返回 202，不代表完成 |
 
 **能力边界。** `approval_note / approval_detail / task_inspection / file_change_events / process_list / process_stop` 为本批支持项。
-`structured_questions / task_input / structured_plan / context_estimate` 仅在 `agent.runtime: langgraph` 时为 true；legacy 路径不增加第二套 HITL/插话状态机，插话提交返回 501。这些标志表示后端能力，工具仍可能被工作区配置停用。
+`structured_questions / task_input / structured_plan / context_estimate` 在 Core 的唯一 LangGraph Runtime 就绪时为 true；关闭或未就绪时不对外宣称可执行。这些标志表示后端能力，工具仍可能被工作区配置停用。
 `model_context_percentage / session_approval / turn_rollback / automatic_memory_events` 当前为 false。回合回滚不在本批需求内；会话授权留待权限简化，不创建临时 Grant 体系。
 
+**显式任务恢复。** `task_resume` 在 Runtime 就绪时为 true，表示提供受限恢复入口，不表示所有 interrupted 任务均可重放。Gateway 先按现有凭证入口补齐 Core 的进程内模型密钥，再调用流式 gRPC `ResumeTask(workspace_id, task_id, principal_id, version)`。Core 只接受所有者、最新版本、最新会话回合、无活跃运行、未归档且存在未完成 checkpoint 的 `interrupted` 任务；等待审批的任务继续使用 Approval API，不走这个接口。旧任务无 checkpoint 也按不可恢复处理；状态/版本/checkpoint 不满足返回 409，越权返回 403，任务不在工作区内返回 404。
+
+首版恢复只接受保留的 checkpoint 中工具调用均为 `file_read / file_write` 的任务，以及这两种直接 `/tool` 命令。保留历史若包含旧回合的其他工具也会保守拒绝；命令、Browser、MCP 等不自动重放。恢复不等于重新授权：未批准的调用仍暂停等待，已批准的调用仍核对当前策略及审批 hash/version。文件内容匹配时可零写入核对；不同内容可能被再次覆盖，接口不提供外部编辑冲突保护、回滚或 exactly-once 保证。调用者应先检查目标文件，确认重放意图。
+
+接受事件 `task.resumed` 使用既有 AgentEvent DTO 和持久 event_id/sequence/occurred_at，payload 包含 `execution_resumed: true` 与本次 `trace_id`。Gateway 收到该请求的确认才返回 202，后续事件透传原 WS 通道；并发拒绝请求不会冒领其他恢复请求的事件。执行与订阅分离：断线不取消；用户停止与 Core shutdown 都取消并等待同一根任务。UI 不接触 checkpoint/continuation，不新增前端状态机。当前批次只补后端接口与样例，验收状态见 [Runtime 迁移记录](../development/RuntimeMigration.md)。
+
 **任务详情。** `tool_calls` 返回工具名、参数、结果、状态和时间；不暴露 checkpoint、运行时对象或 `continuation_json`。
-`projection` 包含 `plan / context / changes / summary / questions / truncated`；问题包含 `options` 数组和已保存回答。快照在同一 Repository 锁内读取。最多 50 条工具调用、50 条审批和最近 100 条相关事件；工具结果、审批、文件差异与问题另外共用约 900 KB 的输出预算，过大条目省略并标记 `truncated`。`last_sequence` 是该任务的事件水位，不是整个会话所有任务的完整快照水位。截断时应补读既有事件历史，不能将省略的内容判为不存在。
+`projection` 包含 `plan / context / changes / summary / questions / usage / truncated`；问题包含 `options` 数组和已保存回答。快照在同一 Repository 锁内读取。最多 50 条工具调用、50 条审批和最近 100 条相关事件；工具结果、审批、文件差异与问题另外共用约 900 KB 的输出预算，过大条目省略并标记 `truncated`。`usage` 独立汇总该任务全部已保存的用量事件，不受最近 100 条活动限制；按 purpose 返回 `calls / failed_calls / reported_calls / tokens`，另有 `compactions`。它仅汇总已有回执，不将缺失字段填零，不计算价格；cached/reasoning 不额外加到总 token。`last_sequence` 是该任务的事件水位，不是整个会话所有任务的完整快照水位。截断时应补读既有事件历史，不能将省略的内容判为不存在。
 
 **结构化提问。** LangGraph 路径注册 `ask_user_question(title, options)`，选项为 `{label, recommended}`，也允许自由输入。使用原生 `interrupt / Command(resume=...)`，Repository 只保存产品问题、回答和审计。`question.requested` 携带 `question_id / tool_call_id / title / options / version`；`question.answered` 携带 `question_id / answer / version`。等待期间沿用已有任务状态 `waiting_approval`，UI 必须按问题事件/记录区分提问与权限审批，不能把提问渲染成“允许/拒绝”。回答验证工作区、主体、版本及 checkpoint；重复或过期回答返回 409。回答与审计、可见用户历史同事务保存，实际恢复仍看 checkpoint。进程重启恢复未在本批运行验证。
 
-**插话。** 仅接受当前活跃的普通模型任务，不接受 `/tool` 或正在等待交互的任务。content 最多 10000 字符，每任务最多 20 条未消费输入；幂等键最多 128 字节，同键不同内容返回 409。`task.input.queued` 是接收回执；下一模型步骤在原生 middleware 中追加 `HumanMessage`，checkpoint 同步落盘后，再通过 `task.input.consumed` 确认进入模型输入，并保存可见用户消息。`consumed` 不保证 Provider 成功生成回答。尚未开始的旧工具提议会收到未执行结果，让模型读取新输入后重新判断；不抢停已经开始的工具或模型流。若当前回合直接结束而没有下一模型步骤，查询状态为 `not_consumed`，不自动新建回合或重发。客户端按 input ID 合并状态，不能因迟到的 queued 回执把 consumed 状态改回 queued。
+GUI 的收件箱与活动卡片已接入问题选项、自由文本及“回答并继续”。提交当前展示的 version；
+成功、冲突或网络失败后重读快照和持久事件，不用 HTTP 202 冒充执行完成，也不自动重复回答。
+普通聊天输入仍走原待发队列，不隐式充当问题回答。驳回理由通过 Approval API 的 note 保存，
+不再只保留在页面内。最新 GUI 接线未运行验收；Mock 未实现问题续接，返回空问题列表。
+
+**插话。** 仅接受当前活跃的普通模型任务，不接受 `/tool` 或正在等待交互的任务。content 最多 10000 字符，每任务最多 20 条未消费输入；幂等键最多 128 字节，同键不同内容返回 409。`task.input.queued` 是接收回执；下一模型步骤在原生 middleware 中追加 `HumanMessage`，包含该输入的模型调用成功返回后才保存可见用户消息并发出 `task.input.consumed`。预算拒绝、失败和取消不冒充已消费；Provider 可能已收到但响应丢失的情况仍不能确认，`not_consumed` 不是“服务端一定没收到”的证明。`consumed` 也不保证后续工具或整个任务成功。尚未开始的旧工具提议会收到未执行结果，让模型读取新输入后重新判断；不抢停已经开始的工具或模型流。若当前回合结束前未确认消费，查询状态为 `not_consumed`，不自动新建回合或重发。客户端按 input ID 合并状态，不能因迟到的 queued 回执把 consumed 状态改回 queued。
 
 **计划与上下文。** 计划直接复用 LangChain `TodoListMiddleware / write_todos`；`plan.updated.items` 是 `{content, status}` 数组，status 为 `pending / in_progress / completed`，只作用于当前任务，不是工作区 TODO。`context.updated` 提供 `estimated_input_tokens / input_budget_tokens / measurement: "estimate"`；`model_context_window / context_percent` 为 null，绝不把产品输入预算冒充模型的实际上下文容量。模型真实计费计数继续通过既有 `model.usage` 提供。
 
-**文件变更。** `file_write / file_edit` 成功后发出任务归属的 `file.changed`：`path / tool_call_id / diff / diff_truncated / added / removed / before_hash / after_hash`。Diff 是单次工具操作前后的证据，不是整个回合净变化，不应将同文件多次修改的行数相加冒充净变化。前后内容各最多读取 256 KB，差异文本最多 64000 字符；二进制、无法读取或行数过多时 `diff_truncated: true`，无法计算的行数/hash 为 null。命令、MCP 或外部程序修改文件不在此事件覆盖内，仍使用现有工作区 Git Diff。发生写入后、事件提交前的崩溃可能缺少该投影；重放已满足内容的写入不会伪造原始 before image。本批不提供文件回滚快照。
+用量汇总中，旧记录若缺少 `call_id` 或调用开始回执，`calls / failed_calls` 返回 null（未知），不能显示为“0 次调用”。已收到的 token 小计和 `reported_calls` 仍可查询，但不是完整账单或调用次数的估计。
+
+**文件变更。** `file_write / file_edit` 成功后发出任务归属的 `file.changed`：`path / tool_call_id / diff / diff_truncated / added / removed / before_hash / after_hash`。Diff 是单次工具操作前后的证据，不是整个回合净变化，不应将同文件多次修改的行数相加冒充净变化。前后内容各最多读取 256 KB，差异文本最多 64000 字符；二进制、无法读取或行数过多时 `diff_truncated: true`，无法计算的行数/hash 为 null。命令、MCP 或外部程序修改文件不在此事件覆盖内，仍使用现有工作区 Git Diff。发生写入后、事件提交前的崩溃可能缺少该投影；重放已满足内容的写入不会伪造原始 before image。同字节核对成功的 `file_write` 仍通过标准工具投影返回结果：`tool.completed.data` 含 `reconciled: true / bytes_written: 0 / size_bytes`，`file.changed` 含可选 `reconciled: true`，并以 `before_hash: null / diff_truncated: true` 表示原始差异不可恢复，不表示产生了新的磁盘写入。本批不提供文件回滚快照。
 
 **进程。** job ID 使用真实命令的 tool_call ID，只允许停止当前 Core 持有且属于该工作区的句柄，客户端不能提交任意 PID。日志通过 GET 轮询，不是新增日志 WebSocket 协议；`log_tail` 为 stdout/stderr 各约 4000 的尾部片段。POSIX 使用不移动子进程文件偏移的 `pread` 读取；无 `pread` 的平台 `live_logs_available: false`，只提供已有完成输出。仍沿用现有执行超时、进程组终止及平台限制；这不是 detached background scheduler，不保证跨 Core 重启接管进程。
 
@@ -218,7 +262,7 @@ GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 ## 4. 命令语义
 
 - 当前审批决定使用版本号防止重复决定和丢失更新。
-- `Idempotency-Key` 本批仅用于任务插话；通用幂等写入、ETag、任务重试动作仍是规划中。
+- `Idempotency-Key` 用于任务插话和可选的聊天提交；不扩展为通用幂等写入框架。ETag、任务重试动作仍是规划中。
 - 取消、审批和重试使用显式动作，不伪装成普通字段 PATCH。
 
 ## 5. gRPC 服务
@@ -258,6 +302,8 @@ GET /api/v1/workspaces/{workspace_id}/events?conversation_id={conversation_id}
 message.delta
 message.completed
 model.usage
+model.call.started
+model.call.failed
 task.started
 task.waiting_approval
 task.succeeded
@@ -271,10 +317,12 @@ tool.proposed
 tool.started
 tool.completed
 tool.failed
+subagent.queued
 subagent.started
 subagent.progress
 subagent.completed
 subagent.failed
+subagent.cancelled
 approval.requested
 approval.decided
 question.requested
@@ -283,14 +331,24 @@ task.input.queued
 task.input.consumed
 plan.updated
 context.updated
+context.compacted
+context.history
 file.changed
 ```
 
 `message.*` 只承载用户可见的最终回答。模型主动输出的简短过程说明使用 `reasoning.*`，工具与子智能体生命周期分别使用 `tool.*` 和 `subagent.*`；三者均通过 `task_id` 关联任务，不写入消息资源。系统不传输模型隐藏思维链。
 
-`model.usage` 是可选的观测事件，不写入消息，也不表示任务完成。`payload.usage` 只包含模型提供方实际提供的数值，例如 `input_tokens`、`output_tokens`、`total_tokens`、`cache_read_tokens`、`cache_creation_tokens`、`reasoning_tokens`；缺失字段表示未提供。旧模型提供方可能保留 `prompt_tokens`/`completion_tokens` 命名。当前计数覆盖主模型请求，不包含自动摘要的全部成本，不能作为完整账单。未知事件类型不得阻断客户端的 sequence 推进。
+`subagent.*` 的 `subagent_id` 对应父任务的 `delegate` 工具调用 ID，不是独立产品 task。queued 带 `used/limit/task/label/requested_model_id`；started 带 `task` 和实际 `model_id/name/provider/model/label`，progress 带相同模型身份及只读工具名/参数，completed 带摘要和模型身份，failed 带安全错误信息与请求 ID。前端将进度/结果映射到同一 delegate 活动；原 `tool.completed/failed` 投影继续保留，父任务终态保持不变。子 Agent 模型事件的 `purpose=subagent`、`subagent_id` 及实际模型身份用于用量归属，不复用主回复的 `message.delta`。
 
-客户端按 `event_id` 去重，按 `sequence` 检测缺口。断线不取消任务。当前客户端先通过 REST `events/history?after=` 重放；建立 WebSocket 后，再按最新 sequence 补拉一次，覆盖普通连接窗口。原子 `after_sequence` WebSocket 握手和历史分页仍是规划中。
+`model.usage` 是可选的观测事件，不写入消息，也不表示任务完成。`payload.usage` 保存 Provider/SDK 提供的数值，例如 `input_tokens / output_tokens / total_tokens / cache_read_tokens / cache_creation_tokens / cache_miss_tokens / reasoning_tokens`；缺失缓存字段表示未提供。旧路径可能保留 `prompt_tokens / completion_tokens`。新路径同时覆盖主模型与摘要，通过 `purpose: response | summary`、`call_id` 区分；`model.call.started/failed` 记录调用次数和无完整结果的调用。SDK 内部重试与未返回的服务端用量无法据此补齐，因此不是完整账单。`context.compacted` 只给近似压缩前后/摘要 token 数和目标上限；`context.history` 标记 checkpoint 或可见历史导入，`execution_resumed: false` 表示开启新回合而非重放旧执行。未知事件类型不得阻断客户端的 sequence 推进。
+
+重复聊天提交的 gRPC `task.accepted / code: MESSAGE_REPLAY` 只是传输回执，Gateway 转为 HTTP 200，不持久化、不广播为 UI 事件，也不向前端泄漏 LangGraph 类型。
+
+客户端按 `event_id` 去重，按 `sequence` 检测缺口。断线不取消任务。Gateway 在同一订阅注册锁内，先排入 `{"type":"stream.ready","payload":{}}`，再允许实时事件入队。该帧是传输控制消息，不属于产品事件，不分配 `event_id / sequence`，不写活动区。
+
+客户端收到 `stream.ready` 后才通过 REST `events/history?after=` 连续分页重放（每页最多 1000 条），期间缓冲实时事件；回放成功再释放缓冲。历史游标只由已确认的 HTTP 历史推进，不能用较新的实时序号或会话快照跳过活动历史。补拉失败则重连，不先释放越过缺口的实时事件；注册确认超过 10 秒同样重连。慢订阅者被断开后沿用这一恢复路径。
+
+这提供“注册屏障 → 历史补拉 → 实时缓冲”的衔接，不是跨数据库/WebSocket 原子事务或新的 Event Sourcing。Core 持久日志是事件身份的唯一来源；Gateway 不再为缺身份的错误或业务事件发明 ID/序列，转发异常只触发重连。Gateway 与 Web 需一起更新，旧 Gateway 不会发送注册确认。后端注册顺序、身份保持和超过 1000 条历史的定向证据见 [迁移记录](../development/RuntimeMigration.md)；本次不包含浏览器 GUI E2E。
 
 ## 7. 错误模型
 
