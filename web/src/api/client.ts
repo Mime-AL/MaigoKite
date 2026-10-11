@@ -371,6 +371,7 @@ export interface ProcessJob {
   log_tail: string
   live: boolean
   live_logs_available: boolean
+  stdin_available: boolean
 }
 
 export interface MessageReceipt {
@@ -650,6 +651,15 @@ export const api = {
     )
     return body.jobs || []
   },
+  stopJob(jobId: string): Promise<void> {
+    return request(`${path}/jobs/${encodeURIComponent(jobId)}/stop`, { method: 'POST' })
+  },
+  writeJobInput(jobId: string, text: string, eof = false): Promise<void> {
+    return request(`${path}/jobs/${encodeURIComponent(jobId)}/input`, {
+      method: 'POST',
+      body: JSON.stringify({ text, eof }),
+    })
+  },
   async getCapabilities(): Promise<Record<string, boolean>> {
     const body = await request<{ capabilities: Record<string, boolean> }>(`${path}/capabilities`)
     return body.capabilities || {}
@@ -845,13 +855,16 @@ export const api = {
       try {
         event = JSON.parse(String(data))
       } catch {
-        /* A malformed frame must not interrupt reconnection/replay. */
+        // Reconnect/replay durable history instead of silently dropping a frame
+        // which may have carried the terminal state.
+        socket.close()
         return
       }
       // Projection failures belong to EventSocket's recovery boundary, not the
       // JSON parser. Swallowing them here can silently lose a terminal receipt.
       if (event && typeof event === 'object' && 'type' in event && 'payload' in event)
         onEvent(event as AgentEvent)
+      else socket.close()
     }
     return socket
   },

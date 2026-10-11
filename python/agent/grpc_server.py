@@ -93,6 +93,11 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             expires_at=item["expires_at"],
             note=item.get("note", ""),
             decided_at=item.get("decided_at") or "",
+            allowed_scopes=["once", "task", "session"] if item.get("reuse_scope") else ["once"],
+            reuse_scope_json=json.dumps(item.get("reuse_scope") or {}, ensure_ascii=False),
+            authorization_scope=item.get("authorization_scope", "once"),
+            authorization_expires_at=item.get("authorization_expires_at", ""),
+            authorization_revoked_at=item.get("authorization_revoked_at", ""),
         )
 
     @staticmethod
@@ -396,6 +401,32 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             last_sequence=item["last_sequence"],
         )
 
+    async def ListApprovalAuthorizations(self, request, context):
+        if await self._core.repository.check_workspace_access(request.workspace_id, request.principal_id) != "owner":
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "workspace owner required")
+            return
+        if not request.conversation_id:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "conversation_id is required")
+            return
+        items = await self._core.repository.list_authorizations(
+            request.workspace_id, request.conversation_id, request.principal_id,
+        )
+        return agent_pb2.ApprovalAuthorizationList(json=json.dumps(items, ensure_ascii=False))
+
+    async def RevokeApprovalAuthorization(self, request, context):
+        if await self._core.repository.check_workspace_access(request.workspace_id, request.principal_id) != "owner":
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, "workspace owner required")
+            return
+        try:
+            await self._core.repository.revoke_authorization(request.workspace_id, request.approval_id, request.principal_id)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "authorization not found")
+        except PermissionError as exc:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        return agent_pb2.Empty()
+
     async def ListQuestions(self, request, context):
         items = await self._core.repository.list_questions(
             request.workspace_id or "personal", request.conversation_id,
@@ -412,6 +443,16 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
         try:
             await self._core.stop_job(request.workspace_id or "personal", request.job_id,
                                       request.principal_id or "local-user")
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "process not found")
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+        return agent_pb2.Empty()
+
+    async def WriteJobInput(self, request, context):
+        try:
+            await self._core.write_job_input(request.workspace_id or "personal", request.job_id,
+                                             request.principal_id or "local-user", request.text, request.eof)
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "process not found")
         except ValueError as exc:
@@ -464,7 +505,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             return
         operation = self._core.decide_approval(
             workspace_id, request.approval_id, request.principal_id or "local-user",
-            request.decision, int(request.version), request.note,
+            request.decision, int(request.version), request.note, request.scope or "once",
         )
         async for event in self._stream_interaction(pending, operation, context):
             yield event
@@ -551,9 +592,11 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             "subagents": native,
             "subagent_model_selection": native,
             "file_change_events": True, "context_estimate": native,
-            "model_context_percentage": False, "session_approval": False,
+            "model_context_percentage": False, "session_approval": native, "task_approval": native,
+            "approval_authorization_revocation": native,
+            "permission_boundary_v2": native, "auto_review": False,
             "turn_rollback": False, "automatic_memory_events": False,
-            "process_list": True, "process_stop": True, "live_process_logs": hasattr(os, "pread"),
+            "process_list": True, "process_stop": True, "process_input": True, "live_process_logs": hasattr(os, "pread"),
         })
 
     async def CheckWorkspaceAccess(self, request, context):

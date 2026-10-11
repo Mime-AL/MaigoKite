@@ -35,7 +35,7 @@ const emit = defineEmits<{
         : busy
           ? $t('正在发送，草稿会保留…')
           : isSending
-            ? $t('Enter 引导 · Alt + Enter 稍后发送 · Esc 停止')
+            ? $t('Enter 立即发送 · Alt + Enter 加入队列 · Esc 停止')
             : $t('Enter 发送 · Shift + Enter 换行')
     }}
   </p>

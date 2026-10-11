@@ -3,8 +3,9 @@ import type { AgentEvent } from './client'
 export interface EventSocketOptions {
   connect: (receive: (event: AgentEvent) => void) => WebSocket
   history: (after: number, signal?: AbortSignal) => Promise<AgentEvent[]>
-  receive: (event: AgentEvent, replay: boolean) => void
+  receive: (event: AgentEvent, replay: boolean) => boolean | void
   connection: (online: boolean) => void
+  failure?: (error: unknown) => void
 }
 
 /** Replay durable events before releasing buffered live events. */
@@ -49,8 +50,14 @@ export class EventSocket {
       }
       if (this.recovering) this.queued.push(event)
       else {
-        try { this.deliver(event, false) }
-        catch { this.replayFailed(generation) }
+        try {
+          if (!this.deliver(event, false)) {
+            this.queued.push(event)
+            this.recovering = true
+          }
+        } catch (error) {
+          this.replayFailed(generation, error)
+        }
       }
     })
     this.socket = socket
@@ -93,6 +100,11 @@ export class EventSocket {
     this.recovery = { generation, promise }
     return promise
   }
+  /** Retry after the consumer has installed a snapshot, including an in-flight replay. */
+  async retry() {
+    await this.recovery?.promise
+    if (!this.stopped) await this.recover()
+  }
   private async replay(generation: number, signal: AbortSignal) {
     if (this.stopped || generation !== this.generation) return
     this.recovering = true
@@ -102,14 +114,15 @@ export class EventSocket {
         const before = this.lastSeq
         const events = await this.options.history(before, signal)
         if (this.stopped || generation !== this.generation) return
-        for (const event of events.slice().sort((a, b) => a.sequence - b.sequence)) this.deliver(event, true)
+        for (const event of events.slice().sort((a, b) => a.sequence - b.sequence))
+          if (!this.deliver(event, true)) return
         if (events.length < 1000 || this.lastSeq === before) break
       }
       // Buffered projections are part of recovery too. Leave the failed item
       // queued and do not report online until every projection has succeeded.
       this.queued.sort((a, b) => a.sequence - b.sequence)
       while (this.queued.length) {
-        this.deliver(this.queued[0], false)
+        if (!this.deliver(this.queued[0], false)) return
         this.queued.shift()
       }
       completed = true
@@ -117,8 +130,8 @@ export class EventSocket {
         this.attempts = 0
         this.options.connection(true)
       }
-    } catch {
-      this.replayFailed(generation)
+    } catch (error) {
+      this.replayFailed(generation, error)
     } finally {
       if (!this.stopped && generation === this.generation) {
         // close() is asynchronous; messages already queued by the browser must
@@ -127,7 +140,7 @@ export class EventSocket {
       }
     }
   }
-  private replayFailed(generation: number) {
+  private replayFailed(generation: number, error: unknown) {
     if (this.stopped || generation !== this.generation) return
     this.subscribed = false
     this.recovering = true
@@ -135,17 +148,28 @@ export class EventSocket {
     // Only successfully projected receipts are acknowledged; reconnect can
     // replay a failed item instead of leaving the chat permanently thinking.
     this.socket?.close()
+    this.options.failure?.(error)
   }
   private deliver(event: AgentEvent, replay: boolean) {
-    if (!event || typeof event.type !== 'string' || !event.payload || typeof event.payload !== 'object') return
+    if (
+      !event ||
+      typeof event.type !== 'string' ||
+      !Number.isSafeInteger(event.sequence) ||
+      event.sequence < 0 ||
+      !event.payload ||
+      typeof event.payload !== 'object' ||
+      Array.isArray(event.payload)
+    )
+      throw new Error('Invalid conversation event')
     // Both live paths now preserve durable IDs. Keep the history cursor tied
     // to HTTP replay: a higher live sequence alone does not prove no gap exists.
     const key = event.event_id || `${event.task_id}:${event.sequence}:${event.type}`
     if (!this.seen.has(key)) {
-      this.options.receive(event, replay)
+      if (this.options.receive(event, replay) === false) return false
       this.seen.add(key)
     }
     if (replay) this.lastSeq = Math.max(this.lastSeq, event.sequence || 0)
+    return true
   }
   stop() {
     this.stopped = true

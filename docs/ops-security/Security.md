@@ -21,9 +21,9 @@ loopback/Origin 限制不是完整设备认证。当前未完成本次启动的�
 
 AccessPolicy 和 ToolPolicy 都需通过。模型/技能/MCP 自报能力不能授权；具体参数、范围、摘要值/版本和单次审批规则只在工具权限文档维护。
 
-Bash 当前使用受限命令和可用的系统沙箱；不能把应用路径校验称为所有进程的 OS 隔离。MCP 当前信任边界是部署者显式配置，最小环境和受限 cwd 已有，全面资源隔离/独立 Grant 尚未交付。详见 [MCP](../agent-capabilities/mcp/mcp-integration.md)。
+exec_command 的受限模式要求可用的系统沙箱，默认断网，沙箱不可用时不静默回退；不能把进程内文件工具的路径校验称为完整 OS 隔离。MCP 当前信任边界是部署者显式配置，最小环境和受限 cwd 已有，全面资源隔离/独立 Grant 尚未交付。详见 [MCP](../agent-capabilities/mcp/mcp-integration.md)。
 
-本地技能是声明文件，不执行目录代码；包摘要值/签名/安装检查是未来门槛，不能伪装当前安装流程。高风险操作与 hard-deny 不因 full_access 或自然人批准而消失。
+本地技能是声明文件，不执行目录代码；包摘要值/签名/安装检查是未来门槛，不能伪装当前安装流程。显式禁用工具、部署限制及操作系统权限不因批准而消失；用户明确选择 danger_full_access 则取消工作区隔离与逐项审批。旧 full_access 保留受限语义。精确边界与当前限制见 [工具权限](../agent-capabilities/security/tool-permission.md)。
 
 ## 4. 凭证
 

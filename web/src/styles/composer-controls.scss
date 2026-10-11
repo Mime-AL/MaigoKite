@@ -41,7 +41,9 @@ select {
   background: var(--accent-pressed);
   scale: var(--press-scale);
 }
-.send-button :deep(.pulse) { color: var(--on-accent); }
+.send-button :deep(.pulse) {
+  color: var(--on-accent);
+}
 @media (hover: hover) {
   .send-button:not(:disabled):hover {
     background: var(--accent-hover);
@@ -53,6 +55,9 @@ select {
 .send-options {
   position: relative;
 }
+.send-options > button :deep(.icon-symbol) {
+  transform: rotate(var(--measure-90deg));
+}
 .send-options-menu {
   position: absolute;
   inset-inline-end: 0;
@@ -63,7 +68,7 @@ select {
   border-radius: var(--radius-md);
   background: var(--paper);
   box-shadow: var(--shadow-float);
-  z-index: 10;
+  z-index: var(--z-composer-menu);
 }
 .send-options-menu button {
   @include mixins.interactive-row;

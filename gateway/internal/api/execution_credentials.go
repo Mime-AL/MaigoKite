@@ -68,7 +68,50 @@ func prepareExecutionCredentials(ctx context.Context, client *agentgrpc.AgentCli
 			return err
 		}
 	}
-	return nil
+	return prepareActiveExtensions(ctx, client, mgr, workspaceID)
+}
+
+// Restore only the last-applied catalog, never saved-but-unapplied edits. This
+// runs before admission (including recovery), while Core can safely reconnect.
+func prepareActiveExtensions(ctx context.Context, client *agentgrpc.AgentClient, mgr *credentialstore.Manager, workspaceID string) error {
+	settings, err := client.GetExtensions(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	var snapshot extensionSnapshot
+	if err := json.Unmarshal([]byte(settings.Json), &snapshot); err != nil || snapshot.ActiveConfig == nil {
+		return status.Error(codes.FailedPrecondition, "无法读取已生效的扩展配置。")
+	}
+	ready := map[string]bool{}
+	for _, server := range snapshot.Servers {
+		ready[server.Namespace] = server.Status == "running"
+	}
+	restore := false
+	for _, server := range snapshot.ActiveConfig.Servers {
+		if server.Enabled && !ready[server.Namespace] {
+			restore = true
+		}
+	}
+	if !restore {
+		return nil
+	}
+	credentials := extensionCredentials(mgr, workspaceID, *snapshot.ActiveConfig)
+	for _, server := range snapshot.ActiveConfig.Servers {
+		if !server.Enabled {
+			continue
+		}
+		for _, name := range server.SecretEnv {
+			if credentials[server.Namespace][name] == "" {
+				return status.Error(codes.FailedPrecondition, "MCP 凭证尚未恢复，请解锁密钥链或在扩展设置中补齐凭证；任务尚未提交。")
+			}
+		}
+	}
+	encoded, err := json.Marshal(credentials)
+	if err != nil {
+		return err
+	}
+	_, err = client.ReloadExtensions(ctx, workspaceID, snapshot.ActiveConfig.Revision, string(encoded), true)
+	return err
 }
 
 // Rehydrate a pending MCP approval against the last-applied configuration only.

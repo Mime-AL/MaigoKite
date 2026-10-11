@@ -1,4 +1,5 @@
 @use './mixins';
+@use './breakpoints' as breakpoints;
 
 .catalog-card {
   display: flex;
@@ -6,7 +7,7 @@
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--rule);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-sm);
   background: var(--paper);
 }
@@ -17,14 +18,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-4);
 }
 
 .catalog-card > header {
-  padding: 12px 14px;
+  padding: var(--space-4) var(--size-14);
 }
 .catalog-card > header p {
-  margin: 4px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--ink-2);
   font-size: var(--text-xs);
 }
@@ -35,8 +36,8 @@
 }
 .icon-button {
   @include mixins.interactive-row;
-  width: 34px;
-  height: 34px;
+  width: var(--measure-34px);
+  height: var(--measure-34px);
   border: 0;
   border-radius: var(--radius-round);
   color: var(--ink-2);
@@ -46,17 +47,17 @@
 }
 
 .catalog-tools {
-  padding: 0 14px 12px;
+  padding: 0 var(--size-14) var(--space-4);
 }
 .search-field {
   display: flex;
   min-width: 0;
-  height: 40px;
+  height: var(--rail-node-height);
   flex: 1;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--rule);
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-sm);
   color: var(--ink-2);
   background: var(--paper);
@@ -75,32 +76,32 @@
 }
 .refresh-button {
   display: inline-flex;
-  min-height: 40px;
+  min-height: var(--rail-node-height);
   align-items: center;
-  gap: 6px;
+  gap: var(--size-6);
 }
 .catalog-message {
   margin: 0;
-  padding: 8px 14px;
+  padding: var(--space-3) var(--size-14);
   color: var(--ink-2);
   background: var(--paper-2);
   font-size: var(--text-xs);
 }
 
 .model-list {
-  max-height: 240px;
-  padding: 4px 8px 8px;
+  max-height: var(--measure-240px);
+  padding: var(--space-2) var(--space-3) var(--space-3);
   overflow-y: auto;
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
+  border-top: var(--hairline) solid var(--rule);
+  border-bottom: var(--hairline) solid var(--rule);
 }
 .model-option {
   @include mixins.interactive-row;
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--size-10);
   border: 0;
   border-radius: var(--radius-sm);
   color: var(--ink);
@@ -113,11 +114,11 @@
 }
 .checkbox-mark {
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: var(--size-18);
+  height: var(--size-18);
   flex: none;
   place-items: center;
-  border: 1.5px solid var(--rule);
+  border: var(--measure-1-5px) solid var(--rule);
   border-radius: var(--radius-sm);
 }
 .model-option.selected .checkbox-mark {
@@ -129,7 +130,7 @@
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--focus-offset);
 }
 .model-copy strong {
   overflow-wrap: anywhere;
@@ -148,11 +149,11 @@
 }
 .catalog-empty {
   display: grid;
-  min-height: 100px;
+  min-height: var(--measure-100px);
   place-content: center;
   justify-items: center;
-  gap: 7px;
-  padding: 18px;
+  gap: var(--measure-7px);
+  padding: var(--size-18);
   color: var(--ink-2);
   text-align: center;
 }
@@ -161,13 +162,13 @@
   font-size: var(--text-sm);
 }
 .catalog-empty small {
-  max-width: 340px;
+  max-width: var(--measure-340px);
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
 }
 
 .catalog-card > footer {
-  padding: 10px 14px;
+  padding: var(--size-10) var(--size-14);
   flex-wrap: wrap;
 }
 .catalog-card > footer > span {
@@ -177,10 +178,10 @@
 .catalog-card > footer > div {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-3);
 }
 
-@media (max-width: 560px) {
+@include breakpoints.sidebar-overlay {
   .catalog-tools {
     align-items: stretch;
     flex-direction: column;

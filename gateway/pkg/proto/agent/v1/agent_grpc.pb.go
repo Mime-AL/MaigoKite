@@ -37,6 +37,8 @@ const (
 	AgentService_ListTaskEvents_FullMethodName               = "/maigokite.agent.v1.AgentService/ListTaskEvents"
 	AgentService_ListApprovals_FullMethodName                = "/maigokite.agent.v1.AgentService/ListApprovals"
 	AgentService_GetApproval_FullMethodName                  = "/maigokite.agent.v1.AgentService/GetApproval"
+	AgentService_ListApprovalAuthorizations_FullMethodName   = "/maigokite.agent.v1.AgentService/ListApprovalAuthorizations"
+	AgentService_RevokeApprovalAuthorization_FullMethodName  = "/maigokite.agent.v1.AgentService/RevokeApprovalAuthorization"
 	AgentService_GetTaskInspection_FullMethodName            = "/maigokite.agent.v1.AgentService/GetTaskInspection"
 	AgentService_ListQuestions_FullMethodName                = "/maigokite.agent.v1.AgentService/ListQuestions"
 	AgentService_AnswerQuestion_FullMethodName               = "/maigokite.agent.v1.AgentService/AnswerQuestion"
@@ -44,6 +46,7 @@ const (
 	AgentService_ListTaskInputs_FullMethodName               = "/maigokite.agent.v1.AgentService/ListTaskInputs"
 	AgentService_ListJobs_FullMethodName                     = "/maigokite.agent.v1.AgentService/ListJobs"
 	AgentService_StopJob_FullMethodName                      = "/maigokite.agent.v1.AgentService/StopJob"
+	AgentService_WriteJobInput_FullMethodName                = "/maigokite.agent.v1.AgentService/WriteJobInput"
 	AgentService_DecideApproval_FullMethodName               = "/maigokite.agent.v1.AgentService/DecideApproval"
 	AgentService_CheckWorkspaceAccess_FullMethodName         = "/maigokite.agent.v1.AgentService/CheckWorkspaceAccess"
 	AgentService_ListAuditEvents_FullMethodName              = "/maigokite.agent.v1.AgentService/ListAuditEvents"
@@ -98,6 +101,8 @@ type AgentServiceClient interface {
 	ListTaskEvents(ctx context.Context, in *TaskEventListRequest, opts ...grpc.CallOption) (*TaskEventList, error)
 	ListApprovals(ctx context.Context, in *ApprovalListRequest, opts ...grpc.CallOption) (*ApprovalList, error)
 	GetApproval(ctx context.Context, in *ApprovalRequest, opts ...grpc.CallOption) (*Approval, error)
+	ListApprovalAuthorizations(ctx context.Context, in *ApprovalAuthorizationRequest, opts ...grpc.CallOption) (*ApprovalAuthorizationList, error)
+	RevokeApprovalAuthorization(ctx context.Context, in *ApprovalAuthorizationRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetTaskInspection(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskInspection, error)
 	ListQuestions(ctx context.Context, in *ApprovalListRequest, opts ...grpc.CallOption) (*QuestionList, error)
 	AnswerQuestion(ctx context.Context, in *QuestionAnswerRequest, opts ...grpc.CallOption) (AgentService_AnswerQuestionClient, error)
@@ -105,6 +110,7 @@ type AgentServiceClient interface {
 	ListTaskInputs(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskInputList, error)
 	ListJobs(ctx context.Context, in *TaskListRequest, opts ...grpc.CallOption) (*JobList, error)
 	StopJob(ctx context.Context, in *JobRequest, opts ...grpc.CallOption) (*Empty, error)
+	WriteJobInput(ctx context.Context, in *JobInputRequest, opts ...grpc.CallOption) (*Empty, error)
 	DecideApproval(ctx context.Context, in *ApprovalDecisionRequest, opts ...grpc.CallOption) (AgentService_DecideApprovalClient, error)
 	CheckWorkspaceAccess(ctx context.Context, in *WorkspaceAccessRequest, opts ...grpc.CallOption) (*WorkspaceAccessResponse, error)
 	ListAuditEvents(ctx context.Context, in *ListConversationsRequest, opts ...grpc.CallOption) (*AuditEventList, error)
@@ -348,6 +354,26 @@ func (c *agentServiceClient) GetApproval(ctx context.Context, in *ApprovalReques
 	return out, nil
 }
 
+func (c *agentServiceClient) ListApprovalAuthorizations(ctx context.Context, in *ApprovalAuthorizationRequest, opts ...grpc.CallOption) (*ApprovalAuthorizationList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApprovalAuthorizationList)
+	err := c.cc.Invoke(ctx, AgentService_ListApprovalAuthorizations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) RevokeApprovalAuthorization(ctx context.Context, in *ApprovalAuthorizationRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, AgentService_RevokeApprovalAuthorization_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) GetTaskInspection(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskInspection, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TaskInspection)
@@ -435,6 +461,16 @@ func (c *agentServiceClient) StopJob(ctx context.Context, in *JobRequest, opts .
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, AgentService_StopJob_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) WriteJobInput(ctx context.Context, in *JobInputRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, AgentService_WriteJobInput_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -809,6 +845,8 @@ type AgentServiceServer interface {
 	ListTaskEvents(context.Context, *TaskEventListRequest) (*TaskEventList, error)
 	ListApprovals(context.Context, *ApprovalListRequest) (*ApprovalList, error)
 	GetApproval(context.Context, *ApprovalRequest) (*Approval, error)
+	ListApprovalAuthorizations(context.Context, *ApprovalAuthorizationRequest) (*ApprovalAuthorizationList, error)
+	RevokeApprovalAuthorization(context.Context, *ApprovalAuthorizationRequest) (*Empty, error)
 	GetTaskInspection(context.Context, *TaskRequest) (*TaskInspection, error)
 	ListQuestions(context.Context, *ApprovalListRequest) (*QuestionList, error)
 	AnswerQuestion(*QuestionAnswerRequest, AgentService_AnswerQuestionServer) error
@@ -816,6 +854,7 @@ type AgentServiceServer interface {
 	ListTaskInputs(context.Context, *TaskRequest) (*TaskInputList, error)
 	ListJobs(context.Context, *TaskListRequest) (*JobList, error)
 	StopJob(context.Context, *JobRequest) (*Empty, error)
+	WriteJobInput(context.Context, *JobInputRequest) (*Empty, error)
 	DecideApproval(*ApprovalDecisionRequest, AgentService_DecideApprovalServer) error
 	CheckWorkspaceAccess(context.Context, *WorkspaceAccessRequest) (*WorkspaceAccessResponse, error)
 	ListAuditEvents(context.Context, *ListConversationsRequest) (*AuditEventList, error)
@@ -907,6 +946,12 @@ func (UnimplementedAgentServiceServer) ListApprovals(context.Context, *ApprovalL
 func (UnimplementedAgentServiceServer) GetApproval(context.Context, *ApprovalRequest) (*Approval, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetApproval not implemented")
 }
+func (UnimplementedAgentServiceServer) ListApprovalAuthorizations(context.Context, *ApprovalAuthorizationRequest) (*ApprovalAuthorizationList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListApprovalAuthorizations not implemented")
+}
+func (UnimplementedAgentServiceServer) RevokeApprovalAuthorization(context.Context, *ApprovalAuthorizationRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevokeApprovalAuthorization not implemented")
+}
 func (UnimplementedAgentServiceServer) GetTaskInspection(context.Context, *TaskRequest) (*TaskInspection, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTaskInspection not implemented")
 }
@@ -927,6 +972,9 @@ func (UnimplementedAgentServiceServer) ListJobs(context.Context, *TaskListReques
 }
 func (UnimplementedAgentServiceServer) StopJob(context.Context, *JobRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopJob not implemented")
+}
+func (UnimplementedAgentServiceServer) WriteJobInput(context.Context, *JobInputRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WriteJobInput not implemented")
 }
 func (UnimplementedAgentServiceServer) DecideApproval(*ApprovalDecisionRequest, AgentService_DecideApprovalServer) error {
 	return status.Errorf(codes.Unimplemented, "method DecideApproval not implemented")
@@ -1358,6 +1406,42 @@ func _AgentService_GetApproval_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_ListApprovalAuthorizations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApprovalAuthorizationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ListApprovalAuthorizations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ListApprovalAuthorizations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ListApprovalAuthorizations(ctx, req.(*ApprovalAuthorizationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_RevokeApprovalAuthorization_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApprovalAuthorizationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).RevokeApprovalAuthorization(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_RevokeApprovalAuthorization_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).RevokeApprovalAuthorization(ctx, req.(*ApprovalAuthorizationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_GetTaskInspection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TaskRequest)
 	if err := dec(in); err != nil {
@@ -1483,6 +1567,24 @@ func _AgentService_StopJob_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServiceServer).StopJob(ctx, req.(*JobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_WriteJobInput_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JobInputRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).WriteJobInput(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_WriteJobInput_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).WriteJobInput(ctx, req.(*JobInputRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2109,6 +2211,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AgentService_GetApproval_Handler,
 		},
 		{
+			MethodName: "ListApprovalAuthorizations",
+			Handler:    _AgentService_ListApprovalAuthorizations_Handler,
+		},
+		{
+			MethodName: "RevokeApprovalAuthorization",
+			Handler:    _AgentService_RevokeApprovalAuthorization_Handler,
+		},
+		{
 			MethodName: "GetTaskInspection",
 			Handler:    _AgentService_GetTaskInspection_Handler,
 		},
@@ -2131,6 +2241,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopJob",
 			Handler:    _AgentService_StopJob_Handler,
+		},
+		{
+			MethodName: "WriteJobInput",
+			Handler:    _AgentService_WriteJobInput_Handler,
 		},
 		{
 			MethodName: "CheckWorkspaceAccess",

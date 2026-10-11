@@ -41,7 +41,7 @@ code {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: var(--text-secondary);
+  color: var(--ink-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   text-overflow: ellipsis;
@@ -52,9 +52,9 @@ header span {
   font-size: var(--text-xs);
 }
 .add {
-  color: var(--success);
+  color: var(--ink-2);
 }
 .del {
-  color: var(--danger);
+  color: var(--ink-2);
 }
 </style>

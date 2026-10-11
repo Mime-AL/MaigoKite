@@ -44,7 +44,7 @@ type CreateRequest struct {
 	FolderID               string   `json:"folder_id" binding:"max=200"`
 	Title                  string   `json:"title" binding:"max=200"`
 	ModelID                string   `json:"model_id" binding:"max=200"`
-	PermissionMode         string   `json:"permission_mode" binding:"omitempty,oneof=read_only workspace full_access"`
+	PermissionMode         string   `json:"permission_mode" binding:"omitempty,oneof=read_only workspace workspace_auto full_access danger_full_access"`
 	ResponseMode           string   `json:"response_mode" binding:"omitempty,oneof=fast balanced thorough"`
 }
 type UpdateConversationRequest struct {
@@ -54,7 +54,7 @@ type UpdateConversationRequest struct {
 	Title                  *string   `json:"title" binding:"omitempty,min=1,max=200"`
 	FolderID               *string   `json:"folder_id" binding:"omitempty,max=200"`
 	Archived               *bool     `json:"archived"`
-	PermissionMode         *string   `json:"permission_mode" binding:"omitempty,oneof=read_only workspace full_access"`
+	PermissionMode         *string   `json:"permission_mode" binding:"omitempty,oneof=read_only workspace workspace_auto full_access danger_full_access"`
 	ModelID                *string   `json:"model_id" binding:"omitempty,max=200"`
 	ResponseMode           *string   `json:"response_mode" binding:"omitempty,oneof=fast balanced thorough"`
 }

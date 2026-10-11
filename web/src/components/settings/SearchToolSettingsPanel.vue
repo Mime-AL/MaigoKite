@@ -1,127 +1,193 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import IconSymbol from '@/components/common/IconSymbol.vue'
 import { useSettingsStore } from '@/stores/settings'
-
+import SecretField from '@/components/common/SecretField.vue'
+import Pulse from '@/components/shell/Pulse.vue'
+import { t } from '@/i18n'
 const settings = useSettingsStore()
-const tavilyKey = ref('')
-const googleKey = ref('')
-const googleCx = ref('')
-const busyService = ref('')
-
+const tavilyKey = ref(''),
+  googleKey = ref(''),
+  googleCx = ref(''),
+  busyService = ref('')
+const feedback = ref<Record<string, string>>({}),
+  errors = ref<Record<string, string>>({})
+const failedAction = ref<Record<string, 'save' | 'remove'>>({})
 const tavilyConfigured = computed(() => settings.credentials.tavily?.configured === true)
 const googleConfigured = computed(() => settings.credentials.google?.configured === true)
-
-async function saveTavily() {
-  const value = tavilyKey.value.trim()
-  if (!value || busyService.value) return
-  busyService.value = 'tavily'
-  if (await settings.saveCredential('tavily', value)) tavilyKey.value = ''
-  busyService.value = ''
-}
-
-async function saveGoogle() {
-  const key = googleKey.value.trim()
-  const cx = googleCx.value.trim()
-  if (!key || !cx || busyService.value) return
-  busyService.value = 'google'
-  if (await settings.saveCredential('google', `${key}:${cx}`)) {
-    googleKey.value = ''
-    googleCx.value = ''
+async function save(service: 'tavily' | 'google') {
+  if (busyService.value) return
+  const value =
+    service === 'tavily'
+      ? tavilyKey.value.trim()
+      : googleKey.value.trim() + ':' + googleCx.value.trim()
+  if (
+    service === 'tavily'
+      ? !tavilyKey.value.trim()
+      : !googleKey.value.trim() || !googleCx.value.trim()
+  )
+    return
+  busyService.value = service
+  feedback.value[service] = ''
+  errors.value[service] = ''
+  if (await settings.saveCredential(service, value)) {
+    feedback.value[service] = t('已保存')
+    if (service === 'tavily') tavilyKey.value = ''
+    else {
+      googleKey.value = ''
+      googleCx.value = ''
+    }
+  } else {
+    errors.value[service] = settings.error || t('保存失败')
+    failedAction.value[service] = 'save'
   }
   busyService.value = ''
 }
-
 async function remove(service: 'tavily' | 'google') {
-  if (busyService.value) return
+  if (busyService.value || !window.confirm(t('移除搜索凭证后，对应服务将不可用。继续？'))) return
   busyService.value = service
-  await settings.deleteCredential(service)
+  feedback.value[service] = ''
+  errors.value[service] = ''
+  if (await settings.deleteCredential(service)) feedback.value[service] = t('凭证已移除')
+  else {
+    errors.value[service] = settings.error || t('保存失败')
+    failedAction.value[service] = 'remove'
+  }
   busyService.value = ''
 }
 </script>
-
 <template>
-  <section class="tool-settings glass-card">
-    <header class="tool-heading">
-      <span class="section-icon"><IconSymbol name="globe" :size="21" /></span>
-      <div>
-        <h2>{{ $t('联网搜索') }}</h2>
-        <p>{{ $t('已配置的搜索服务优先使用。') }}</p>
-      </div>
+  <section
+    class="search-settings settings-panel"
+    data-settings-field="search-tools"
+  >
+    <header class="panel-heading">
+      <h2>{{ $t('联网搜索') }}</h2>
     </header>
-
-    <article class="provider-row">
-      <div class="provider-summary">
-        <span class="provider-mark duck">D</span>
-        <div><strong>DuckDuckGo</strong></div>
-        <span class="status"><i />{{ $t('无需配置') }}</span>
-      </div>
+    <p class="panel-copy">
+      {{ $t('已配置的搜索服务优先使用。') }}
+    </p>
+    <article class="search-service">
+      <header>
+        <Pulse state="idle" /><strong>DuckDuckGo</strong><span>{{ $t('无需配置') }}</span>
+      </header>
     </article>
-
-    <article class="provider-row configurable">
-      <div class="provider-summary">
-        <span class="provider-mark tavily">T</span>
-        <div><strong>Tavily</strong></div>
-        <span class="status" :class="tavilyConfigured ? 'ready' : 'missing'"
-          ><i />{{ tavilyConfigured ? $t('已配置') : $t('未配置') }}</span
-        >
-      </div>
-      <div class="credential-form">
-        <input
+    <article
+      v-for="service in ['tavily', 'google'] as const"
+      :key="service"
+      class="search-service"
+    >
+      <header>
+        <Pulse :state="busyService === service ? 'acting' : 'idle'" /><strong>{{
+          service === 'tavily' ? 'Tavily' : 'Google Programmable Search'
+        }}</strong><span>{{
+          (service === 'tavily' ? tavilyConfigured : googleConfigured) ? $t('已配置') : $t('未配置')
+        }}</span>
+      </header>
+      <form
+        class="search-form credential-form"
+        :class="{ 'google-form': service === 'google' }"
+        @submit.prevent="save(service)"
+      >
+        <label><span>API Key</span><SecretField
+          v-if="service === 'tavily'"
           v-model="tavilyKey"
-          type="password"
-          autocomplete="new-password"
-          :placeholder="tavilyConfigured ? $t('输入新 Key 可替换现有凭证') : 'Tavily API Key'"
-        />
-        <button class="primary-button" type="button" :disabled="!tavilyKey.trim() || !!busyService" @click="saveTavily">
-          {{ busyService === 'tavily' ? $t('保存中…') : $t('保存') }}
-        </button>
-        <button
-          v-if="tavilyConfigured"
-          class="plain-button danger"
-          type="button"
+          :label="'Tavily API Key'"
           :disabled="!!busyService"
-          @click="remove('tavily')"
-        >{{ $t('移除') }}</button>
-      </div>
-    </article>
-
-    <article class="provider-row configurable">
-      <div class="provider-summary">
-        <span class="provider-mark google">G</span>
-        <div><strong>Google Programmable Search</strong></div>
-        <span class="status" :class="googleConfigured ? 'ready' : 'missing'"
-          ><i />{{ googleConfigured ? $t('已配置') : $t('未配置') }}</span
-        >
-      </div>
-      <div class="credential-form google-form">
-        <input
+        /><SecretField
+          v-else
           v-model="googleKey"
-          type="password"
-          autocomplete="new-password"
-          :placeholder="googleConfigured ? $t('输入新 Key 可替换现有凭证') : 'Google API Key'"
-        />
-        <input v-model="googleCx" type="text" autocomplete="off" :placeholder="$t('搜索引擎 ID（CX）')" />
-        <button
-          class="primary-button"
-          type="button"
-          :disabled="!googleKey.trim() || !googleCx.trim() || !!busyService"
-          @click="saveGoogle"
-        >
-          {{ busyService === 'google' ? $t('保存中…') : $t('保存') }}
-        </button>
-        <button
-          v-if="googleConfigured"
-          class="plain-button danger"
-          type="button"
+          :label="'Google API Key'"
           :disabled="!!busyService"
-          @click="remove('google')"
-        >{{ $t('移除') }}</button>
-      </div>
+        /></label>
+        <label v-if="service === 'google'"><span>{{ $t('搜索引擎 ID（CX）') }}</span><input
+          v-model="googleCx"
+          autocomplete="off"
+          :disabled="!!busyService"
+        ></label>
+        <div class="search-actions">
+          <button
+            class="primary-button"
+            :disabled="
+              !!busyService ||
+                (service === 'tavily' ? !tavilyKey.trim() : !googleKey.trim() || !googleCx.trim())
+            "
+            :aria-busy="busyService === service || undefined"
+            @click.prevent="save(service)"
+          >
+            {{ $t('保存') }}
+          </button><button
+            v-if="service === 'tavily' ? tavilyConfigured : googleConfigured"
+            class="danger-button"
+            type="button"
+            :disabled="!!busyService"
+            @click="remove(service)"
+          >
+            {{ $t('移除') }}
+          </button><span
+            v-if="feedback[service]"
+            class="field-saved"
+            role="status"
+          >{{
+            feedback[service]
+          }}</span>
+        </div>
+        <p
+          v-if="errors[service]"
+          class="field-error"
+          role="alert"
+        >
+          {{ errors[service]
+          }}<button
+            class="text-button"
+            type="button"
+            :disabled="!!busyService"
+            @click="failedAction[service] === 'remove' ? remove(service) : save(service)"
+          >
+            {{ $t('重试') }}
+          </button>
+        </p>
+      </form>
     </article>
   </section>
 </template>
-
 <style scoped lang="scss">
-@use '@/styles/search-tool-settings';
+.search-service {
+  padding-block: var(--space-6);
+  border-bottom: var(--hairline) solid var(--rule);
+}
+.search-service:last-child {
+  border-bottom: 0;
+}
+.search-service header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.search-service header span {
+  color: var(--ink-2);
+  margin-inline-start: auto;
+  font-size: var(--text-xs);
+}
+.search-form {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+.search-form label {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+.search-form input {
+  width: 100%;
+}
+.search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
 </style>

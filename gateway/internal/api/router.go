@@ -92,6 +92,7 @@ func (r *Router) routes() {
 	workspaces.POST("/tasks/:taskID/inputs", inspection.SubmitInput)
 	workspaces.GET("/jobs", inspection.Jobs)
 	workspaces.POST("/jobs/:jobID/stop", inspection.StopJob)
+	workspaces.POST("/jobs/:jobID/input", inspection.WriteJobInput)
 	workspaces.POST("/tasks/:taskID/cancel", tasks.Cancel)
 	resume := &TaskResumeHandler{client: r.client, hub: r.hub, mgr: credentialManager}
 	workspaces.POST("/tasks/:taskID/resume", r.requireWorkspaceOwner(), resume.Resume)
@@ -102,6 +103,8 @@ func (r *Router) routes() {
 	workspaces.GET("/approvals", approvals.List)
 	workspaces.GET("/approvals/:approvalID", approvals.Get)
 	workspaces.POST("/approvals/:approvalID/decision", approvals.Decide)
+	workspaces.GET("/approval-authorizations", r.requireWorkspaceOwner(), approvals.ListAuthorizations)
+	workspaces.DELETE("/approvals/:approvalID/authorization", r.requireWorkspaceOwner(), approvals.RevokeAuthorization)
 	questions := &QuestionHandler{client: r.client, hub: r.hub, mgr: credentialManager}
 	workspaces.GET("/questions", questions.List)
 	workspaces.POST("/questions/:questionID/answer", questions.Answer)

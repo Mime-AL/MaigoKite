@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
-from agent.utils.sandbox import SandboxExecutor
+from agent.utils.sandbox import SandboxExecutor, SandboxUnavailableError
 
 
 class BashParams(BaseModel):
@@ -30,14 +30,20 @@ class BashParams(BaseModel):
     )
     workdir: str | None = Field(
         default=None,
-        description="Working directory inside the current workspace.",
+        description="Working directory; outside-workspace access requires approval or full access.",
     )
+    sandbox_permissions: Literal["use_default", "require_escalated"] = Field(
+        default="use_default", description="Request one host execution only when needed. Also request network_access=true because host execution cannot isolate networking. Both require approval, never grant it.",
+    )
+    network_access: bool = Field(default=False, description="Request network access for this command; requires approval in confined modes.")
     max_output_bytes: int = Field(default=8000, ge=256, le=32_000,
                                   description="Preview bytes per stream. Full output is saved in workspace log files.")
+    interactive: bool = Field(default=False, description="Allow the user to send stdin from the process panel. Requires approval; not a terminal or detached job. Timeout still applies.")
 
 
 BASH_DESCRIPTION = (
-    "Execute a command without shell expansion in a workspace-confined process sandbox. "
+    "Execute argv without shell expansion. Normal commands use a workspace process sandbox with no network. "
+    "Request network_access for networking within the sandbox, or require_escalated plus network_access for host execution; policy decides approval. "
     "Returns bounded stdout/stderr, exit code and log paths. Use file_read with offset to inspect more output."
 )
 
@@ -64,6 +70,8 @@ class ExecCommandTool(BaseTool):
         workdir = Path(str(arguments.get("workdir") or workspace_root)).expanduser().resolve()
         executor = SandboxExecutor(
             {"workspace_root": str(workspace_root), "workdir": str(workdir),
+             "sandbox_mode": context.metadata.get("sandbox_mode", "workspace"),
+             "allow_network": context.metadata.get("allow_network", False),
              "output_limit": int(arguments.get("max_output_bytes", 8000)),
              "output_directory": str(workspace_root / ".maigokite" / "outputs")}
         )
@@ -75,9 +83,14 @@ class ExecCommandTool(BaseTool):
         def on_exit():
             if registry is not None:
                 registry.detach(context.step_id)
-        result = await executor.execute_command(
-            str(arguments["command"]), int(arguments.get("timeout", 30)), on_spawn=on_spawn, on_exit=on_exit,
-        )
+        try:
+            result = await executor.execute_command(
+                str(arguments["command"]), int(arguments.get("timeout", 30)), on_spawn=on_spawn, on_exit=on_exit,
+                interactive=bool(arguments.get("interactive", False)),
+            )
+        except SandboxUnavailableError as exc:
+            return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
+                                      user_hint="受限命令需要可用的系统沙箱。请安装或启用 bubblewrap；也可单次批准明确的沙箱外执行请求。")
 
         parts = [f"Exit code {result.exit_code}"]
         if result.timed_out:

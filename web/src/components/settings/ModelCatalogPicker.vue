@@ -2,6 +2,7 @@
 import { t } from '@/i18n'
 import { computed, ref, watch } from 'vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import InkLoader from '@/components/common/InkLoader.vue'
 import type { DiscoveredChatModel } from '@/api/client'
 
 const props = defineProps<{
@@ -36,10 +37,38 @@ const filteredModels = computed(() => {
 const visibleModels = computed(() => filteredModels.value.slice(0, visibleCount.value))
 const selectedIds = computed(() => new Set(props.selectedModels))
 
+function navigate(event: KeyboardEvent) {
+  if (event.isComposing || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  const target = event.target
+  if (!(target instanceof HTMLElement)) return
+  const list =
+    target.closest('.model-list') || target.closest('.catalog-card')?.querySelector('.model-list')
+  const buttons = Array.from(
+    list?.querySelectorAll<HTMLButtonElement>('.model-option:not(:disabled)') || [],
+  )
+  if (!buttons.length) return
+  // Home/End in the search input retain their text-editing meaning.
+  if (target instanceof HTMLInputElement && ['Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const current = buttons.indexOf(target as HTMLButtonElement)
+  const index =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? buttons.length - 1
+        : event.key === 'ArrowUp'
+          ? Math.max(0, current - 1)
+          : Math.min(buttons.length - 1, current + 1)
+  buttons[index]?.focus({ preventScroll: true })
+  buttons[index]?.scrollIntoView({ block: 'nearest' })
+}
+
 function describeModel(model: DiscoveredChatModel): string {
   return [
     model.owned_by,
-    model.context_window ? t("{0} Token 上下文", [model.context_window.toLocaleString('en-US')]) : '',
+    model.context_window
+      ? t('{0} Token 上下文', [model.context_window.toLocaleString('en-US')])
+      : '',
     model.details,
   ]
     .filter(Boolean)
@@ -54,19 +83,30 @@ function describeModel(model: DiscoveredChatModel): string {
     data-testid="model-catalog"
     aria-labelledby="model-catalog-title"
     @keydown.esc.stop.prevent="emit('close')"
+    @keydown="navigate"
   >
     <header>
       <div>
-        <h3 id="model-catalog-title">{{ $t('模型列表') }}</h3>
+        <h3 id="model-catalog-title">
+          {{ $t('模型列表') }}
+        </h3>
       </div>
-      <button type="button" class="icon-button" :aria-label="$t('收起模型列表')" @click="emit('close')">
+      <button
+        type="button"
+        class="icon-button"
+        :aria-label="$t('收起模型列表')"
+        @click="emit('close')"
+      >
         ×
       </button>
     </header>
 
     <div class="catalog-tools">
       <label class="search-field">
-        <IconSymbol name="search" :size="16" />
+        <IconSymbol
+          name="search"
+          :size="16"
+        />
         <input
           v-model="query"
           data-testid="catalog-search"
@@ -74,7 +114,7 @@ function describeModel(model: DiscoveredChatModel): string {
           :placeholder="$t('按模型 ID 或名称搜索')"
           :aria-label="$t('搜索可用模型')"
           @keydown.enter.prevent
-        />
+        >
       </label>
       <button
         type="button"
@@ -83,14 +123,29 @@ function describeModel(model: DiscoveredChatModel): string {
         :aria-busy="loading || undefined"
         @click="emit('refresh')"
       >
-        <IconSymbol v-if="!loading" name="refresh" :size="14" />
+        <IconSymbol
+          v-if="!loading"
+          name="refresh"
+          :size="14"
+        />
         {{ loading ? $t('正在获取…') : $t('重新获取') }}
       </button>
     </div>
 
-    <p v-if="message" class="catalog-message" :role="error ? 'alert' : 'status'">{{ message }}</p>
+    <p
+      v-if="message"
+      class="catalog-message"
+      :role="error ? 'alert' : 'status'"
+    >
+      {{ message }}
+    </p>
 
-    <div class="model-list" role="group" :aria-label="$t('可用模型')" :aria-busy="loading || undefined">
+    <div
+      class="model-list"
+      role="group"
+      :aria-label="$t('可用模型')"
+      :aria-busy="loading || undefined"
+    >
       <button
         v-for="model in visibleModels"
         :key="model.id"
@@ -102,8 +157,15 @@ function describeModel(model: DiscoveredChatModel): string {
         :disabled="loading"
         @click="emit('select', model.id)"
       >
-        <span class="checkbox-mark" aria-hidden="true">
-          <IconSymbol v-if="selectedIds.has(model.id)" name="check" :size="12" />
+        <span
+          class="checkbox-mark"
+          aria-hidden="true"
+        >
+          <IconSymbol
+            v-if="selectedIds.has(model.id)"
+            name="check"
+            :size="12"
+          />
         </span>
         <span class="model-copy">
           <strong>{{ model.name || model.id }}</strong>
@@ -117,26 +179,59 @@ function describeModel(model: DiscoveredChatModel): string {
         type="button"
         class="secondary-button"
         @click="visibleCount += 80"
-      >{{ $t('显示更多模型') }}</button>
+      >
+        {{ $t('显示更多模型') }}
+      </button>
 
-      <div v-if="loading" class="catalog-empty" role="status">
+      <div
+        v-if="loading"
+        class="catalog-empty"
+        role="status"
+      >
+        <InkLoader />
         <strong>{{ $t('正在获取模型…') }}</strong>
       </div>
-      <div v-else-if="!filteredModels.length" class="catalog-empty">
-        <IconSymbol name="search" :size="22" />
+      <div
+        v-else-if="!filteredModels.length"
+        class="catalog-empty"
+      >
+        <IconSymbol
+          name="search"
+          :size="22"
+        />
         <strong>{{
-          models.length ? $t('没有匹配的模型') : error ? $t('暂时无法获取模型列表') : $t('没有可用模型')
+          models.length
+            ? $t('没有匹配的模型')
+            : error
+              ? $t('暂时无法获取模型列表')
+              : $t('没有可用模型')
         }}</strong>
       </div>
     </div>
 
     <footer>
-      <span
-        >{{ $t('{0} / {1} 个模型 · 已选 {2} 个', [filteredModels.length, models.length, selectedModels.length]) }}</span
-      >
+      <span>{{
+        $t('{0} / {1} 个模型 · 已选 {2} 个', [
+          filteredModels.length,
+          models.length,
+          selectedModels.length,
+        ])
+      }}</span>
       <div>
-        <button type="button" class="secondary-button" @click="emit('manual')">{{ $t('手动填写模型 ID') }}</button>
-        <button type="button" class="secondary-button" @click="emit('close')">{{ $t('完成选择') }}</button>
+        <button
+          type="button"
+          class="secondary-button"
+          @click="emit('manual')"
+        >
+          {{ $t('手动填写模型 ID') }}
+        </button>
+        <button
+          type="button"
+          class="secondary-button"
+          @click="emit('close')"
+        >
+          {{ $t('完成选择') }}
+        </button>
       </div>
     </footer>
   </section>

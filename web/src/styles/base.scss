@@ -1,4 +1,5 @@
 @use './tokens';
+@use './settings';
 * {
   box-sizing: border-box;
 }
@@ -25,24 +26,33 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 90;
+  z-index: var(--z-texture);
   opacity: var(--noise-opacity);
   background-image: var(--noise);
 }
 html[data-texture='false'] body::before {
   display: none;
 }
-/* The sample owns layered, below-text grain; other pages keep their old treatment. */
-body:has(.inkline-preview, .inkline-shell)::before { display: none; }
+/* Layered grain stays below text; legacy entry points retain the canvas layer. */
+body:has(.inkline-preview, .inkline-shell)::before {
+  display: none;
+}
+.inkline-shell {
+  color: var(--ink);
+}
 html[data-texture='false'] .inkline-shell .sidebar::before,
 html[data-texture='false'] .inkline-shell .drawer::before,
-html[data-texture='false'] .inkline-shell .palette::before { display: none; }
+html[data-texture='false'] .inkline-shell .palette::before {
+  display: none;
+}
 /* Keep the document-level setting outside scoped styles. */
 html[data-texture='false'] .inkline-preview::before,
 html[data-texture='false'] .inkline-preview .composer::before,
 html[data-texture='false'] .inkline-preview .receipt > div::before,
 html[data-texture='false'] .inkline-preview .markdown-content pre::before,
-html[data-texture='false'] .inkline-preview .node-details pre::before { display: none; }
+html[data-texture='false'] .inkline-preview .node-details pre::before {
+  display: none;
+}
 button,
 input,
 textarea,
@@ -95,9 +105,9 @@ select {
 input,
 textarea,
 select {
-  border: 1px solid var(--rule);
+  border: var(--hairline) solid var(--rule);
   background: var(--paper);
-  padding: 8px 10px;
+  padding: var(--space-3) var(--size-10);
   transition: var(--control-transition);
 }
 input[type='checkbox'],
@@ -127,29 +137,99 @@ textarea {
   outline: var(--focus-width) solid var(--accent);
   outline-offset: var(--focus-offset);
 }
-::placeholder { color: var(--ink-3); opacity: 1; }
-time, code, kbd { font-variant-numeric: tabular-nums; }
+::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+@media (prefers-contrast: more) {
+  :root {
+    --rule: var(--ink-3);
+    --focus-width: var(--focus-offset);
+    --opacity-disabled: var(--contrast-disabled-opacity);
+  }
+  .inkline-shell {
+    --rule: var(--ink-3);
+  }
+  button,
+  input,
+  select,
+  textarea {
+    border-color: var(--ink-3);
+  }
+  input,
+  textarea,
+  select {
+    background: var(--paper);
+  }
+  .inkline-shell::before,
+  .inkline-preview::before {
+    display: none;
+  }
+}
+time,
+code,
+kbd {
+  font-variant-numeric: tabular-nums;
+}
 ::selection {
   background: var(--accent-soft);
 }
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--size-10);
+  height: var(--size-10);
 }
 ::-webkit-scrollbar-thumb {
-  border: 3px solid var(--paper);
+  border: var(--focus-offset) solid var(--paper);
   border-radius: var(--radius-sm);
   background: var(--rule);
 }
 .page-shell {
-  width: min(1040px, 100%);
+  width: min(var(--measure-1040px), 100%);
   margin: auto;
-  padding: 40px clamp(20px, 4vw, 48px);
+  padding: var(--rail-node-height) clamp(var(--space-6), 4vw, var(--space-9));
 }
 .page-title {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
+}
+.page-heading,
+.page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.page-actions {
+  justify-content: flex-start;
+}
+.page-loading {
+  display: grid;
+  gap: var(--space-6);
+  padding-block: var(--space-8);
+  max-width: var(--memory-skeleton-width);
+}
+.page-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  padding: var(--space-7) 0;
+  border-top: var(--hairline) solid var(--rule);
+}
+.page-state > svg {
+  color: var(--ink-2);
+}
+.page-state strong {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.page-state p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
 }
 .page-subtitle,
 .empty-copy {
@@ -161,21 +241,16 @@ time, code, kbd { font-variant-numeric: tabular-nums; }
   color: var(--ink-2);
   font-size: var(--text-xs);
 }
-.glass-card {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-md);
-  background: var(--paper);
-}
 .primary-button,
 .secondary-button,
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 6px 12px;
-  border: 1px solid var(--rule);
+  gap: var(--space-3);
+  min-height: var(--measure-34px);
+  padding: var(--size-6) var(--space-4);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-sm);
   background: var(--paper-2);
   font-size: var(--text-sm);
@@ -188,12 +263,12 @@ time, code, kbd { font-variant-numeric: tabular-nums; }
 .danger-button {
   color: var(--seal);
   background: var(--seal-soft);
-  border: 1px solid var(--rule);
-  padding: 6px 12px;
+  border: var(--hairline) solid var(--rule);
+  padding: var(--size-6) var(--space-4);
   font-size: var(--text-sm);
 }
 .icon-button {
-  width: 30px;
+  width: var(--size-30);
   padding: 0;
   border: 0;
   background: var(--transparent);
@@ -248,13 +323,13 @@ time, code, kbd { font-variant-numeric: tabular-nums; }
 }
 .error-banner {
   color: var(--ink-2);
-  border-left: 2px solid var(--wait);
-  padding: 8px 12px;
+  border-left: var(--space-1) solid var(--wait);
+  padding: var(--space-3) var(--space-4);
 }
 .sr-only {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  width: var(--hairline);
+  height: var(--hairline);
   overflow: hidden;
   clip-path: inset(50%);
 }
@@ -270,10 +345,19 @@ time, code, kbd { font-variant-numeric: tabular-nums; }
     translate: none !important;
     scale: none !important;
   }
-  .inkline-shell :is(button, a, summary):active { transform: none !important; }
+  .inkline-shell :is(button, a, summary):active {
+    transform: none !important;
+  }
   .inkline-shell :is(.drawer, .sidebar, .palette, .pending-reminder) {
     animation: inkline-reduced-fade var(--motion-reduced) linear !important;
     transform: none !important;
   }
 }
-@keyframes inkline-reduced-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes inkline-reduced-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

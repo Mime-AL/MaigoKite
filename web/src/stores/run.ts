@@ -279,10 +279,287 @@ export const useRunStore = defineStore('run', () => {
       ? `${event.eventId}:${event.type}`
       : `${event.sessionId}:${event.turnId}:${event.seq}:${event.type}:${itemId}`
     if (seen.has(identity)) return
-    seen.add(identity)
-    const turn = getTurn(event.sessionId, event.turnId, event.time)
+    const existed = turns.value[event.sessionId]?.some((item) => item.id === event.turnId)
+    const previous = getTurn(event.sessionId, event.turnId, event.time)
+    // Stage only the affected turn. Token deltas copy scalar fields; structural
+    // events copy mutable collections so a failed reducer can be retried safely.
+    const turn: Turn = [
+      'text_delta',
+      'thinking_delta',
+      'thinking_started',
+      'thinking_completed',
+    ].includes(event.type)
+      ? { ...previous }
+      : {
+          ...previous,
+          steps: previous.steps.map((item) => ({ ...item })),
+          awaits: previous.awaits.map((item) => ({ ...item })),
+          timeline: previous.timeline.map((item) => ({ ...item })),
+          memories: [...previous.memories],
+          changes: previous.changes.map((item) => ({ ...item })),
+          plan: [...previous.plan],
+          inputs: previous.inputs?.map((item) => ({ ...item })),
+          jobs: previous.jobs.map((item) => ({ ...item })),
+          modelCalls: previous.modelCalls ? { ...previous.modelCalls } : undefined,
+        }
+    const list = turns.value[event.sessionId]
+    const index = list.indexOf(previous)
+    list[index] = turn
     const stateKey = `${event.sessionId}:${event.turnId}`
     const staleState = event.seq <= (stateSequences.get(stateKey) || 0)
+    try {
+      switch (event.type) {
+        case 'model_start':
+        case 'model_end':
+        case 'model_failed':
+        case 'context_update':
+          projectModelEvent(turn, event)
+          dirtyMetrics.add(event.sessionId)
+          break
+        case 'turn_resumed':
+          if (staleState) break
+          turn.status = 'running'
+          turn.error = undefined
+          turn.endedAt = undefined
+          turn.summary = undefined
+          break
+        case 'turn_waiting':
+          // The status receipt precedes the versioned approval payload. Show the
+          // wait immediately, but never invent an approval or its authorization.
+          if (!staleState && !['completed', 'failed', 'cancelled'].includes(turn.status))
+            turn.status = 'waiting'
+          break
+        case 'text_delta':
+          turn.text += event.text
+          break
+        case 'thinking_started':
+          if (!['completed', 'failed', 'cancelled'].includes(turn.status))
+            turn.thinkingStatus = 'running'
+          break
+        case 'thinking_delta':
+          turn.thinking += event.text
+          turn.thinkingStatus = ['completed', 'failed', 'cancelled'].includes(turn.status)
+            ? 'completed'
+            : 'running'
+          break
+        case 'thinking_completed':
+          if (!reasoningStreams.has(`${event.sessionId}:${event.turnId}`))
+            turn.thinking += (turn.thinking ? '\n\n' : '') + event.text
+          turn.thinkingStatus = 'completed'
+          break
+        case 'step_start': {
+          // Replay can precede a snapshot-installed await. Retain real ordering
+          // metadata without changing execution state or the snapshot watermark.
+          const ordered = turn.timeline.find(
+            (item) => item.id === event.stepId && item.kind === 'step',
+          )
+          if (ordered && event.seq > 0 && (!ordered.seq || event.seq < ordered.seq))
+            Object.assign(ordered, { seq: event.seq, time: event.time })
+          let step = turn.steps.find((s) => s.id === event.stepId)
+          if (step) {
+            // Delegation progress updates the same activity, not the main reply.
+            // Do not restart its clock on every read/progress receipt.
+            if (event.tool === 'delegate') step.title = event.title
+            if (step.status === 'pending' && !event.pending) step.status = 'running'
+            if (!event.pending && !step.startedAt)
+              step.startedAt = event.time ? Date.parse(event.time) : Date.now()
+            if (event.input) step.input = event.input
+          } else {
+            step = {
+              id: event.stepId,
+              tool: event.tool,
+              kind: event.kind,
+              title: event.title,
+              input: event.input,
+              status: event.pending ? 'pending' : 'running',
+              output: '',
+              durationMs: 0,
+              startedAt: event.pending
+                ? undefined
+                : event.time
+                  ? Date.parse(event.time)
+                  : Date.now(),
+            }
+            turn.steps.push(step)
+            turn.timeline.push({ id: step.id, kind: 'step', seq: event.seq, time: event.time })
+          }
+          break
+        }
+        case 'step_end': {
+          dirtyMetrics.add(event.sessionId)
+          let step = turn.steps.find((s) => s.id === event.stepId)
+          if (!step) {
+            step = {
+              id: event.stepId,
+              tool: '工具',
+              kind: 'act',
+              title: '工具结果',
+              input: {},
+              status: 'running',
+              output: '',
+              durationMs: 0,
+            }
+            turn.steps.push(step)
+            turn.timeline.push({ id: step.id, kind: 'step', seq: event.seq, time: event.time })
+          }
+          if (step)
+            Object.assign(step, {
+              status: event.ok ? 'completed' : 'failed',
+              output: event.output,
+              durationMs:
+                event.durationMs ||
+                (step.startedAt
+                  ? Math.max(0, (event.time ? Date.parse(event.time) : Date.now()) - step.startedAt)
+                  : 0),
+              exitCode: event.exitCode,
+              hint: event.hint,
+              errorCode: event.errorCode,
+              action: event.action,
+            })
+          break
+        }
+        case 'await': {
+          const existing = turn.awaits.find((a) => a.id === event.awaitId)
+          const ordered = turn.timeline.find(
+            (item) => item.id === event.awaitId && item.kind === 'await',
+          )
+          if (ordered && event.seq > 0 && (!ordered.seq || event.seq < ordered.seq))
+            Object.assign(ordered, { seq: event.seq, time: event.time })
+          if (existing) {
+            existing.toolCallId ||= event.toolCallId
+            if (event.seq > 0 && (!existing.seq || event.seq < existing.seq)) {
+              existing.seq = event.seq
+              existing.time = event.time || existing.time
+            }
+          }
+          if (!existing) {
+            turn.awaits.push({
+              id: event.awaitId,
+              sessionId: event.sessionId,
+              turnId: event.turnId,
+              mode: event.mode,
+              title: event.title,
+              detail: event.detail,
+              risk: event.risk,
+              options: event.options,
+              version: event.version || 1,
+              toolCallId: event.toolCallId,
+              seq: event.seq,
+              time: event.time,
+              closed: staleState || ['completed', 'failed', 'cancelled'].includes(turn.status),
+            })
+            turn.timeline.push({
+              id: event.awaitId,
+              kind: 'await',
+              seq: event.seq,
+              time: event.time,
+            })
+          } else if (!staleState && !existing.verdict && existing.answer === undefined) {
+            Object.assign(existing, {
+              title: event.title,
+              detail: event.detail,
+              risk: event.risk,
+              options: event.options,
+              version: event.version || existing.version,
+              closed: ['completed', 'failed', 'cancelled'].includes(turn.status),
+            })
+          }
+          if (!staleState && !['completed', 'failed', 'cancelled'].includes(turn.status))
+            turn.status = 'waiting'
+          break
+        }
+        case 'await_resolved': {
+          const item = turn.awaits.find((a) => a.id === event.awaitId)
+          if (item) {
+            item.verdict = event.verdict
+            item.note = event.note
+          }
+          if (
+            !staleState &&
+            turn.status === 'waiting' &&
+            turn.awaits.every((a) => a.verdict || a.closed)
+          )
+            turn.status = 'running'
+          break
+        }
+        case 'question_answered': {
+          const item = turn.awaits.find((a) => a.id === event.awaitId)
+          if (item) {
+            item.answer = event.answer
+            item.closed = true
+          }
+          if (
+            !staleState &&
+            turn.status === 'waiting' &&
+            turn.awaits.every((a) => a.verdict || a.closed)
+          )
+            turn.status = 'running'
+          break
+        }
+        case 'file_change': {
+          const item = turn.changes.find((c) => c.path === event.path)
+          if (item) item.diff = event.diff
+          else turn.changes.push({ path: event.path, diff: event.diff })
+          break
+        }
+        case 'plan_update':
+          if (event.seq > (turn.planSeq || 0)) {
+            turn.plan = event.items
+            turn.planSeq = event.seq
+            turn.planError = ''
+          }
+          break
+        case 'input_update':
+          mergeInput(event.sessionId, event.input, event.seq)
+          break
+        case 'memory_added':
+          if (!turn.memories.some((m) => m.id === event.memoryId)) {
+            turn.memories.push({ id: event.memoryId, text: event.text })
+            turn.timeline.push({
+              id: event.memoryId,
+              kind: 'memory',
+              seq: event.seq,
+              time: event.time,
+            })
+          }
+          break
+        case 'job_update': {
+          const job = turn.jobs.find((j) => j.id === event.jobId)
+          if (job) Object.assign(job, event)
+          else turn.jobs.push({ id: event.jobId, status: event.status, logTail: event.logTail })
+          break
+        }
+        case 'error':
+          turn.timeline.push({
+            id: `error-${event.seq}`,
+            kind: 'error',
+            seq: event.seq,
+            time: event.time,
+          })
+          if (!staleState) {
+            turn.error = event.message
+            turn.status = 'failed'
+            if (turn.thinkingStatus === 'running') turn.thinkingStatus = 'completed'
+          }
+          break
+        case 'turn_end':
+          // An error and its terminal projection share one event sequence.
+          if (event.seq < (stateSequences.get(stateKey) || 0)) break
+          turn.status = event.status || 'completed'
+          turn.endedAt = event.time ? Date.parse(event.time) : Date.now()
+          turn.summary = event.summary || summarize(turn)
+          if (turn.thinkingStatus === 'running') turn.thinkingStatus = 'completed'
+          for (const item of turn.awaits) if (!item.verdict) item.closed = true
+          break
+      }
+      // Streaming text is published once per frame, never once per token.
+      publish()
+    } catch (error) {
+      if (existed) list[index] = previous
+      else list.splice(index, 1)
+      throw error
+    }
+    if (event.type === 'thinking_delta') reasoningStreams.add(stateKey)
     if (
       !staleState &&
       [
@@ -296,244 +573,7 @@ export const useRunStore = defineStore('run', () => {
       ].includes(event.type)
     )
       stateSequences.set(stateKey, event.seq)
-    switch (event.type) {
-      case 'model_start':
-      case 'model_end':
-      case 'model_failed':
-      case 'context_update':
-        projectModelEvent(turn, event)
-        dirtyMetrics.add(event.sessionId)
-        break
-      case 'turn_resumed':
-        if (staleState) break
-        turn.status = 'running'
-        turn.error = undefined
-        turn.endedAt = undefined
-        turn.summary = undefined
-        break
-      case 'turn_waiting':
-        // The status receipt precedes the versioned approval payload. Show the
-        // wait immediately, but never invent an approval or its authorization.
-        if (!staleState && !['completed', 'failed', 'cancelled'].includes(turn.status))
-          turn.status = 'waiting'
-        break
-      case 'text_delta':
-        turn.text += event.text
-        break
-      case 'thinking_started':
-        if (!['completed', 'failed', 'cancelled'].includes(turn.status))
-          turn.thinkingStatus = 'running'
-        break
-      case 'thinking_delta':
-        reasoningStreams.add(`${event.sessionId}:${event.turnId}`)
-        turn.thinking += event.text
-        turn.thinkingStatus = ['completed', 'failed', 'cancelled'].includes(turn.status)
-          ? 'completed'
-          : 'running'
-        break
-      case 'thinking_completed':
-        if (!reasoningStreams.has(`${event.sessionId}:${event.turnId}`))
-          turn.thinking += (turn.thinking ? '\n\n' : '') + event.text
-        turn.thinkingStatus = 'completed'
-        break
-      case 'step_start': {
-        // Replay can precede a snapshot-installed await. Retain real ordering
-        // metadata without changing execution state or the snapshot watermark.
-        const ordered = turn.timeline.find(
-          (item) => item.id === event.stepId && item.kind === 'step',
-        )
-        if (ordered && event.seq > 0 && (!ordered.seq || event.seq < ordered.seq))
-          Object.assign(ordered, { seq: event.seq, time: event.time })
-        let step = turn.steps.find((s) => s.id === event.stepId)
-        if (step) {
-          // Delegation progress updates the same activity, not the main reply.
-          // Do not restart its clock on every read/progress receipt.
-          if (event.tool === 'delegate') step.title = event.title
-          if (step.status === 'pending' && !event.pending) step.status = 'running'
-          if (!event.pending && !step.startedAt)
-            step.startedAt = event.time ? Date.parse(event.time) : Date.now()
-          if (event.input) step.input = event.input
-        } else {
-          step = {
-            id: event.stepId,
-            tool: event.tool,
-            kind: event.kind,
-            title: event.title,
-            input: event.input,
-            status: event.pending ? 'pending' : 'running',
-            output: '',
-            durationMs: 0,
-            startedAt: event.pending ? undefined : event.time ? Date.parse(event.time) : Date.now(),
-          }
-          turn.steps.push(step)
-          turn.timeline.push({ id: step.id, kind: 'step', seq: event.seq, time: event.time })
-        }
-        break
-      }
-      case 'step_end': {
-        dirtyMetrics.add(event.sessionId)
-        let step = turn.steps.find((s) => s.id === event.stepId)
-        if (!step) {
-          step = {
-            id: event.stepId,
-            tool: '工具',
-            kind: 'act',
-            title: '工具结果',
-            input: {},
-            status: 'running',
-            output: '',
-            durationMs: 0,
-          }
-          turn.steps.push(step)
-          turn.timeline.push({ id: step.id, kind: 'step', seq: event.seq, time: event.time })
-        }
-        if (step)
-          Object.assign(step, {
-            status: event.ok ? 'completed' : 'failed',
-            output: event.output,
-            durationMs:
-              event.durationMs ||
-              (step.startedAt
-                ? Math.max(0, (event.time ? Date.parse(event.time) : Date.now()) - step.startedAt)
-                : 0),
-            exitCode: event.exitCode,
-            hint: event.hint,
-            errorCode: event.errorCode,
-            action: event.action,
-          })
-        break
-      }
-      case 'await': {
-        const existing = turn.awaits.find((a) => a.id === event.awaitId)
-        const ordered = turn.timeline.find(
-          (item) => item.id === event.awaitId && item.kind === 'await',
-        )
-        if (ordered && event.seq > 0 && (!ordered.seq || event.seq < ordered.seq))
-          Object.assign(ordered, { seq: event.seq, time: event.time })
-        if (existing) {
-          existing.toolCallId ||= event.toolCallId
-          if (event.seq > 0 && (!existing.seq || event.seq < existing.seq)) {
-            existing.seq = event.seq
-            existing.time = event.time || existing.time
-          }
-        }
-        if (!existing) {
-          turn.awaits.push({
-            id: event.awaitId,
-            sessionId: event.sessionId,
-            turnId: event.turnId,
-            mode: event.mode,
-            title: event.title,
-            detail: event.detail,
-            risk: event.risk,
-            options: event.options,
-            version: event.version || 1,
-            toolCallId: event.toolCallId,
-            seq: event.seq,
-            time: event.time,
-            closed: staleState || ['completed', 'failed', 'cancelled'].includes(turn.status),
-          })
-          turn.timeline.push({ id: event.awaitId, kind: 'await', seq: event.seq, time: event.time })
-        } else if (!staleState && !existing.verdict && existing.answer === undefined) {
-          Object.assign(existing, {
-            title: event.title,
-            detail: event.detail,
-            risk: event.risk,
-            options: event.options,
-            version: event.version || existing.version,
-            closed: ['completed', 'failed', 'cancelled'].includes(turn.status),
-          })
-        }
-        if (!staleState && !['completed', 'failed', 'cancelled'].includes(turn.status))
-          turn.status = 'waiting'
-        break
-      }
-      case 'await_resolved': {
-        const item = turn.awaits.find((a) => a.id === event.awaitId)
-        if (item) {
-          item.verdict = event.verdict
-          item.note = event.note
-        }
-        if (
-          !staleState &&
-          turn.status === 'waiting' &&
-          turn.awaits.every((a) => a.verdict || a.closed)
-        )
-          turn.status = 'running'
-        break
-      }
-      case 'question_answered': {
-        const item = turn.awaits.find((a) => a.id === event.awaitId)
-        if (item) {
-          item.answer = event.answer
-          item.closed = true
-        }
-        if (
-          !staleState &&
-          turn.status === 'waiting' &&
-          turn.awaits.every((a) => a.verdict || a.closed)
-        )
-          turn.status = 'running'
-        break
-      }
-      case 'file_change': {
-        const item = turn.changes.find((c) => c.path === event.path)
-        if (item) item.diff = event.diff
-        else turn.changes.push({ path: event.path, diff: event.diff })
-        break
-      }
-      case 'plan_update':
-        if (event.seq > (turn.planSeq || 0)) {
-          turn.plan = event.items
-          turn.planSeq = event.seq
-          turn.planError = ''
-        }
-        break
-      case 'input_update':
-        mergeInput(event.sessionId, event.input, event.seq)
-        break
-      case 'memory_added':
-        if (!turn.memories.some((m) => m.id === event.memoryId)) {
-          turn.memories.push({ id: event.memoryId, text: event.text })
-          turn.timeline.push({
-            id: event.memoryId,
-            kind: 'memory',
-            seq: event.seq,
-            time: event.time,
-          })
-        }
-        break
-      case 'job_update': {
-        const job = turn.jobs.find((j) => j.id === event.jobId)
-        if (job) Object.assign(job, event)
-        else turn.jobs.push({ id: event.jobId, status: event.status, logTail: event.logTail })
-        break
-      }
-      case 'error':
-        turn.timeline.push({
-          id: `error-${event.seq}`,
-          kind: 'error',
-          seq: event.seq,
-          time: event.time,
-        })
-        if (!staleState) {
-          turn.error = event.message
-          turn.status = 'failed'
-          if (turn.thinkingStatus === 'running') turn.thinkingStatus = 'completed'
-        }
-        break
-      case 'turn_end':
-        // An error and its terminal projection share one event sequence.
-        if (event.seq < (stateSequences.get(stateKey) || 0)) break
-        turn.status = event.status || 'completed'
-        turn.endedAt = event.time ? Date.parse(event.time) : Date.now()
-        turn.summary = event.summary || summarize(turn)
-        if (turn.thinkingStatus === 'running') turn.thinkingStatus = 'completed'
-        for (const item of turn.awaits) if (!item.verdict) item.closed = true
-        break
-    }
-    // Streaming text is published once per frame, never once per token.
-    publish()
+    seen.add(identity)
   }
   function removeMemory(id: string) {
     for (const list of Object.values(turns.value))

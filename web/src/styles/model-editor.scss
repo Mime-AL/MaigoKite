@@ -1,8 +1,9 @@
 @use './mixins';
+@use './breakpoints' as breakpoints;
 
 .editor-heading {
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--rule);
+  padding: var(--space-6) var(--space-7);
+  border-bottom: var(--hairline) solid var(--rule);
 }
 .back-button {
   @include mixins.interactive-row;
@@ -15,14 +16,14 @@
 .editor-title {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 20px;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
 }
 .provider-mark {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: var(--rail-node-height);
+  height: var(--rail-node-height);
   border-radius: var(--radius-sm);
   background: var(--paper-2);
   color: var(--ink);
@@ -33,7 +34,7 @@
   font-size: var(--text-xs);
 }
 .editor-title h3 {
-  margin: 4px 0 0;
+  margin: var(--space-2) 0 0;
   font-size: var(--text-lg);
   font-weight: var(--weight-medium);
 }
@@ -45,14 +46,14 @@
 .editor-body {
   display: grid;
   min-width: 0;
-  gap: 20px;
+  gap: var(--space-6);
   margin: 0;
-  padding: 24px;
+  padding: var(--space-7);
   border: 0;
 }
 .form-field {
   display: grid;
-  gap: 8px;
+  gap: var(--space-3);
   min-width: 0;
 }
 .form-field > span,
@@ -63,7 +64,7 @@
   font-size: var(--text-xs);
   color: var(--ink-2);
   font-weight: var(--weight-normal);
-  margin-left: 6px;
+  margin-left: var(--size-6);
 }
 .form-field small {
   font-size: var(--text-xs);
@@ -72,7 +73,7 @@
 }
 .form-field small a {
   color: var(--accent);
-  text-underline-offset: 2px;
+  text-underline-offset: var(--space-1);
 }
 .form-field input,
 .form-field select {
@@ -82,26 +83,26 @@
 }
 .secret {
   display: flex;
-  position: relative;
+  gap: var(--space-2);
+  align-items: center;
 }
 .secret input {
-  padding-right: 42px;
+  flex: 1;
+  min-width: 0;
 }
 .secret button {
   @include mixins.interactive-row;
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  flex: none;
   display: flex;
-  padding: 4px;
+  padding: var(--space-2);
   border: 0;
   background: var(--transparent);
   color: var(--ink-2);
 }
 .custom-settings {
-  border-top: 1px solid var(--rule);
-  padding-top: 16px;
+  border-top: var(--hairline) solid var(--rule);
+  padding-top: var(--space-5);
 }
 .custom-settings summary {
   display: flex;
@@ -115,7 +116,7 @@
 }
 .custom-settings summary > span {
   display: grid;
-  gap: 4px;
+  gap: var(--space-2);
 }
 .custom-settings summary strong {
   font-size: var(--text-sm);
@@ -130,13 +131,13 @@
   color: var(--ink-2);
 }
 .custom-settings[open] summary i {
-  transform: rotate(90deg);
+  transform: rotate(var(--measure-90deg));
 }
 .custom-settings-body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  padding-top: 20px;
+  gap: var(--space-5);
+  padding-top: var(--space-6);
 }
 .form-field.full {
   grid-column: 1 / -1;
@@ -144,7 +145,7 @@
 .validation {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
   margin: 0;
   font-size: var(--text-sm);
   color: var(--ink-2);
@@ -156,13 +157,13 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 16px;
-  padding: 20px 24px;
-  border-top: 1px solid var(--rule);
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-7);
+  border-top: var(--hairline) solid var(--rule);
 }
 .editor-footer > div {
   display: flex;
-  gap: 8px;
+  gap: var(--space-3);
   align-items: center;
 }
 .save-actions > span {
@@ -172,9 +173,9 @@
 .form-field .warning {
   color: var(--ink-2);
 }
-@media (max-width: 720px) {
+@include breakpoints.sidebar-overlay {
   .editor-body {
-    padding: 16px;
+    padding: var(--space-5);
   }
   .custom-settings-body {
     grid-template-columns: 1fr;

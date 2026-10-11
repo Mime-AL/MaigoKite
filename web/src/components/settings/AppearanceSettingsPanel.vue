@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { useUIStore, accents, type Accent, type ThemeMode } from '@/stores/ui'
+import { useUIStore, accents, type Accent, type ThemeMode, type TextSize } from '@/stores/ui'
 import { useSettingsStore } from '@/stores/settings'
 import { desktopEffects } from '@/composables/useElectron'
 import { t, type Language } from '@/i18n'
+import AppearancePreview from './AppearancePreview.vue'
 const ui = useUIStore(),
   settings = useSettingsStore()
-const isElectron = Boolean(desktopEffects)
 const name = ref(settings.profile.assistantName),
-  shortcut = ref(ui.appearance.capsuleShortcut),
-  feedback = ref('')
+  shortcut = ref(ui.appearance.capsuleShortcut)
+const nameResult = ref(''),
+  nameError = ref(''),
+  shortcutResult = ref(''),
+  shortcutError = ref('')
 const savingShortcut = ref(false)
 watch(
   () => settings.profile.assistantName,
@@ -17,6 +20,10 @@ watch(
     name.value = value
   },
 )
+watch(name, () => {
+  nameResult.value = ''
+  nameError.value = ''
+})
 const swatches: Record<Accent, string> = {
   stone: '--stone',
   blue: '--accent-blue',
@@ -26,30 +33,39 @@ const swatches: Record<Accent, string> = {
   ink: '--accent-black',
 }
 async function saveName() {
-  if (name.value.trim() && !settings.saving) await settings.savePreferences(name.value.trim())
+  if (!name.value.trim() || settings.saving) return
+  nameResult.value = ''
+  nameError.value = ''
+  if (await settings.savePreferences(name.value.trim())) nameResult.value = t('已保存')
+  else nameError.value = settings.error || t('保存失败')
 }
 async function saveShortcut() {
   if (savingShortcut.value) return
   savingShortcut.value = true
-  feedback.value = t('正在设置…')
+  shortcutResult.value = ''
+  shortcutError.value = ''
   try {
     await ui.setCapsuleShortcut(shortcut.value)
-    feedback.value = t('快捷键已更新。')
+    shortcutResult.value = t('已保存')
   } catch (reason) {
-    feedback.value = reason instanceof Error ? reason.message : String(reason)
+    shortcutError.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
     savingShortcut.value = false
   }
 }
 </script>
 <template>
-  <section class="appearance-settings glass-card">
-    <header>
+  <section class="settings-panel appearance-settings">
+    <header class="panel-heading">
       <h2>{{ $t('外观与称呼') }}</h2>
     </header>
-    <label class="setting-row">
-      <span>{{ $t('语言') }}</span>
-      <select
+    <section class="setting-group">
+      <h3>{{ $t('称呼与语言') }}</h3>
+      <p>{{ $t('名字用于界面显示，不改变助手的权限。') }}</p>
+      <label
+        class="setting-row"
+        data-settings-field="language"
+      ><span>{{ $t('语言') }}</span><select
         :value="ui.appearance.language || 'zh-CN'"
         @change="
           ui.setAppearance({ language: ($event.target as HTMLSelectElement).value as Language })
@@ -58,31 +74,62 @@ async function saveShortcut() {
         <option value="zh-CN">{{ $t('简体中文') }}</option>
         <option value="en">English</option>
         <option value="system">{{ $t('跟随系统') }}</option>
-      </select>
-    </label>
-    <label class="setting-row"
-      ><span>{{ $t('助手名字') }}</span>
-      <div>
-        <input v-model="name" maxlength="32" :placeholder="$t('助手名字')" /><button
-          class="secondary-button"
-          :disabled="settings.saving || !name.trim()"
-          :aria-busy="settings.saving || undefined"
-          @click="saveName"
-        >
-          {{ settings.saving ? $t('正在保存…') : $t('保存') }}
-        </button>
-      </div></label
-    >
-    <label class="setting-row"
-      ><span>{{ $t('怎么称呼你') }}</span
-      ><input
+      </select></label>
+      <div
+        class="setting-row"
+        data-settings-field="assistant-name"
+      >
+        <label for="assistant-name">{{ $t('助手名字') }}</label>
+        <div>
+          <div class="setting-control">
+            <input
+              id="assistant-name"
+              v-model="name"
+              maxlength="32"
+            ><button
+              class="secondary-button"
+              :disabled="settings.saving || !name.trim()"
+              :aria-busy="settings.saving || undefined"
+              @click="saveName"
+            >
+              {{ $t('保存') }}
+            </button>
+          </div>
+          <p
+            v-if="nameError"
+            class="field-error"
+            role="alert"
+          >
+            {{ nameError
+            }}<button
+              class="text-button"
+              :disabled="settings.saving"
+              @click="saveName"
+            >
+              {{ $t('重试') }}
+            </button>
+          </p>
+          <p
+            v-else-if="nameResult"
+            class="field-saved"
+            role="status"
+          >
+            {{ nameResult }}
+          </p>
+        </div>
+      </div>
+      <label
+        class="setting-row"
+        data-settings-field="greeting-name"
+      ><span>{{ $t('怎么称呼你') }}</span><input
         :value="ui.appearance.greetingName"
         maxlength="32"
         @input="ui.setAppearance({ greetingName: ($event.target as HTMLInputElement).value })"
-    /></label>
-    <label class="setting-row"
-      ><span>{{ $t('头像字') }}</span
-      ><input
+      ></label>
+      <label
+        class="setting-row"
+        data-settings-field="avatar"
+      ><span>{{ $t('头像字') }}</span><input
         class="avatar-input"
         :value="ui.appearance.avatar"
         @input="
@@ -90,10 +137,15 @@ async function saveShortcut() {
             avatar: Array.from(($event.target as HTMLInputElement).value)[0] || '助',
           })
         "
-    /></label>
-    <label class="setting-row"
-      ><span>{{ $t('纸页') }}</span
-      ><select
+      ></label>
+    </section>
+    <section class="setting-group">
+      <h3>{{ $t('纸面与文字') }}</h3>
+      <p>{{ $t('修改后立即应用，预览与当前界面一致。') }}</p>
+      <label
+        class="setting-row"
+        data-settings-field="theme"
+      ><span>{{ $t('纸页') }}</span><select
         :value="ui.appearance.theme"
         @change="
           ui.setAppearance({ theme: ($event.target as HTMLSelectElement).value as ThemeMode })
@@ -102,131 +154,104 @@ async function saveShortcut() {
         <option value="system">{{ $t('跟随系统') }}</option>
         <option value="light">{{ $t('宣纸') }}</option>
         <option value="dark">{{ $t('松烟') }}</option>
-      </select></label
-    >
-    <div class="setting-row">
-      <span>{{ $t('强调色') }}</span>
-      <div class="accent-presets">
-        <button
-          v-for="accent in accents"
-          :key="accent.id"
-          :title="$t(accent.label)"
-          :aria-label="$t(accent.label)"
-          :aria-pressed="ui.appearance.accent === accent.id"
-          :style="{ '--swatch': `var(${swatches[accent.id]})` }"
-          @click="ui.setAppearance({ accent: accent.id })"
-        >
-          <i /><span>{{ $t(accent.label) }}</span>
-        </button>
+      </select></label>
+      <div
+        class="setting-row"
+        data-settings-field="accent"
+      >
+        <span>{{ $t('强调色') }}</span>
+        <div class="accent-presets">
+          <button
+            v-for="accent in accents"
+            :key="accent.id"
+            :aria-label="$t(accent.label)"
+            :aria-pressed="ui.appearance.accent === accent.id"
+            :style="{ '--swatch': 'var(' + swatches[accent.id] + ')' }"
+            @click="ui.setAppearance({ accent: accent.id })"
+          >
+            <i /><span>{{ $t(accent.label) }}</span>
+          </button>
+        </div>
       </div>
-    </div>
-    <label class="setting-row"
-      ><span>{{ $t('纸纹') }}</span
-      ><input
+      <label
+        class="setting-row"
+        data-settings-field="text-size"
+      ><span>{{ $t('字号') }}</span><select
+        :value="ui.appearance.textSize || 'default'"
+        @change="
+          ui.setAppearance({ textSize: ($event.target as HTMLSelectElement).value as TextSize })
+        "
+      >
+        <option value="small">{{ $t('紧凑') }}</option>
+        <option value="default">{{ $t('标准') }}</option>
+        <option value="large">{{ $t('舒展') }}</option>
+      </select></label>
+      <label
+        class="setting-row"
+        data-settings-field="texture"
+      ><span>{{ $t('纸纹') }}</span><input
         type="checkbox"
         :checked="ui.appearance.texture"
         @change="ui.setAppearance({ texture: ($event.target as HTMLInputElement).checked })"
-    /></label>
-    <label class="setting-row"
-      ><span>{{ $t('显示模型上下文窗口用量') }}</span
-      ><input
+      ></label>
+      <AppearancePreview />
+    </section>
+    <section class="setting-group">
+      <h3>{{ $t('输入与状态') }}</h3>
+      <label
+        class="setting-row"
+        data-settings-field="context-usage"
+      ><span>{{ $t('显示模型上下文窗口用量') }}</span><input
         type="checkbox"
         :checked="ui.appearance.showContextUsage !== false"
         @change="
           ui.setAppearance({ showContextUsage: ($event.target as HTMLInputElement).checked })
         "
-    /></label>
-    <label v-if="isElectron" class="setting-row"
-      ><span>{{ $t('速记快捷键') }}</span>
-      <div>
-        <input v-model="shortcut" maxlength="80" placeholder="Alt+Space" /><button
-          class="secondary-button"
-          :disabled="savingShortcut || !shortcut.trim()"
-          :aria-busy="savingShortcut || undefined"
-          @click="saveShortcut"
-        >
-          {{ savingShortcut ? $t('正在设置…') : $t('设置') }}
-        </button>
-      </div></label
-    >
-    <p v-if="feedback" class="feedback" role="status">{{ feedback }}</p>
+      ></label>
+      <div
+        v-if="desktopEffects"
+        class="setting-row"
+        data-settings-field="capsule-shortcut"
+      >
+        <label for="capsule-shortcut">{{ $t('速记快捷键') }}</label>
+        <div>
+          <div class="setting-control">
+            <input
+              id="capsule-shortcut"
+              v-model="shortcut"
+              maxlength="80"
+              placeholder="Alt+Space"
+            ><button
+              class="secondary-button"
+              :disabled="savingShortcut || !shortcut.trim()"
+              @click="saveShortcut"
+            >
+              {{ $t('设置') }}
+            </button>
+          </div>
+          <p
+            v-if="shortcutError"
+            class="field-error"
+            role="alert"
+          >
+            {{ shortcutError }}
+          </p>
+          <p
+            v-else-if="shortcutResult"
+            class="field-saved"
+            role="status"
+          >
+            {{ shortcutResult }}
+          </p>
+        </div>
+      </div>
+      <p
+        v-else
+        class="panel-copy"
+      >
+        {{ $t('速记快捷键在桌面应用中设置。') }}
+      </p>
+    </section>
   </section>
 </template>
-<style scoped lang="scss">
-@use '@/styles/mixins' as mixins;
-.appearance-settings {
-  padding: 20px 24px;
-}
-h2 {
-  margin: 0 0 16px;
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-.setting-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 24px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--rule);
-  font-size: var(--text-sm);
-}
-.setting-row:last-child {
-  border: 0;
-}
-.setting-row > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-input:not([type='checkbox']),
-select {
-  width: min(260px, 50%);
-  font-size: var(--text-sm);
-}
-.setting-row > div input {
-  width: 190px;
-}
-.avatar-input {
-  max-width: 56px;
-  text-align: center;
-}
-.accent-presets {
-  flex-wrap: wrap;
-}
-.accent-presets button {
-  @include mixins.interactive-row;
-  border: 1px solid var(--transparent);
-  padding: 5px 8px;
-  background: var(--transparent);
-  color: var(--ink-2);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-xs);
-}
-.accent-presets button[aria-pressed='true'] {
-  border-color: var(--accent);
-  color: var(--ink);
-  background: var(--accent-selected);
-}
-.accent-presets i {
-  width: 9px;
-  height: 9px;
-  border-radius: var(--radius-round);
-  background: var(--swatch);
-}
-.feedback {
-  font-size: var(--text-sm);
-  color: var(--ink-2);
-}
-@media (max-width: 720px) {
-  .setting-row {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-  .setting-row > div {
-    flex-wrap: wrap;
-  }
-}
-</style>
+<style scoped lang="scss"></style>

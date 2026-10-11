@@ -4,6 +4,7 @@ import { api, type WorkspaceChange } from '@/api/client'
 import { useWorkspaceStore } from '@/stores/workspace'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import CodeBlock from '@/components/common/CodeBlock.vue'
+import InkLoader from '@/components/common/InkLoader.vue'
 
 const changes = ref<WorkspaceChange[]>([])
 const workspace = useWorkspaceStore()
@@ -101,7 +102,7 @@ defineExpose({ load })
       v-if="loading && !changes.length"
       class="state"
     >
-      {{ $t('正在读取 Git 变更…') }}
+      <InkLoader />{{ $t('正在读取 Git 变更…') }}
     </p>
     <p
       v-else-if="error"
@@ -109,6 +110,12 @@ defineExpose({ load })
       role="alert"
     >
       {{ error }}
+      <button
+        class="secondary-button"
+        @click="load"
+      >
+        {{ $t('重试') }}
+      </button>
     </p>
     <p
       v-else-if="!gitAvailable"
@@ -143,7 +150,7 @@ defineExpose({ load })
           }}<template v-if="selected.diff_truncated">{{ $t('· 预览已截断') }}</template></small>
         </header>
         <p v-if="diffLoading">
-          {{ $t('正在生成差异…') }}
+          <InkLoader />{{ $t('正在生成差异…') }}
         </p>
         <p
           v-else-if="diffError"

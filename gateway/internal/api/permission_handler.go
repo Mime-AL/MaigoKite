@@ -5,9 +5,9 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	agentgrpc "maigokite/gateway/internal/grpc"
 	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
-	"github.com/gin-gonic/gin"
 )
 
 type PermissionHandler struct{ client *agentgrpc.AgentClient }
@@ -43,9 +43,9 @@ func (h *PermissionHandler) Update(c *gin.Context) {
 		return
 	}
 	switch req.DefaultMode {
-	case "read_only", "workspace", "full_access":
+	case "read_only", "workspace", "workspace_auto", "full_access", "danger_full_access":
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "VALIDATION", "message": "default_mode must be read_only, workspace or full_access"}})
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "VALIDATION", "message": "default_mode must be read_only, workspace, workspace_auto or danger_full_access; full_access is a legacy restricted alias"}})
 		return
 	}
 	item, err := h.client.UpdatePermissionSettings(c.Request.Context(), c.Param("workspaceID"), &agentv1.PermissionSettings{

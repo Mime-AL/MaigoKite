@@ -39,8 +39,9 @@ class MCPToolWrapper(BaseTool):
             raise ValueError(f"MCP tool name is too long: {self._name}")
 
         # Server-provided annotations describe intent, but cannot grant permission.
-        annotations = definition.get("annotations", {})
-        self.risk_level = 5 if isinstance(annotations, dict) and annotations.get("destructiveHint") is True else 3
+        # An absent destructiveHint (or a claimed readOnlyHint) is not a locally
+        # verified capability. Full-access mode must not silently trust it.
+        self.risk_level = 5
 
     @property
     def name(self) -> str:

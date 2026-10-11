@@ -18,7 +18,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: var(--z-underlay);
   pointer-events: none;
   background-image: var(--noise);
   opacity: var(--noise-canvas-opacity);
@@ -63,7 +63,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: var(--z-underlay);
   pointer-events: none;
   background-image: var(--noise);
   opacity: var(--noise-paper-opacity);
@@ -72,7 +72,7 @@
   content: '';
   position: absolute;
   inset: auto var(--workpaper-flap) calc(-1 * var(--workpaper-flap));
-  z-index: -2;
+  z-index: var(--z-underlay-deep);
   height: var(--workpaper-flap);
   border: var(--hairline) solid var(--rule);
   border-radius: inherit;

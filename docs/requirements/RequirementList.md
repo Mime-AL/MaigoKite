@@ -67,11 +67,12 @@
 
 用户只需理解三种执行模式，并能判断具体操作是否允许。
 
-- 模式为 read_only、workspace、full_access。
+- 新模式为 read_only、workspace、danger_full_access；旧 full_access 只映射为受限兼容模式，不隐式提权。
 - 风险、路径范围、allowlist 和 hard-deny 由 ToolPolicy 内部维护。
 - 审批绑定主体、任务、工具调用、参数摘要值、版本和过期时间。
 - 网关和 UI 不能绕过核心服务最终授权。
 - 参数或范围变化使旧审批失效；决定只消费一次。
+- 正常工作区操作由真实沙箱限制；可选窄授权绑定目录/命令/站点，有期限且可撤销。不要求独立审核 Agent。
 
 验收场景：允许、拒绝、过期、重复决定、版本冲突、参数变化和支持路径的进程重启。完整规则只在 [工具权限](../agent-capabilities/security/tool-permission.md) 定义。
 

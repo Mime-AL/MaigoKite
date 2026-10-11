@@ -1,14 +1,49 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, type AuditEvent } from '@/api/client'
-import IconSymbol from '@/components/common/IconSymbol.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-
-const events = ref<AuditEvent[]>([])
-const error = ref('')
-const loading = ref(true)
-
-onMounted(async () => {
+import InkLoader from '@/components/common/InkLoader.vue'
+import RailGlyph from '@/components/rail/RailGlyph.vue'
+const events = ref<AuditEvent[]>([]),
+  error = ref(''),
+  loading = ref(true)
+const query = ref(''),
+  result = ref(''),
+  limit = ref(60)
+const results = computed(() => [...new Set(events.value.map((event) => event.result))])
+const filtered = computed(() => {
+  const text = query.value.trim().toLocaleLowerCase()
+  return events.value.filter(
+    (event) =>
+      (!result.value || event.result === result.value) &&
+      (!text ||
+        [event.action, event.resource, actor(event)].join(' ').toLocaleLowerCase().includes(text)),
+  )
+})
+const visible = computed(() => filtered.value.slice(0, limit.value))
+function clearFilters() {
+  query.value = ''
+  result.value = ''
+}
+watch([query, result], () => {
+  limit.value = 60
+})
+function actor(event: AuditEvent) {
+  try {
+    const detail: unknown = JSON.parse(event.details_json)
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      const value =
+        (detail as Record<string, unknown>).actor ??
+        (detail as Record<string, unknown>).principal_id
+      if (typeof value === 'string' && value.trim()) return value
+    }
+  } catch {
+    /* Unstructured audit payloads do not establish an actor. */
+  }
+  return ''
+}
+async function load() {
+  loading.value = true
+  error.value = ''
   try {
     events.value = await api.listAuditEvents()
   } catch (reason) {
@@ -16,161 +51,125 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+onMounted(() => {
+  void load()
 })
 </script>
-
 <template>
   <main class="page-shell audit-page">
-    <header>
-      <h1 class="page-title">{{ $t('审计日志') }}</h1>
+    <header class="page-heading">
+      <h1 class="page-title">
+        {{ $t('审计日志') }}
+      </h1>
+      <button
+        class="secondary-button"
+        :disabled="loading"
+        @click="load"
+      >
+        {{ $t('刷新') }}
+      </button>
     </header>
-    <section class="audit-card glass-card">
-      <div class="audit-toolbar">
-        <span><IconSymbol name="shield" :size="17" />{{ $t('最近事件') }}</span
-        ><span class="event-count">{{ $t('{0} 项', [events.length]) }}</span>
-      </div>
-      <LoadingSpinner v-if="loading" :message="$t('正在读取审计事件')" />
-      <div v-else-if="error" class="state error">
-        <IconSymbol name="alert" :size="20" /><strong>{{ $t('无法读取审计日志') }}</strong>
-        <p>{{ error }}</p>
-      </div>
-      <div v-else-if="events.length" class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>{{ $t('时间') }}</th>
-              <th>{{ $t('动作') }}</th>
-              <th>{{ $t('资源') }}</th>
-              <th>{{ $t('结果') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="event in events" :key="event.id">
-              <td>{{ new Date(event.created_at).toLocaleString($i18n.locale) }}</td>
-              <td>
-                <code>{{ event.action }}</code>
-              </td>
-              <td>{{ event.resource }}</td>
-              <td>
-                <span class="result" :class="event.result">{{ event.result }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-else class="state">
-        <span class="state-icon"><IconSymbol name="shield" :size="24" /></span><strong>{{ $t('还没有审计事件') }}</strong>
-      </div>
+    <div class="audit-filters">
+      <input
+        v-model="query"
+        type="search"
+        :placeholder="$t('搜索动作、目标或操作者')"
+        :aria-label="$t('搜索审计记录')"
+      ><select
+        v-model="result"
+        :aria-label="$t('筛选结果')"
+      >
+        <option value="">
+          {{ $t('全部结果') }}
+        </option>
+        <option
+          v-for="item in results"
+          :key="item"
+          :value="item"
+        >
+          {{ $t(item) }}
+        </option>
+      </select><span>{{ $t('{0} 项', [filtered.length]) }}</span>
+    </div>
+    <div
+      v-if="loading"
+      class="page-loading"
+    >
+      <InkLoader /><InkLoader /><InkLoader /><span class="sr-only">{{
+        $t('正在读取审计事件')
+      }}</span>
+    </div>
+    <section
+      v-else-if="error"
+      class="page-state"
+      role="alert"
+    >
+      <strong>{{ $t('无法读取审计日志') }}</strong>
+      <p>{{ error }}</p>
+      <button
+        class="secondary-button"
+        @click="load"
+      >
+        {{ $t('重试') }}
+      </button>
     </section>
+    <ol
+      v-else-if="visible.length"
+      class="audit-timeline"
+    >
+      <li
+        v-for="event in visible"
+        :key="event.id"
+      >
+        <RailGlyph
+          :kind="event.result === 'denied' || event.result === 'failed' ? 'failed' : 'read'"
+        />
+        <div>
+          <header>
+            <time :datetime="event.created_at">{{
+              new Date(event.created_at).toLocaleString($i18n.locale)
+            }}</time><span
+              class="audit-verdict"
+              :class="{ denied: event.result === 'denied' || event.result === 'failed' }"
+            >{{ $t(event.result) }}</span>
+          </header>
+          <strong><code>{{ event.action }}</code></strong>
+          <p>{{ event.resource }}</p>
+          <small>{{ $t('操作者') }} · {{ actor(event) || $t('未记录') }}</small>
+        </div>
+      </li>
+    </ol>
+    <section
+      v-else
+      class="page-state"
+    >
+      <RailGlyph kind="read" /><strong>{{
+        events.length ? $t('没有匹配的记录') : $t('还没有审计事件')
+      }}</strong>
+      <p>{{ $t('工具执行和权限决定会留下操作记录。') }}</p>
+      <button
+        v-if="events.length"
+        class="secondary-button"
+        @click="clearFilters"
+      >
+        {{ $t('清除筛选') }}
+      </button><RouterLink
+        v-else
+        to="/chat"
+      >
+        {{ $t('新建对话') }}
+      </RouterLink>
+    </section>
+    <button
+      v-if="visible.length < filtered.length"
+      class="secondary-button"
+      @click="limit += 60"
+    >
+      {{ $t('显示更多记录') }}
+    </button>
   </main>
 </template>
-
 <style scoped lang="scss">
-.audit-page {
-  display: flex;
-  flex-direction: column;
-  gap: 30px;
-}
-.audit-card {
-  min-height: 340px;
-  overflow: hidden;
-}
-.audit-toolbar {
-  display: flex;
-  height: 58px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 19px;
-  border-bottom: 1px solid var(--border-color);
-}
-.audit-toolbar > span:first-child {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-}
-.event-count {
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-.table-wrap {
-  overflow-x: auto;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-th,
-td {
-  padding: 13px 18px;
-  border-bottom: 1px solid var(--border-color);
-  text-align: left;
-}
-th {
-  color: var(--text-secondary);
-  background: var(--surface-muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-bold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-td {
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-code {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-.result {
-  padding: 4px 7px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-strong);
-  font-size: var(--text-xs);
-}
-.result.success,
-.result.allowed {
-  color: var(--success);
-  background: var(--success-soft);
-}
-.result.failed,
-.result.denied {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-.state {
-  display: flex;
-  min-height: 280px;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  padding: 30px;
-  text-align: center;
-}
-.state-icon {
-  display: grid;
-  width: 52px;
-  height: 52px;
-  margin-bottom: 14px;
-  place-items: center;
-  border-radius: var(--radius-lg);
-  color: var(--success);
-  background: var(--success-soft);
-}
-.state strong {
-  font-size: var(--text-xs);
-}
-.state p {
-  max-width: 420px;
-  margin: 6px 0 0;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-.state.error {
-  color: var(--danger);
-}
-.state.error p {
-  color: var(--text-secondary);
-}
+@use '@/styles/audit';
 </style>

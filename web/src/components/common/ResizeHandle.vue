@@ -78,26 +78,28 @@ onUnmounted(release)
 .resize-handle {
   position: absolute;
   inset-block: 0;
-  width: 8px;
-  z-index: 4;
+  width: var(--space-3);
+  z-index: var(--z-resize);
   cursor: col-resize;
   touch-action: none;
   translate: none;
 }
 .left {
-  right: -4px;
+  right: calc(-1 * var(--space-2));
 }
 .right {
-  left: -4px;
+  left: calc(-1 * var(--space-2));
 }
 .resize-handle::after {
   content: '';
   position: absolute;
   inset-block: 0;
-  left: 3px;
-  width: 2px;
+  left: var(--focus-offset);
+  width: var(--space-1);
   background: var(--transparent);
-  transition: background-color var(--motion-fast) var(--ease);
+  transition:
+    transform var(--motion-fast) var(--ease),
+    opacity var(--motion-fast) var(--ease);
 }
 .resize-handle:hover::after,
 .resize-handle:focus-visible::after,

@@ -1,5 +1,72 @@
 @use './breakpoints' as breakpoints;
 :root {
+  /* Exact dimensions retained by the presentation migration. */
+  --measure-780px: 780px;
+  --measure-620px: 620px;
+  --measure-7px: 7px;
+  --measure-25px: 25px;
+  --measure-34px: 34px;
+  --measure-450px: 450px;
+  --measure-500px: 500px;
+  --measure-46px: 46px;
+  --measure-11px: 11px;
+  --measure-5px: 5px;
+  --measure-9px: 9px;
+  --measure-58px: 58px;
+  --measure-200px: 200px;
+  --measure-760px: 760px;
+  --measure-42px: 42px;
+  --measure-90deg: 90deg;
+  --measure-13px: 13px;
+  --measure-22px: 22px;
+  --measure-31px: 31px;
+  --measure-39px: 39px;
+  --measure-304px: 304px;
+  --measure-180deg: 180deg;
+  --measure-68px: 68px;
+  --measure-17px: 17px;
+  --measure-27px: 27px;
+  --measure-220px: 220px;
+  --measure-190px: 190px;
+  --measure-38px: 38px;
+  --measure-15px: 15px;
+  --measure-52px: 52px;
+  --measure-420px: 420px;
+  --measure-43px: 43px;
+  --measure-1040px: 1040px;
+  --measure-240px: 240px;
+  --measure-1-5px: 1.5px;
+  --measure-100px: 100px;
+  --measure-340px: 340px;
+  --measure-135deg: 135deg;
+  --measure-225deg: 225deg;
+  --settings-width: 1120px;
+  --settings-nav-width: 168px;
+  --settings-label-width: 164px;
+  --z-menu: 50;
+  --z-modal: 100;
+  --z-tooltip: 110;
+  --z-underlay-deep: -2;
+  --z-underlay: -1;
+  --z-surface: 1;
+  --z-detail: 2;
+  --z-minimap: 3;
+  --z-resize: 4;
+  --z-composer-menu: 10;
+  --z-drawer-shade: 19;
+  --z-drawer: 20;
+  --z-sidebar-shade: 29;
+  --z-sidebar: 30;
+  --z-palette: 60;
+  --z-texture: 90;
+  --tracking-eyebrow: 0.09em;
+  --tracking-poster: -0.04em;
+  --tracking-nav: 0.055em;
+  --tracking-heading: -0.01em;
+  --tracking-file-label: 0.07em;
+  --tracking-file-title: -0.025em;
+  --tree-indent: 14px;
+  --font-scale: 1;
   --breakpoint-drawer: #{breakpoints.$drawer-overlay};
   --breakpoint-sidebar: #{breakpoints.$sidebar-overlay};
   --chat-min-width: 420px;
@@ -30,7 +97,6 @@
   --workpaper-edge: color-mix(in srgb, var(--accent) 10%, var(--rule));
   --workpaper-input: color-mix(in srgb, var(--preview-raised) 70%, var(--preview-paper-2));
   --record-width: 960px;
-  --record-label-width: 120px;
   --record-row-height: 68px;
   --memory-identity-width: 260px;
   --memory-meter-width: 64px;
@@ -44,7 +110,6 @@
   --palette-width: 560px;
   --palette-top: min(16vh, 140px);
   --palette-height: min(55vh, 480px);
-  --panel-button-size: 32px;
   --mac-titlebar-inset: 82px;
   --pending-badge-size: 18px;
   --wait-ink: color-mix(in srgb, var(--wait) 65%, var(--ink));
@@ -97,13 +162,11 @@
   --rule: #ddd8ce;
   --ink: #1f1e1c;
   --ink-2: #4e534b;
-  --ink-3: #6f7268;
+  --ink-3: #62655c;
   --on-accent: #fff;
   --accent: #2f6f6a;
   --stone: #2f6f6a;
-  --seal: #b5442e;
-  --notification-dot: #ce4134;
-  --ok: #4c7a3f;
+  --seal: #ac3e2b;
   --wait: #b07a1f;
   --accent-blue: #405f88;
   --accent-green: #52745b;
@@ -113,14 +176,13 @@
   --font-sans: 'Inter', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-serif: 'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-md: 15px;
+  --text-xs: max(12px, calc(12px * var(--font-scale)));
+  --text-sm: max(12px, calc(13px * var(--font-scale)));
+  --text-md: calc(15px * var(--font-scale));
   --text-lg: 20px;
-  --text-greeting: 32px;
-  --type-caption: 12px;
-  --type-small: 13px;
-  --type-body: 15px;
+  --type-caption: var(--text-xs);
+  --type-small: var(--text-sm);
+  --type-body: var(--text-md);
   --type-subheading: 19px;
   --type-heading: 24px;
   --type-display-small: 30px;
@@ -144,8 +206,9 @@
   --focus-width: 2px;
   --focus-offset: 3px;
   --opacity-disabled: 0.45;
+  --contrast-disabled-opacity: 0.7;
   --opacity-busy: 0.8;
-  --leading-body: 26px;
+  --leading-body: calc(26px * var(--font-scale));
   --leading-small: 20px;
   --leading-tight: 1.4;
   --leading-normal: 1.65;
@@ -158,14 +221,12 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  --radius-xl: 14px;
   --radius-round: 50%;
   --ease: cubic-bezier(0.2, 0.7, 0.1, 1);
   --duration: 180ms;
   --duration-slow: 220ms;
   --motion-fast: 140ms;
   --motion-press: 65ms;
-  --motion-spin: 800ms;
   --press-offset: 0 1px;
   --press-shift: var(--hairline);
   --press-scale: 0.96;
@@ -178,7 +239,6 @@
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-spring: cubic-bezier(0.2, 1.3, 0.4, 1);
   --enter-offset: 8px;
-  --hover-offset: -2px;
   --node-land-scale: 0.88;
   --pulse-low-opacity: 0.45;
   --pulse-low-scale: 0.85;
@@ -187,7 +247,6 @@
   --pulse-wait-angle: 5deg;
   --noise-canvas-opacity: 0.022;
   --noise-paper-opacity: 0.025;
-  --noise-code-opacity: 0.008;
   --noise-float-opacity: 0.012;
   --highlight: rgb(255 255 255 / 0.8);
   --shadow-ink: 48 43 31;
@@ -209,7 +268,6 @@
   --preview-ink: #252722;
   --preview-stone: #2c6963;
   --preview-accent-glow: color-mix(in srgb, var(--accent) 8%, transparent);
-  --preview-light: rgb(255 253 246 / 0.7);
   --preview-rail-idle: color-mix(in srgb, var(--accent) 32%, var(--rule));
   --rail-stroke: 1.6;
   --rail-hair-stroke: 0.6;
@@ -218,26 +276,13 @@
   --receipt-width: 520px;
   --unfinished-width: 440px;
   --receipt-cut: 6px;
-  --welcome-mark-width: 190px;
-  --welcome-mark-height: 240px;
-  --welcome-mark-opacity: 1;
-  --welcome-mark-stroke: 1.2;
-  --welcome-mark-bold-stroke: 3;
-  --welcome-icon-size: 32px;
-  --welcome-top-space: clamp(var(--space-8), 7vh, var(--space-10));
   --welcome-side-space: clamp(var(--space-7), 4vw, var(--space-9));
   --welcome-title-size: clamp(var(--type-display-small), 3.4vw, var(--type-poster));
-  --preview-line-height: 1.7;
   --preview-sheet-width: 800px;
   --preview-button-size: 34px;
-  --preview-code-height: 220px;
-  --preview-blur: blur(6px);
-  --ink-loader-width: 36px;
   --ink-loader-height: 2px;
-  --ink-loader-segment: 40%;
   --shadow-float: 0 8px 32px rgb(0 0 0 / 0.1);
   --shadow-card: none;
-  --shadow-window: none;
   --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.8' filter='url(%23n)'/%3E%3C/svg%3E");
   --noise-opacity: 0.025;
   --transparent: transparent;
@@ -250,9 +295,7 @@
   --drawer-width: 380px;
   --rail-width: 48px;
   --content-width: 720px;
-  --capsule-width: 560px;
   --capsule-height: 56px;
-  --blur: blur(12px);
   color-scheme: light;
 }
 :root[data-theme='dark'] {
@@ -265,13 +308,11 @@
   --rule: #2e3033;
   --ink: #e8e6e1;
   --ink-2: #bcc3b8;
-  --ink-3: #818a7e;
+  --ink-3: #90998d;
   --on-accent: #121314;
   --accent: #5fa59d;
   --stone: #5fa59d;
-  --seal: #d0644d;
-  --notification-dot: #ee6b58;
-  --ok: #7fb06e;
+  --seal: #e17a62;
   --wait: #d7a548;
   --accent-blue: #89a6c6;
   --accent-green: #87ac90;
@@ -298,8 +339,13 @@
   --preview-rule: #39423b;
   --preview-ink: #f1eee8;
   --preview-stone: #8ab9a8;
-  --preview-light: rgb(125 169 146 / 0.06);
   color-scheme: dark;
+}
+:root[data-text-size='small'] {
+  --font-scale: 0.933333;
+}
+:root[data-text-size='large'] {
+  --font-scale: 1.1;
 }
 :root[data-accent='blue'] {
   --accent: var(--accent-blue);
@@ -320,7 +366,6 @@
   --accent-soft: color-mix(in srgb, var(--accent) 9%, var(--paper));
   --seal-soft: color-mix(in srgb, var(--seal) 8%, var(--paper));
   --wait-soft: color-mix(in srgb, var(--wait) 8%, var(--paper));
-  --focus-ring: color-mix(in srgb, var(--accent) 25%, var(--transparent));
   --control-hover: color-mix(in srgb, var(--ink) 7%, var(--paper-2));
   --control-pressed: color-mix(in srgb, var(--ink) 13%, var(--paper-2));
   --control-border-hover: color-mix(in srgb, var(--ink) 30%, var(--rule));
@@ -332,28 +377,8 @@
   --control-transition:
     transform var(--motion-fast) var(--ease), opacity var(--motion-fast) var(--ease);
   /* Existing settings and workspace components share the Inkline palette. */
-  --canvas: var(--paper);
-  --canvas-deep: var(--paper);
-  --surface: var(--paper-2);
-  --surface-solid: var(--paper);
-  --surface-muted: var(--paper-2);
-  --surface-strong: var(--paper-3);
-  --text-primary: var(--ink);
-  --text-secondary: var(--ink-2);
-  --text-tertiary: var(--ink-3);
-  --primary-color: var(--accent);
-  --primary-hover: var(--accent-hover);
-  --primary-soft: var(--accent-soft);
-  --success: var(--ink-2);
-  --success-soft: var(--paper-2);
-  --warning: var(--wait);
-  --warning-soft: var(--wait-soft);
-  --danger: var(--ink-2);
-  --danger-soft: var(--paper-2);
-  --border-color: var(--rule);
-  --border-strong: var(--rule);
 }
-/* Only the two chat samples opt in. Existing theme/accent ownership is unchanged. */
+/* A single Inkline paper palette covers the shell, pages and portalled surfaces. */
 .inkline-preview,
 .inkline-shell {
   --paper: var(--preview-paper);
@@ -363,7 +388,6 @@
   --rule: var(--preview-rule);
   --ink: var(--preview-ink);
   --content-width: var(--preview-sheet-width);
-  --text-greeting: var(--welcome-title-size);
   --leading-tight: var(--leading-display);
   --accent-soft: color-mix(in srgb, var(--accent) 9%, var(--paper));
   --accent-selected: color-mix(in srgb, var(--accent) 15%, var(--paper));
@@ -371,18 +395,6 @@
   --control-pressed: color-mix(in srgb, var(--ink) 13%, var(--paper-2));
   --preview-accent-glow: color-mix(in srgb, var(--accent) 8%, transparent);
   --preview-rail-idle: color-mix(in srgb, var(--accent) 32%, var(--rule));
-  --canvas: var(--paper);
-  --surface: var(--paper-2);
-  --surface-solid: var(--paper);
-  --surface-muted: var(--paper-2);
-  --surface-strong: var(--paper-3);
-  --text-primary: var(--ink);
-  --text-secondary: var(--ink-2);
-  --text-tertiary: var(--ink-3);
-  --border-color: var(--rule);
-  --border-strong: var(--rule);
-  --primary-color: var(--accent);
-  --primary-soft: var(--accent-soft);
   --accent-hover: color-mix(in srgb, var(--accent) 88%, var(--ink));
   --accent-pressed: color-mix(in srgb, var(--accent) 76%, var(--ink));
   --control-border-hover: color-mix(in srgb, var(--ink) 30%, var(--rule));
@@ -485,11 +497,6 @@
   }
   to {
     transform: translateX(200%);
-  }
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 @keyframes status-pulse {

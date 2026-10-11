@@ -345,7 +345,7 @@ function onKey(event: KeyboardEvent) {
 .palette-shade {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--z-palette);
   margin: 0;
   border: 0;
   width: 100%;
@@ -381,7 +381,7 @@ function onKey(event: KeyboardEvent) {
   content: '';
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: var(--z-underlay);
   pointer-events: none;
   opacity: var(--noise-float-opacity);
   background-image: var(--noise);

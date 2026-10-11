@@ -73,6 +73,8 @@ flowchart TD
 - ToolRegistry 负责发现、产品元数据和权限信息；新路径的调度由 LangChain/LangGraph 承担。通过公开转换入口接入，不依赖私有 `_structured` 字段。
 - 原生工具结构定义由 Pydantic/LangChain 表达。产品参数检查复用 `jsonschema`，保留现有错误 DTO、参数清理和显式属性默认值处理；引用解析不得联网或读外部文件。
 - 权限策略仍使用既有风险等级、规范化参数摘要值、审批版本、作用域、过期时间和审计。提示词、技能或模型声称“已获授权”没有效力。权威规则见 [工具权限](../agent-capabilities/security/tool-permission.md)。
+- 2026-10-11 改为确定性的执行边界与人工审批，不增加审核 Agent。旧 `full_access` 保持兼容受限模式；新 `danger_full_access` 才取消工作区沙箱和逐项权限审批。越界文件、命令网络/沙箱升级走同一 HITL；Runtime 在实际执行前把策略结果的 `sandbox_mode / allow_network` 写入该调用的私有上下文，工具参数不能直接决定权限。
+- `once / task / session` 使用既有审批记录与有限期窄范围，不新建授权服务。每次工具执行重新查询当前策略和回执；取消、拒绝、审批版本/hash、checkpoint 恢复沿用现有路径，子 Agent 不继承父任务完全访问或授权回执。本批尚未运行恢复/撤销/模式切换回归。
 - 新路径保留 HITL 原始完整调用批次，UI 一次只展示一项审批；全部批准收齐后才恢复工具执行。拒绝任一项结束该回合并关闭剩余待审批项，不再让模型确认拒绝、不恢复该 checkpoint 执行。已经批准的记录不是已经执行的证明。
 - 新聊天与批准后的审批续接共用 Gateway 的凭证同步，Core 重启后先从既有密钥存储补齐内存凭证。新路径消费批准前检查模型可初始化，并等待前一个 interrupt 根任务退出；拒绝仍等待旧根任务退出，但不依赖密钥链、模型配置或 Provider。凭证不会写入 checkpoint 或审批记录。决定与恢复启动间仍存在崩溃窗口，不声称通用 exactly-once。
 - 中断任务的显式恢复沿用相同凭证同步：`POST /tasks/:taskID/resume → ResumeTask → AgentCore.resume_task → LangGraphRuntime.recover → checkpoint`。首版只开放文件读写保留历史，校验 owner、任务版本、最新回合、未归档、无活跃根和未完成检查点；不自动重放所有 interrupted 任务。恢复共用原有会话锁、根任务与取消清理，不新增恢复状态机。审批审计仍在 Repository，运行续接只看 LangGraph；接口边界见 [API](API.md)。
@@ -98,6 +100,18 @@ flowchart TD
 
 应用任务由 Core 持有到清理结束，调用方断线不提前释放准入锁；shutdown 等待它结束再关闭共享资源。模型 HTTP 客户端、Browser、Repository 与订阅不更换。导入与磁盘 Skill 复用解析器，目录扫描移至标准库工作线程并加协作式预算，详见 [技能扫描边界](../agent-capabilities/skills/skill-lifecycle.md#3-安全与资源)。更新目录会自然改变下一次模型请求的工具/Skill 前缀，不承诺沿用此前 KV cache；不实现插件生命周期或自动热更新。本次扩展管理及生命周期修补尚未运行验收。
 
+2026-10-11 补漏：显式应用遇到 Skill 扫描错误或任一启用 MCP 未连接时不提交候选版本；停掉旧连接即标记 disconnected，不保留虚假的 running。普通聊天、回答和恢复入口也在任务准入前检查已生效 MCP，从密钥链重新准备凭证，不只在批准 MCP 时处理。启用服务缺凭证/恢复失败会明确阻止本次提交，用户可先恢复连接或停用该服务；不消费审批、不暗中应用待生效编辑。拒绝审批不受此准备步骤影响。
+
+### 浏览器与活跃命令进程
+
+- Browser 使用官方 Playwright：默认临时上下文；`open(profile="名称", visible=true)` 经审批打开独立登录窗口，用户在窗口中登录，不要求在对话中交密码。具名配置复用 `launch_persistent_context`，目录在 `~/.maigokite/browser-profiles`，按工作区和名称隔离，POSIX 目录权限 0700。它不是密钥链，也不导入日常 Chrome 配置；同一配置只允许一个活动会话。`close` 关闭窗口但保留登录态；当前没有配置目录删除 GUI。
+- 活动 session_id 绑定工作区、会话和实际根路径，其他会话不能借 ID 操作。Core 重启后 session_id 失效，需重新 open 同一 profile；浏览器审批仍按临时运行状态处理，不自动重放下载/上传或旧页面点击。
+- `upload(selector,path,url)` 使用 `set_input_files`；`download(selector,path,url)` 使用 `expect_download/save_as`，下载到明确的新文件名，不覆盖既有文件。url 必须取自当前快照；批准后页面 URL 改变则拒绝执行，重新检查与审批。上传/下载均经过审批和工作区/路径白名单约束，浏览器配置目录不可作为传输路径。单文件接收上限 50 MiB、下载操作超时 60 秒；下载大小在完成暂存后检查，不是下载期间的磁盘配额保证。关闭上下文负责回收 Playwright 临时下载。
+- 公共 HTTP(S) 导航/资源校验继续保留，禁用 Service Worker 绕过请求路由；这不是完整网络沙箱。可见登录需要桌面显示环境；第三方网站验证码、浏览器限制及断电时登录持久性需要真实网站验收。
+- 命令进程继续由 SandboxExecutor 持有，GUI 查询实时尾部、停止指定进程，并等待退出确认。`exec_command(interactive=true)` 必须审批，才创建标准输入管道；GUI 可发送一行输入或 EOF，4096 字节/次。输入不写对话或审计正文，进程可能自行回显。网络失败不自动重发输入。仍有 1–120 秒超时，不是 PTY、后台任务或任务脱离；停止进程只返回工具结果，停止任务才取消整轮。
+
+复用依据：[Playwright 持久上下文](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context)、[下载](https://playwright.dev/python/docs/downloads)、[上传](https://playwright.dev/python/docs/input#upload-files)。这些接线仅通过静态检查，尚无本轮运行验收。
+
 ## 4. 用户可见事件
 
 前端只接收 MaigoKite DTO，不接收 LangGraph 类型。事件字段、名称与重放约定唯一来源为 [API 设计](API.md)。
@@ -108,6 +122,7 @@ flowchart TD
 - 摘要模型输出不投影到用户消息；ToolResult、网页和技能正文是不可信上下文，不能改变权限。
 - 聊天/审批/提问/恢复的 gRPC→WS 转发不设固定 10 分钟截止；随 Core 流结束或 Gateway 连接关闭而释放。转发错误记录状态码并断开对应 WS，触发现有重连补拉，不伪造 task.failed/task.cancelled。
 - WebSocket 断线不取消任务。聊天和审批流均透传持久化 event_id/sequence；Gateway 在订阅注册锁内先发送无产品序号的 `stream.ready`，前端收到确认后才补拉连续分页，期间缓冲实时事件，补拉失败重连而不越过缺口。快照水位不推进活动历史游标。后端注册顺序、真实身份及 1006 条历史分页已定向验收；这不是跨 DB/WS 的原子事务，也不代表 GUI E2E 已运行。
+- 前端快照安装期间由 EventSocket 保留未确认事件，投影返回 deferred 时不记录身份、不推进游标，安装结束重新补拉。`run.apply` 对单回合暂存修改，失败回滚；成功后才提交去重身份和状态水位。只将渲染通知合并到动画帧，消息投影不再延后到已确认之后。投影失败明确提示同步异常并重连，不伪造任务终态；坏 JSON 帧也触发重连。不能仅凭源码修复宣称“卡在思考”已验收收尾。
 
 ## 5. 取消与客户端生命周期
 
@@ -139,7 +154,7 @@ Anthropic 当前锁定集成在 token callback 处取消时可遗留 HTTP 响应
 
 执行入口收尾：新模式的单任务停止不再以 checkpoint 是否存在选择执行器，始终交给 LangGraphRuntime；全局 `interrupt()` 也取消并等待新路径当前根任务，不再查询旧 TaskManager。单任务和全局停止入口纳入 Core 的入口任务跟踪，关闭前会取消/等待它们。任务已入库但根句柄未注册时，停止复用会话准入锁等待该启动/恢复步骤结束后重新检查；已有活跃根任务则直接取消。已结束的根句柄不代表等待审批任务已被取消，仍须更新产品状态并关闭审批。没有新增取消 token tree、执行归属数据库或检查点实现。批量停止仅对尚未结束的根任务发起取消，等待所有这些根任务清理后报告清理错误；已结束但尚待释放回调的句柄不会重复抛出旧执行异常阻止关闭。单任务取消、双运行全局停止与关闭顺序已通过迁移说明第 12 节的定向回归，不代表所有并发竞态均已覆盖。
 
-失败回合的执行边界说明置于历史系统前缀，不插入用户/助手消息之间，避免 Anthropic SDK 拒绝非连续的系统消息。此为本地安装的 SDK 源码核对结果，不等同于 Anthropic Live 验收。
+失败/取消回合的执行边界说明作为系统消息保留在 checkpoint 中，提醒先检查实际状态，不能把重试当作回滚或新的授权。模型调用前，`ContextBudgetMiddleware` 使用 LangChain 公开的消息合并能力，将固定指令、Todo 指令与历史系统消息投影为**唯一的首条 system**；只移动系统消息，不合并用户/助手/工具消息，也不改写 checkpoint。此处理同样覆盖旧 checkpoint、历史导入和压缩后的调用，避免 LM Studio 等严格模板拒绝第二条 system。输入计数及 Anthropic 缓存标记在合并后处理，内容块保持原结构。当前仅做源码与静态检查，不代表 LM Studio 或 Anthropic Live 验收。
 
 ## 6. 提示词、上下文与缓存
 
@@ -196,6 +211,7 @@ Anthropic 当前锁定集成在 token callback 处取消时可遗留 HTTP 响应
 - `tool_calls.subagent_admitted` 是不可退还的产品准入收据，同一调用 ID 重放不重复占位，新的派发必须用新 ID；失败、超时和取消不退额度。没有新增执行状态库；子图状态由父图 checkpointer 管理。
 - 子 Agent 默认使用本回合父模型，也可使用上述允许模型；只收到委派说明，不复制父会话历史。只开放启用的 `file_read / glob / grep`，每次执行仍经过原 PermissionPolicy 和权限撤销检查；子工具不继承写权限、凭证、进程句柄或批准，不暴露 MCP、shell、提问、浏览器、Skill 执行和递归委派。
 - ToolNode 调度、`asyncio.Semaphore` 限并行、根任务 `TaskGroup` 持有排队和运行的子任务；停止/关闭等待清理再发父任务终态。单个子任务进入执行后的超时为 120 秒，不含排队。底层同步系统调用仍不能抢占。
+- 每个子 Agent 再以原生 TaskGroup 持有自己的读工具，失败/超时须先等待这些读操作清理，不能让它们留到父任务的下一轮。出队和每次模型请求前同样检查父任务状态、当前工具开关、权限模式及工作区；权限撤销不只等到下一次文件读取才发现。不新增取消树或私有调度器。
 - 子图继承父检查点的每次调用命名空间；使用独立消息上下文，只返回最长 12000 字符的摘要（超长显式标注），要求带文件/行号引用。共享工作区文件不是快照，其他操作可能改变读取结果。
 - `subagent.*` 进入同一任务的活动区，started/progress/completed 记录实际模型 ID、名称、提供方和任务标签，queued 只记录请求的模型 ID；子 Agent 流式正文不进入主回复，`model.usage` 以 `purpose=subagent` 计入总消耗，不覆盖主上下文指示器。子图上下文仍使用既有输入预算，不保证总 token/费用上限。
 - 本次不扩大 `ResumeTask` 的文件读写白名单：含 delegate 的中断任务暂不能从公共恢复接口重跑。检查点存在不等于跨进程子 Agent 恢复已经验收。

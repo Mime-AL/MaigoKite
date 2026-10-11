@@ -8,6 +8,7 @@ import IconSymbol from '@/components/common/IconSymbol.vue'
 import RailNode from './RailNode.vue'
 import Receipt from './Receipt.vue'
 import RailInk from './RailInk.vue'
+import ThinkingPanel from './ThinkingPanel.vue'
 const props = defineProps<{
   turn: Turn
   canResend?: boolean
@@ -18,8 +19,7 @@ const atEnd = (node: ActivityNode) =>
   Boolean(node.await?.mode === 'question' && !hasOrder(node.await))
 const fallbackQuestions = computed(() => nodes.value.filter(atEnd))
 const active = computed(() => ['running', 'waiting'].includes(props.turn.status))
-const expanded = ref(active.value),
-  thinkingExpanded = ref(active.value)
+const expanded = ref(active.value)
 const hasThinking = computed(() =>
   Boolean(props.turn.thinking || props.turn.thinkingStatus === 'running'),
 )
@@ -49,7 +49,6 @@ watch(
   () => props.turn.status,
   () => {
     expanded.value = active.value
-    if (!active.value) thinkingExpanded.value = false
   },
 )
 function toggleProcess(event: Event) {
@@ -62,24 +61,12 @@ function toggleProcess(event: Event) {
     :class="{ growing: turn.status === 'running' }"
   >
     <RailInk />
-    <details
+    <ThinkingPanel
       v-if="hasThinking"
-      class="thinking"
-      :open="thinkingExpanded"
-    >
-      <summary class="thinking-heading">
-        <IconSymbol
-          name="brain"
-          :size="14"
-        /><span>{{ $t('思考') }}</span>
-        <IconSymbol
-          name="chevron"
-          :size="12"
-          class="thinking-disclosure"
-        />
-      </summary>
-      <p>{{ turn.thinking || $t('正在思考…') }}</p>
-    </details>
+      :text="turn.thinking"
+      :status="turn.status"
+      :thinking-status="turn.thinkingStatus"
+    />
     <p
       v-if="active && !nodes.length"
       class="process-placeholder"
@@ -193,39 +180,17 @@ function toggleProcess(event: Event) {
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
-.process-disclosure,
-.thinking-disclosure {
+.process-disclosure {
   color: var(--ink-3);
   transition: transform var(--motion-fast) var(--ease);
 }
-.process[open] > .process-heading .process-disclosure,
-.thinking[open] > .thinking-heading .thinking-disclosure {
-  transform: rotate(90deg);
+.process[open] > .process-heading .process-disclosure {
+  transform: rotate(var(--measure-90deg));
 }
-.thinking,
 .process-placeholder {
   margin-left: calc(var(--rail-width) + var(--space-4));
   color: var(--ink-2);
   font-size: var(--text-xs);
-}
-.thinking {
-  padding: var(--space-3) 0;
-}
-.thinking-heading {
-  @include mixins.interactive-row;
-  display: flex;
-  width: fit-content;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--size-6);
-  border-radius: var(--radius-sm);
-}
-.thinking p {
-  white-space: pre-wrap;
-  max-height: var(--thinking-max-height);
-  overflow: auto;
-  overflow-wrap: anywhere;
-  line-height: var(--leading-small);
 }
 summary {
   list-style: none;

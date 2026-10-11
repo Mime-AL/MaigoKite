@@ -176,7 +176,7 @@ footer a.router-link-active {
   .sidebar {
     position: fixed;
     inset: var(--titlebar-height) auto 0 0;
-    z-index: 30;
+    z-index: var(--z-sidebar);
     box-shadow: var(--shadow-raised);
     animation: sidebar-arrive var(--motion-panel) var(--ease-out);
   }
@@ -184,5 +184,22 @@ footer a.router-link-active {
     display: none;
   }
 }
-.sidebar::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background-image: var(--noise); opacity: var(--noise-paper-opacity); }
-@keyframes sidebar-arrive { from { opacity: 0; transform: translateX(calc(-1 * var(--space-6))); } to { opacity: 1; transform: translateX(0); } }
+.sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-underlay);
+  pointer-events: none;
+  background-image: var(--noise);
+  opacity: var(--noise-paper-opacity);
+}
+@keyframes sidebar-arrive {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--space-6)));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

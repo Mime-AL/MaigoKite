@@ -371,6 +371,10 @@ class AgentCore:
         clients = self._mcp_clients if clients is None else clients
         errors: list[Exception] = []
         for namespace, client in reversed(list(clients.items())):
+            if clients is self._mcp_clients:
+                for state in self._mcp_runtime:
+                    if state["namespace"] == namespace:
+                        state.update(status="disconnected", tool_names=[])
             try:
                 await client.stop()
             except Exception as exc:
@@ -878,6 +882,11 @@ class AgentCore:
             "expires_at": approval["expires_at"],
             "note": approval.get("note", ""),
             "decided_at": approval.get("decided_at") or "",
+            "reuse_scope": approval.get("reuse_scope") or {},
+            "allowed_scopes": ["once", "task", "session"] if approval.get("reuse_scope") else ["once"],
+            "authorization_scope": approval.get("authorization_scope", "once"),
+            "authorization_expires_at": approval.get("authorization_expires_at", ""),
+            "authorization_revoked_at": approval.get("authorization_revoked_at", ""),
         }
 
     async def list_approvals(self, workspace_id: str, conversation_id: str | None = None) -> list[dict[str, Any]]:
@@ -893,6 +902,7 @@ class AgentCore:
         decision: str,
         version: int,
         note: str = "",
+        scope: str = "once",
     ) -> dict[str, Any]:
         if not self._initialized:
             raise RuntimeError("Agent Core is not accepting new runtime requests")
@@ -902,7 +912,7 @@ class AgentCore:
         return await self._track_langgraph_entry(
             self._resume_langgraph_approval(
                 workspace_id, approval_id, principal_id, decision, version,
-                str(pending["task_id"]), str(pending["conversation_id"]), note,
+                str(pending["task_id"]), str(pending["conversation_id"]), note, scope,
             )
         )
 
@@ -916,6 +926,7 @@ class AgentCore:
         task_id: str,
         conversation_id: str,
         note: str = "",
+        scope: str = "once",
     ) -> dict[str, Any]:
         runtime = self._langgraph_runtime
         if runtime is None:
@@ -927,6 +938,7 @@ class AgentCore:
             decision,
             version,
             note,
+            scope,
         )
         try:
             async for _event in handle.events():
@@ -1019,6 +1031,7 @@ class AgentCore:
                 "conversation_id": str(call["conversation_id"]), "command": str(json.loads(call["arguments_json"]).get("command", "")),
                 "status": status, "live": bool(active and active["live"]),
                 "live_logs_available": bool(active and active["live_logs_available"]),
+                "stdin_available": bool(active and active["stdin_available"]),
                 "log_tail": str(active["log_tail"]) if active else "\n".join(
                     str(data.get(key) or "")[-4000:] for key in ("stdout", "stderr")),
             })
@@ -1030,6 +1043,15 @@ class AgentCore:
             raise KeyError(job_id)
         await self.processes.stop(workspace_id, job_id)
         await self.repository.record_audit(workspace_id, principal_id, "process.stopped", job_id, "success", {})
+
+    async def write_job_input(self, workspace_id: str, job_id: str, principal_id: str, text: str, eof: bool) -> None:
+        call = await self.repository.get_tool_call(job_id)
+        if call["workspace_id"] != workspace_id or call["tool_name"] not in {"exec_command", "bash"}:
+            raise KeyError(job_id)
+        await self.processes.write_input(workspace_id, job_id, text, eof)
+        # Never persist stdin contents: users may enter passwords or other secrets.
+        await self.repository.record_audit(workspace_id, principal_id, "process.input", job_id, "success",
+                                           {"bytes": len(text.encode("utf-8")), "eof": eof})
 
     async def list_tasks(self, workspace_id: str, conversation_id: str = "", limit: int = 100) -> list[dict[str, Any]]:
         return await self.repository.list_tasks(workspace_id, conversation_id, limit)
@@ -1269,8 +1291,12 @@ class AgentCore:
         try:
             await self._close_retired_extensions()
             registry, skills, inventory, errors = await self._load_tool_registry(candidate, restore_only=restore_only)
+            if errors and not restore_only:
+                raise ValueError("Skill 扫描有错误，未应用新配置：" + "; ".join(errors[:5]))
             await self._stop_mcp_servers()
             await self._initialize_mcp_servers(registry, candidate, env, clients, states)
+            if any(state["status"] not in {"running", "disabled"} for state in states):
+                raise ValueError("MCP 未全部连接，未应用新配置；请检查服务与凭证后重试。")
             runtime = await self._create_langgraph_runtime(registry, skills)
             # This is last-applied product configuration, NOT execution state.
             # Unapplied edits must not silently replace a pending approval's server after restart.

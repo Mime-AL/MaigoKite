@@ -188,6 +188,15 @@ func (c *AgentClient) GetApproval(ctx context.Context, workspaceID, approvalID s
 	return c.client.GetApproval(ctx, &agentv1.ApprovalRequest{WorkspaceId: workspaceID, ApprovalId: approvalID})
 }
 
+func (c *AgentClient) ListApprovalAuthorizations(ctx context.Context, request *agentv1.ApprovalAuthorizationRequest) (*agentv1.ApprovalAuthorizationList, error) {
+	return c.client.ListApprovalAuthorizations(ctx, request)
+}
+
+func (c *AgentClient) RevokeApprovalAuthorization(ctx context.Context, request *agentv1.ApprovalAuthorizationRequest) error {
+	_, err := c.client.RevokeApprovalAuthorization(ctx, request)
+	return err
+}
+
 func (c *AgentClient) GetTaskInspection(ctx context.Context, workspaceID, taskID string) (*agentv1.TaskInspection, error) {
 	return c.client.GetTaskInspection(ctx, &agentv1.TaskRequest{WorkspaceId: workspaceID, TaskId: taskID})
 }
@@ -206,6 +215,11 @@ func (c *AgentClient) ListJobs(ctx context.Context, workspaceID, conversationID 
 
 func (c *AgentClient) StopJob(ctx context.Context, workspaceID, jobID, principalID string) error {
 	_, err := c.client.StopJob(ctx, &agentv1.JobRequest{WorkspaceId: workspaceID, JobId: jobID, PrincipalId: principalID})
+	return err
+}
+
+func (c *AgentClient) WriteJobInput(ctx context.Context, req *agentv1.JobInputRequest) error {
+	_, err := c.client.WriteJobInput(ctx, req)
 	return err
 }
 

@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onScopeDispose, ref } from 'vue'
+import { useDialog } from '@/composables/useDialog'
+import { layoutPixels } from '@/utils/layout-media'
+import IconSymbol from '@/components/common/IconSymbol.vue'
 defineProps<{ label: string; title?: string }>()
 const trigger = ref<HTMLButtonElement | null>(null),
-  panel = ref<HTMLElement | null>(null)
+  panel = ref<HTMLDialogElement | null>(null)
 const open = ref(false),
   position = ref({ left: '0px', top: '0px' })
+useDialog(panel, () => open.value)
 async function toggle() {
   open.value = !open.value
   if (!open.value) return
@@ -12,40 +16,37 @@ async function toggle() {
   const anchor = trigger.value?.getBoundingClientRect(),
     bounds = panel.value?.getBoundingClientRect()
   if (!anchor || !bounds) return
+  const gap = layoutPixels('--space-3'),
+    top = layoutPixels('--titlebar-height')
   position.value = {
-    left: `${Math.max(8, Math.min(window.innerWidth - bounds.width - 8, anchor.left + anchor.width / 2 - bounds.width / 2))}px`,
-    top: `${Math.max(44, anchor.top - bounds.height - 8)}px`,
+    left:
+      Math.max(
+        gap,
+        Math.min(
+          innerWidth - bounds.width - gap,
+          anchor.left + anchor.width / 2 - bounds.width / 2,
+        ),
+      ) + 'px',
+    top: Math.max(top, anchor.top - bounds.height - gap) + 'px',
   }
 }
-function outside(event: PointerEvent) {
+function backdrop(event: PointerEvent) {
+  if (event.target !== panel.value) return
+  const bounds = panel.value?.getBoundingClientRect()
   if (
-    event.target instanceof Node &&
-    !trigger.value?.contains(event.target) &&
-    !panel.value?.contains(event.target)
+    bounds &&
+    (event.clientX < bounds.left ||
+      event.clientX > bounds.right ||
+      event.clientY < bounds.top ||
+      event.clientY > bounds.bottom)
   )
-    open.value = false
-}
-function escape(event: KeyboardEvent) {
-  if (open.value && event.key === 'Escape') {
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    open.value = false
-    trigger.value?.focus()
-  }
+    close()
 }
 function close() {
   open.value = false
 }
-onMounted(() => {
-  document.addEventListener('pointerdown', outside)
-  document.addEventListener('keydown', escape, true)
-  window.addEventListener('resize', close)
-})
-onScopeDispose(() => {
-  document.removeEventListener('pointerdown', outside)
-  document.removeEventListener('keydown', escape, true)
-  window.removeEventListener('resize', close)
-})
+onMounted(() => window.addEventListener('resize', close))
+onScopeDispose(() => window.removeEventListener('resize', close))
 </script>
 <template>
   <button
@@ -60,17 +61,30 @@ onScopeDispose(() => {
     <slot name="trigger" />
   </button>
   <Teleport to="body">
-    <section
-      v-if="open"
+    <dialog
       ref="panel"
-      class="stat-panel"
+      class="stat-panel inkline-shell"
       :style="position"
-      role="dialog"
       :aria-label="label"
+      @cancel="close"
+      @close="close"
+      @pointerdown="backdrop"
     >
-      <h3>{{ label }}</h3>
+      <header>
+        <h3>{{ label }}</h3>
+        <button
+          class="icon-button"
+          :aria-label="$t('关闭')"
+          @click="close"
+        >
+          <IconSymbol
+            name="close"
+            :size="16"
+          />
+        </button>
+      </header>
       <slot />
-    </section>
+    </dialog>
   </Teleport>
 </template>
 <style scoped lang="scss">
@@ -79,10 +93,10 @@ onScopeDispose(() => {
   @include mixins.interactive-row;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--size-6);
   border: 0;
   border-radius: var(--radius-pill);
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-3);
   background: var(--transparent);
   color: var(--ink-2);
   font-size: var(--text-xs);
@@ -96,23 +110,40 @@ onScopeDispose(() => {
 }
 .stat-panel {
   position: fixed;
-  z-index: 100;
-  width: min(304px, calc(100vw - 16px));
-  max-height: calc(100vh - 60px);
+  inset: auto;
+  margin: 0;
+  width: min(var(--measure-304px), calc(100vw - var(--space-5)));
+  max-height: calc(100vh - var(--session-actions-space));
   overflow-y: auto;
-  padding: 16px;
-  border: 1px solid var(--rule);
+  padding: var(--space-5);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   background: var(--paper);
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--leading-small);
+  animation: paper-arrive var(--motion-fast) var(--ease-out) both;
+}
+.stat-panel::backdrop {
+  background: var(--transparent);
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 h3 {
-  margin: 0 0 12px;
+  margin: 0;
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   color: var(--ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat-panel {
+    animation: paper-fade var(--motion-reduced) linear both;
+  }
 }
 </style>

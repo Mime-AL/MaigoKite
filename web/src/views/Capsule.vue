@@ -5,12 +5,14 @@ import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRouter } from 'vue-router'
 import Pulse from '@/components/shell/Pulse.vue'
+import IconSymbol from '@/components/common/IconSymbol.vue'
 import { desktopEffects } from '@/composables/useElectron'
 useUIStore()
 const session = useSessionStore(),
   workspace = useWorkspaceStore(),
   router = useRouter()
 const text = ref(''),
+  destination = ref<'recent' | 'new'>('recent'),
   input = ref<HTMLInputElement | null>(null),
   sending = ref(false),
   error = ref('')
@@ -26,7 +28,9 @@ async function send(newSession = false) {
     if (desktopEffects) await desktopEffects.sendCapsule({ content: text.value.trim(), newSession })
     else {
       await session.loadSessions()
-      const recent = session.sessions.find((item) => !item.archived && (item.folder_id || '') === workspace.selectedId)
+      const recent = session.sessions.find(
+        (item) => !item.archived && (item.folder_id || '') === workspace.selectedId,
+      )
       const id = newSession || !recent ? (await session.createSession('新对话')).id : recent.id
       await session.sendToSession(id, text.value.trim())
       await router.push(`/chat/${id}`)
@@ -43,7 +47,7 @@ function keydown(event: KeyboardEvent) {
   if (event.key === 'Escape') void window.electronAPI?.windowControl('hide')
   if (event.key === 'Enter') {
     event.preventDefault()
-    void send(event.ctrlKey || event.metaKey)
+    void send(event.ctrlKey || event.metaKey || destination.value === 'new')
   }
 }
 function drop(event: DragEvent) {
@@ -53,8 +57,13 @@ function drop(event: DragEvent) {
 }
 </script>
 <template>
-  <form class="capsule" @submit.prevent="send()" @dragover.prevent @drop.prevent="drop">
-    <Pulse :state="sending ? 'thinking' : 'idle'" /><input
+  <form
+    class="capsule inkline-shell"
+    @submit.prevent="send(destination === 'new')"
+    @dragover.prevent
+    @drop.prevent="drop"
+  >
+    <Pulse :state="error ? 'error' : sending ? 'thinking' : 'idle'" /><input
       ref="input"
       v-model="text"
       :placeholder="error || $t('输入消息…')"
@@ -62,7 +71,33 @@ function drop(event: DragEvent) {
       :aria-label="$t('速记内容')"
       :title="error"
       @keydown="keydown"
-    /><button :disabled="!text.trim() || sending" :title="$t('Enter 发送 · Ctrl/⌘+Enter 新页')">↵</button>
+    ><select
+      v-model="destination"
+      :disabled="sending"
+      :aria-label="$t('速记发送目标')"
+    >
+      <option value="recent">
+        {{ $t('最近会话') }}
+      </option>
+      <option value="new">
+        {{ $t('新会话') }}
+      </option>
+    </select><button
+      class="icon-button"
+      :disabled="!text.trim() || sending"
+      :aria-label="$t('发送')"
+      :title="$t('Enter 发送 · Ctrl/⌘+Enter 新页')"
+    >
+      <IconSymbol
+        name="arrow-up"
+        :size="18"
+      />
+    </button><span
+      class="sr-only"
+      :role="error ? 'alert' : 'status'"
+    >{{
+      error || (sending ? $t('正在发送…') : '')
+    }}</span>
   </form>
 </template>
 <style scoped lang="scss">
@@ -70,10 +105,12 @@ function drop(event: DragEvent) {
   height: var(--capsule-height);
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 20px;
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
   background: var(--paper);
-  border: 1px solid var(--rule);
+  border: var(--hairline) solid var(--rule);
+  box-shadow: var(--elevation-inset);
+  animation: paper-arrive var(--motion-panel) var(--ease-out) both;
   border-radius: var(--radius-md);
   -webkit-app-region: drag;
 }
@@ -93,7 +130,19 @@ button {
   border: 0;
   background: var(--transparent);
   color: var(--ink-2);
-  padding: 8px;
+  padding: var(--space-3);
   -webkit-app-region: no-drag;
+}
+select {
+  border: 0;
+  padding: var(--space-2);
+  font-size: var(--text-xs);
+  background: var(--paper-2);
+  -webkit-app-region: no-drag;
+}
+@media (prefers-reduced-motion: reduce) {
+  .capsule {
+    animation: paper-fade var(--motion-reduced) var(--ease-out) both !important;
+  }
 }
 </style>

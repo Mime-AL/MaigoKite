@@ -74,7 +74,7 @@ export const useSessionStore = defineStore('session', () => {
     draining = new Set<string>()
   const loadingSessions = new Map<string, Promise<void>>()
   const deletedSessions = new Set<string>()
-  const bufferedEvents = new Map<string, Array<{ event: AgentEvent; replay: boolean }>>()
+  const installingSnapshots = new Set<string>()
   const run = useRunStore(),
     streams = new Map<string, EventSocket>()
   const activeSession = computed(() =>
@@ -119,15 +119,7 @@ export const useSessionStore = defineStore('session', () => {
     ),
   )
   let generation = 0,
-    frame = 0,
     lifecycle = 0
-  const deltas: Array<{ id: string; event: AgentEvent; replay: boolean }> = []
-  function flushDeltas() {
-    if (frame) cancelAnimationFrame(frame)
-    frame = 0
-    for (const item of deltas.splice(0))
-      projectMessage((messages.value[item.id] ||= []), item.event, item.replay)
-  }
   function mark(id: string, task: string) {
     const list = (runningTaskIds.value[id] ||= [])
     if (task && !list.includes(task)) list.push(task)
@@ -137,11 +129,9 @@ export const useSessionStore = defineStore('session', () => {
   }
   function handleEvent(id: string, event: AgentEvent, replay = false) {
     if (deletedSessions.has(id)) return
-    const buffer = bufferedEvents.get(id)
-    if (buffer) {
-      buffer.push({ event, replay })
-      return
-    }
+    // The socket owns buffering. Returning false leaves both identity and replay
+    // cursor unacknowledged until the snapshot is installed and projection runs.
+    if (installingSnapshots.has(id)) return false
     const task = event.task_id || ''
     const snapshot = snapshotFacts.get(id)
     const covered = Boolean(snapshot && event.sequence <= snapshot.sequence)
@@ -150,7 +140,9 @@ export const useSessionStore = defineStore('session', () => {
       !event.type.startsWith('task.input.') &&
       ['task.', 'approval.', 'question.'].some((prefix) => event.type.startsWith(prefix))
     const staleState = stateEvent && event.sequence <= (taskSequences.get(stateKey) || 0)
-    if (stateEvent && !staleState) taskSequences.set(stateKey, event.sequence)
+    // Project the fallible runtime mapping first. Its reducer commits each
+    // identity atomically, so a retry cannot duplicate a successful text delta.
+    for (const mapped of mapGatewayEvent(event)) run.apply(mapped)
     if (!covered && !staleState && ['task.started', 'task.resumed'].includes(event.type)) {
       const known = tasks.value[id]?.find((item) => item.id === task)
       if (known) known.status = 'running'
@@ -170,16 +162,9 @@ export const useSessionStore = defineStore('session', () => {
       const known = tasks.value[id]?.find((item) => item.id === task)
       if (known) known.status = 'waiting_approval'
     }
-    if (!covered && event.type === 'message.delta') {
-      deltas.push({ id, event, replay })
-      if (!frame) frame = requestAnimationFrame(flushDeltas)
-    } else {
-      flushDeltas()
-      if (!covered) projectMessage((messages.value[id] ||= []), event, replay)
-    }
+    if (!covered) projectMessage((messages.value[id] ||= []), event, replay)
     if (event.type === 'message.completed' && typeof event.payload.content === 'string')
       run.completeText(id, task, event.payload.content, String(event.payload.message_id || ''))
-    for (const mapped of mapGatewayEvent(event)) run.apply(mapped)
     // Rebuild historical activity, but never let replay regress atomic product facts.
     if (covered) {
       const fact = snapshot?.tasks.get(task)
@@ -231,17 +216,23 @@ export const useSessionStore = defineStore('session', () => {
           error.value = t('任务状态更新失败，请重新打开对话。')
         })
     }
+    if (stateEvent) taskSequences.set(stateKey, event.sequence)
   }
   function watchSession(id: string) {
     if (streams.has(id) || deletedSessions.has(id)) return
     let connectedOnce = false
+    const syncError = t('对话状态同步失败，正在重新连接。当前执行状态尚未确认，请勿重复发送。')
     const stream = new EventSocket({
       connect: (receive) => api.connectEvents(id, receive),
       history: (after, signal) => api.listTaskEvents(id, after, signal),
       receive: (event, replay) => handleEvent(id, event, replay),
+      failure: () => {
+        error.value = syncError
+      },
       connection: (online) => {
         const reconnected = online && connectedOnce && run.connected[id] === false
         if (online) connectedOnce = true
+        if (online && error.value === syncError) error.value = null
         run.setConnection(id, online)
         if (!online && queuedMessages.value[id]?.length) queuedPaused.value[id] = true
         if (reconnected)
@@ -323,8 +314,7 @@ export const useSessionStore = defineStore('session', () => {
       const epoch = lifecycle
       // Buffer before subscribing/fetching. Snapshot installation must never
       // overwrite an event already consumed by EventSocket's dedupe set.
-      const buffer: Array<{ event: AgentEvent; replay: boolean }> = []
-      bufferedEvents.set(id, buffer)
+      installingSnapshots.add(id)
       watchSession(id)
       loading = (async () => {
         try {
@@ -333,7 +323,6 @@ export const useSessionStore = defineStore('session', () => {
             api.getCapabilities().catch(() => ({})),
           ])
           if (epoch !== lifecycle || deletedSessions.has(id)) return
-          flushDeltas()
           // Text still streaming is projected in run.turns from event history.
           // Do not carry stale stream/local messages over persisted messages.
           messages.value[id] = snapshot.messages
@@ -379,12 +368,9 @@ export const useSessionStore = defineStore('session', () => {
           for (const task of snapshot.tasks)
             taskSequences.set(`${id}:${task.id}`, snapshot.last_sequence)
         } finally {
-          if (bufferedEvents.get(id) === buffer) bufferedEvents.delete(id)
-          if (epoch === lifecycle && !deletedSessions.has(id))
-            for (const item of buffer.sort((a, b) => a.event.sequence - b.event.sequence))
-              handleEvent(id, item.event, item.replay)
+          if (epoch === lifecycle) installingSnapshots.delete(id)
+          if (epoch === lifecycle) await streams.get(id)?.retry()
         }
-        if (epoch === lifecycle) await streams.get(id)?.recover()
         if (epoch === lifecycle && !deletedSessions.has(id)) {
           const latest = tasks.value[id]?.slice(-1)[0]
           // Older inputs are reconciled when the user expands transcript history.
@@ -890,7 +876,7 @@ export const useSessionStore = defineStore('session', () => {
   function disconnect() {
     generation++
     lifecycle++
-    bufferedEvents.clear()
+    installingSnapshots.clear()
     snapshotFacts.clear()
     taskSequences.clear()
     for (const request of detailRequests.values()) request.controller.abort()
@@ -904,7 +890,6 @@ export const useSessionStore = defineStore('session', () => {
     for (const id of Object.keys(queuedMessages.value)) queuedPaused.value[id] = true
     for (const stream of streams.values()) stream.stop()
     streams.clear()
-    flushDeltas()
   }
   async function manageSession(
     id: string,
@@ -923,7 +908,7 @@ export const useSessionStore = defineStore('session', () => {
     loadingSessions.delete(id)
     streams.get(id)?.stop()
     streams.delete(id)
-    bufferedEvents.delete(id)
+    installingSnapshots.delete(id)
     snapshotFacts.delete(id)
     for (const key of taskSequences.keys()) if (key.startsWith(`${id}:`)) taskSequences.delete(key)
     for (const [key, request] of detailRequests)
@@ -933,7 +918,6 @@ export const useSessionStore = defineStore('session', () => {
       }
     for (const turn of run.turns[id] || []) delete inputSubmissions.value[turn.id]
     delete inputErrors.value[id]
-    deltas.splice(0, deltas.length, ...deltas.filter((item) => item.id !== id))
     for (const map of [
       messages.value,
       approvals.value,

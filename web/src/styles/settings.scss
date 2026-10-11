@@ -1,0 +1,261 @@
+@use './breakpoints' as breakpoints;
+@use './mixins' as mixins;
+.settings-page {
+  display: grid;
+  gap: var(--space-7);
+  max-width: var(--settings-width);
+}
+.settings-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.settings-header a {
+  font-size: var(--text-sm);
+}
+.settings-layout {
+  display: grid;
+  grid-template-columns: var(--settings-nav-width) minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: start;
+}
+.settings-tabs {
+  display: grid;
+  gap: var(--space-2);
+  position: sticky;
+  top: var(--space-5);
+}
+.settings-tabs button {
+  @include mixins.interactive-row;
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  border: 0;
+  background: var(--transparent);
+  color: var(--ink-2);
+  text-align: left;
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+}
+.settings-tabs button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-selected);
+  box-shadow: inset var(--focus-width) 0 0 var(--accent);
+  font-weight: var(--weight-semibold);
+}
+.settings-content {
+  min-width: 0;
+}
+.settings-search {
+  position: relative;
+  z-index: var(--z-menu);
+}
+.settings-search > label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--ink-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--hairline) solid var(--rule);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+}
+.settings-search input {
+  border: 0;
+  min-width: 0;
+  width: 100%;
+  background: var(--transparent);
+  padding: var(--space-2);
+}
+.settings-results {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(100% + var(--space-2));
+  max-height: var(--composer-menu-height);
+  overflow: auto;
+  padding: var(--space-2);
+  margin: 0;
+  list-style: none;
+  background: var(--paper-raised, var(--paper));
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+  backdrop-filter: var(--float-blur);
+}
+.settings-results button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 0;
+  background: var(--transparent);
+  font-size: var(--text-sm);
+}
+.settings-results [aria-selected='true'] button {
+  background: var(--accent-selected);
+}
+.settings-results small,
+.search-empty {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.search-empty {
+  padding: var(--space-5);
+}
+.settings-panel {
+  background: var(--transparent);
+}
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: var(--hairline) solid var(--rule);
+}
+.panel-heading h2 {
+  margin: 0;
+  font-size: var(--type-subheading);
+}
+.setting-group {
+  padding-block: var(--space-6);
+  border-bottom: var(--hairline) solid var(--rule);
+}
+.setting-group:last-child {
+  border-bottom: 0;
+}
+.setting-group h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.setting-group > p,
+.panel-copy {
+  margin: var(--space-2) 0 var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--ink-2);
+}
+.setting-row {
+  display: grid;
+  grid-template-columns: var(--settings-label-width) minmax(0, 1fr);
+  gap: var(--space-5);
+  padding-block: var(--space-4);
+  align-items: center;
+  font-size: var(--text-sm);
+  scroll-margin-block: var(--space-9);
+}
+.setting-row > span,
+.setting-row > label {
+  font-weight: var(--weight-medium);
+}
+.setting-row input:not([type='checkbox']),
+.setting-row select {
+  width: 100%;
+  min-width: 0;
+}
+.setting-control {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+.setting-control button {
+  flex: none;
+}
+.setting-row input[type='checkbox'] {
+  justify-self: start;
+  accent-color: var(--accent);
+  width: var(--size-18);
+  height: var(--size-18);
+}
+.accent-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.accent-presets button {
+  @include mixins.interactive-row;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-3);
+  border: var(--hairline) solid var(--rule);
+  background: var(--transparent);
+  font-size: var(--text-xs);
+}
+.accent-presets button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-selected);
+}
+.accent-presets i {
+  width: var(--space-4);
+  height: var(--space-4);
+  border-radius: var(--radius-round);
+  background: var(--swatch);
+}
+.field-error,
+.field-saved,
+.page-error {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.field-error,
+.page-error {
+  color: var(--ink);
+  border-inline-start: var(--focus-width) solid var(--rule);
+  padding-inline-start: var(--space-3);
+}
+.field-saved {
+  color: var(--accent);
+}
+.field-error button,
+.page-error button {
+  margin-inline-start: var(--space-3);
+}
+.text-button {
+  @include mixins.text-action;
+}
+[data-settings-field] {
+  border-radius: var(--radius-sm);
+}
+@each $field in language, assistant-name, greeting-name, avatar, theme, accent, text-size, texture,
+  context-usage, capsule-shortcut, models, model-base-url, model-api-key, model-selection,
+  tool-selection, search-tools, permission-mode, runtime-status
+{
+  .settings-content[data-highlight='#{$field}'] [data-settings-field='#{$field}'] {
+    box-shadow: 0 0 0 var(--focus-width) var(--accent);
+    background: var(--accent-soft);
+  }
+}
+@include breakpoints.drawer-overlay {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+  .settings-tabs {
+    display: flex;
+    position: static;
+    overflow-x: auto;
+    padding-bottom: var(--space-2);
+  }
+  .settings-tabs button {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+@include breakpoints.sidebar-overlay {
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  .settings-header {
+    align-items: start;
+  }
+}

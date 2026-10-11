@@ -41,12 +41,27 @@ function editModelManually() {
 </script>
 
 <template>
-  <div class="form-field model-field">
+  <div
+    class="form-field model-field"
+    data-settings-field="model-selection"
+  >
     <label for="model-id-input">{{ $t('模型（可多选）') }}<b>{{ $t('至少一个') }}</b></label>
-    <div v-if="selectedModels.length" class="selected-models" :aria-label="$t('已选模型')">
-      <span v-for="model in selectedModels" :key="model" class="selected-model">
+    <div
+      v-if="selectedModels.length"
+      class="selected-models"
+      :aria-label="$t('已选模型')"
+    >
+      <span
+        v-for="model in selectedModels"
+        :key="model"
+        class="selected-model"
+      >
         <code>{{ model }}</code>
-        <button type="button" :aria-label="$t('移除模型 {0}', [model])" @click="removeModel(model)">
+        <button
+          type="button"
+          :aria-label="$t('移除模型 {0}', [model])"
+          @click="removeModel(model)"
+        >
           ×
         </button>
       </span>
@@ -61,13 +76,15 @@ function editModelManually() {
         :placeholder="$t('手动填写模型 ID')"
         autocomplete="off"
         @keydown.enter.stop.prevent="addManualModel"
-      />
+      >
       <button
         type="button"
         class="secondary-button"
         :disabled="!manualModelId.trim()"
         @click="addManualModel"
-      >{{ $t('添加') }}</button>
+      >
+        {{ $t('添加') }}
+      </button>
     </div>
     <div class="model-catalog-actions">
       <button
@@ -92,23 +109,36 @@ function editModelManually() {
         data-testid="discover-models"
         @click="discoverModels"
       >
-        <IconSymbol v-if="!discovering" name="refresh" :size="14" />
-        {{ discovering ? $t('正在获取…') : modelOptions.length ? $t('重新获取') : $t('获取模型列表') }}
+        <IconSymbol
+          v-if="!discovering"
+          name="refresh"
+          :size="14"
+        />
+        {{
+          discovering ? $t('正在获取…') : modelOptions.length ? $t('重新获取') : $t('获取模型列表')
+        }}
       </button>
-      <small v-if="selectedModels.length" role="status">{{ $t('已选 {0} 个', [selectedModels.length]) }}</small>
+      <small
+        v-if="selectedModels.length"
+        role="status"
+      >{{
+        $t('已选 {0} 个', [selectedModels.length])
+      }}</small>
     </div>
-    <small v-if="selectedModelInfo" class="model-meta">{{ selectedModelInfo }}</small>
+    <small
+      v-if="selectedModelInfo"
+      class="model-meta"
+    >{{ selectedModelInfo }}</small>
     <small
       v-else-if="discoveryMessage && !catalogOpen"
       :class="{ warning: discoveryFailed || !discoveredModels.length }"
       :role="discoveryFailed ? 'alert' : 'status'"
-      >{{ discoveryMessage }}</small
-    >
-    <small v-else-if="!catalogOpen && ((requiresEndpoint && !draft.baseUrl) || (!canDiscover && keyRequired))">{{
-      requiresEndpoint && !draft.baseUrl
-        ? $t('请填写服务地址')
-        : $t('请填写 API Key')
-    }}</small>
+    >{{ discoveryMessage }}</small>
+    <small
+      v-else-if="
+        !catalogOpen && ((requiresEndpoint && !draft.baseUrl) || (!canDiscover && keyRequired))
+      "
+    >{{ requiresEndpoint && !draft.baseUrl ? $t('请填写服务地址') : $t('请填写 API Key') }}</small>
     <ModelCatalogPicker
       v-if="catalogOpen"
       :models="modelOptions"

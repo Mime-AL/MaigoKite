@@ -6,9 +6,9 @@ defineProps<{ keys: string }>()
 </template>
 <style scoped lang="scss">
 kbd {
-  border: 1px solid var(--rule);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-sm);
-  padding: 2px 5px;
+  padding: var(--space-1) var(--measure-5px);
   font: var(--text-xs) var(--font-mono);
   color: var(--ink-2);
   background: var(--paper-2);

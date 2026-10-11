@@ -120,6 +120,9 @@ function reference() {
   textarea.value?.focus()
 }
 defineExpose({
+  focus() {
+    textarea.value?.focus()
+  },
   restoreDraft(content: string) {
     const draft =
       mode.value === 'plan'

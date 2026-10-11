@@ -16,6 +16,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from agent.security.sensitive_paths import is_sensitive_path
+
+
+class SandboxUnavailableError(RuntimeError):
+    """A confined request must not silently become a host process."""
+
 
 @dataclass(frozen=True)
 class SandboxExecutionResult:
@@ -74,16 +80,6 @@ def _bubblewrap_works(binary: str) -> bool:
 class SandboxExecutor:
     """Execute argv without a shell and confine filesystem writes to a workspace."""
 
-    _FALLBACK_READ_ONLY = {"pwd", "ls", "cat", "head", "tail", "wc", "rg", "grep", "git"}
-    _UNSAFE_GIT_OPTIONS = {
-        "-c",
-        "-p",
-        "--paginate",
-        "--config-env",
-        "--exec-path",
-        "--git-dir",
-        "--work-tree",
-    }
     _OUTPUT_LIMIT = 1_000_000
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
@@ -92,13 +88,14 @@ class SandboxExecutor:
         self.workdir = Path(values.get("workdir") or self.workspace_root).expanduser().resolve()
         if self.workspace_root == Path(self.workspace_root.anchor):
             raise ValueError("sandbox workspace must not be a filesystem root")
-        self.allow_network = bool(values.get("allow_network", True))
+        self.mode = str(values.get("sandbox_mode", "workspace"))
+        if self.mode not in {"read_only", "workspace", "danger_full_access"}:
+            raise ValueError("invalid process sandbox mode")
+        self.allow_network = bool(values.get("allow_network", False))
         self.output_limit = min(max(int(values.get("output_limit", self._OUTPUT_LIMIT)), 1), self._OUTPUT_LIMIT)
         self.output_directory: Path | None = None
-        try:
-            self.workdir.relative_to(self.workspace_root)
-        except ValueError as exc:
-            raise ValueError("sandbox workdir is outside the workspace") from exc
+        if self.mode != "danger_full_access" and not self.workdir.is_relative_to(self.workspace_root):
+            raise ValueError("sandbox workdir is outside the workspace")
         if not self.workdir.is_dir():
             raise ValueError("sandbox workdir does not exist")
         if values.get("output_directory"):
@@ -111,7 +108,7 @@ class SandboxExecutor:
         self._memory_mb = 0
 
     async def execute_command(
-        self, command: str, timeout: int = 30, *, on_spawn: Any = None, on_exit: Any = None,
+        self, command: str, timeout: int = 30, *, on_spawn: Any = None, on_exit: Any = None, interactive: bool = False,
     ) -> SandboxExecutionResult:
         try:
             args = shlex.split(command)
@@ -132,7 +129,7 @@ class SandboxExecutor:
         with output_file() as stdout_file, output_file() as stderr_file:
             process = await asyncio.create_subprocess_exec(
                 *argv,
-                stdin=asyncio.subprocess.DEVNULL,
+                stdin=asyncio.subprocess.PIPE if interactive else asyncio.subprocess.DEVNULL,
                 stdout=stdout_file,
                 stderr=stderr_file,
                 cwd=str(self.workdir),
@@ -200,11 +197,17 @@ class SandboxExecutor:
         self._memory_mb = memory_mb
 
     def _build_argv(self, args: list[str]) -> tuple[list[str], bool]:
+        if self.mode == "danger_full_access":
+            if not self.allow_network:
+                raise PermissionError("Host execution requires explicit network authorization; no command was started")
+            return args, False
         bubblewrap = shutil.which("bwrap") if platform.system() == "Linux" else None
         if bubblewrap and _bubblewrap_works(bubblewrap):
             return self._bubblewrap_argv(bubblewrap, args), True
-        self._validate_fallback(args)
-        return args, False
+        raise SandboxUnavailableError(
+            "Process sandbox unavailable. Install/enable bubblewrap on Linux, "
+            "or explicitly approve a require_escalated call with network_access=true. No command was started."
+        )
 
     def _bubblewrap_argv(self, binary: str, args: list[str]) -> list[str]:
         command = [
@@ -244,7 +247,7 @@ class SandboxExecutor:
 
         command.extend(
             [
-                "--bind",
+                "--ro-bind" if self.mode == "read_only" else "--bind",
                 str(self.workspace_root),
                 str(self.workspace_root),
                 "--chdir",
@@ -274,40 +277,22 @@ class SandboxExecutor:
                 "--setenv",
                 "npm_config_cache",
                 "/tmp/npm-cache",
-                "--",
-                *args,
             ]
         )
-        return command
-
-    def _validate_fallback(self, args: list[str]) -> None:
-        executable = args[0]
-        if Path(executable).name not in self._FALLBACK_READ_ONLY or executable != Path(executable).name:
-            raise RuntimeError(
-                "secure process sandbox is unavailable; only built-in read-only commands are enabled"
-            )
-        if executable == "git" and any(
-            argument in self._UNSAFE_GIT_OPTIONS
-            or any(argument.startswith(option + "=") for option in self._UNSAFE_GIT_OPTIONS)
-            for argument in args[1:]
-        ):
-            raise PermissionError("git option is not allowed without a process sandbox")
-
-        for argument in args[1:]:
-            candidate_value = (
-                argument.split("=", 1)[1]
-                if argument.startswith("-") and "=" in argument
-                else argument
-            )
-            if candidate_value.startswith("-"):
+        # Protect common root credential files and Git metadata in the process
+        # namespace too. This is a bounded guard, not recursive content DLP.
+        for path in self.workspace_root.iterdir():
+            if path.is_symlink():
                 continue
-            candidate = Path(candidate_value).expanduser()
-            if not candidate.is_absolute():
-                candidate = self.workdir / candidate
-            try:
-                candidate.resolve().relative_to(self.workspace_root)
-            except (OSError, ValueError) as exc:
-                raise PermissionError("command path is outside the workspace") from exc
+            if path.name == ".git":
+                command.extend(["--ro-bind", str(path), str(path)])
+            elif is_sensitive_path(path):
+                if path.is_dir():
+                    command.extend(["--tmpfs", str(path), "--remount-ro", str(path)])
+                elif path.is_file():
+                    command.extend(["--ro-bind", "/dev/null", str(path)])
+        command.extend(["--", *args])
+        return command
 
     @staticmethod
     def _minimal_environment() -> dict[str, str]:

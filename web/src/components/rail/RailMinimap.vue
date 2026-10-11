@@ -7,7 +7,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (event: 'jump', node: { id: string; turnId: string }): void }>()
 const buckets = shallowRef<ReturnType<typeof inkBuckets>>([])
-let alive = true, observation = 0
+let alive = true,
+  observation = 0
 let frame = 0,
   resize: ResizeObserver | undefined,
   mutations: MutationObserver | undefined
@@ -87,9 +88,15 @@ async function observe() {
 watch(() => props.scrollRoot, observe, { flush: 'post' })
 // Stream deltas replace Turn identities, not node positions. Measure only when
 // identities/layout change, never rescan the DOM for every text delta.
-watch(() => props.nodes.map(node => node.turnId + ':' + node.id).join('|'), schedule, { flush: 'post' })
+watch(() => props.nodes.map((node) => node.turnId + ':' + node.id).join('|'), schedule, {
+  flush: 'post',
+})
 onMounted(observe)
-onBeforeUnmount(() => { alive = false; observation++; disconnect() })
+onBeforeUnmount(() => {
+  alive = false
+  observation++
+  disconnect()
+})
 </script>
 <template>
   <nav
@@ -114,7 +121,7 @@ onBeforeUnmount(() => { alive = false; observation++; disconnect() })
   inset-block: var(--space-5);
   inset-inline-end: var(--space-1);
   width: var(--minimap-width);
-  z-index: 3;
+  z-index: var(--z-minimap);
 }
 button {
   position: absolute;

@@ -15,16 +15,27 @@ const label = computed(() =>
 const fill = computed(() =>
   percent.value === null ? 0 : Math.min(100, Math.max(0, percent.value)),
 )
-const count = (value: number | null) => (value === null ? t("未提供") : value.toLocaleString())
+const count = (value: number | null) => (value === null ? t('未提供') : value.toLocaleString())
 </script>
 <template>
   <StatPopover
     :label="$t('本次请求上下文')"
-    :title="$t('上下文已用 {0}{1}', [label, context.measurement === 'estimate' ? $t('（估算）') : ''])"
+    :title="
+      $t('上下文已用 {0}{1}', [label, context.measurement === 'estimate' ? $t('（估算）') : ''])
+    "
   >
     <template #trigger>
-      <svg class="context-ring" viewBox="0 0 16 16" aria-hidden="true">
-        <circle class="ring-track" cx="8" cy="8" r="6" />
+      <svg
+        class="context-ring"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+      >
+        <circle
+          class="ring-track"
+          cx="8"
+          cy="8"
+          r="6"
+        />
         <circle
           v-if="percent !== null"
           class="ring-fill"
@@ -35,30 +46,37 @@ const count = (value: number | null) => (value === null ? t("未提供") : value
           :stroke-dasharray="`${fill} 100`"
         />
       </svg>
-      <span
-        >{{ context.measurement === 'estimate' && percent !== null ? '~ ' : '' }}{{ label }}</span
-      >
+      <span>{{ context.measurement === 'estimate' && percent !== null ? '~ ' : '' }}{{ label }}</span>
     </template>
     <dl class="stat-rows">
       <div>
-        <dt>{{ $t('已用上下文{0}', [context.measurement === 'estimate' ? $t('（估算）') : '']) }}</dt>
+        <dt>
+          {{ $t('已用上下文{0}', [context.measurement === 'estimate' ? $t('（估算）') : '']) }}
+        </dt>
         <dd>{{ count(context.usedTokens) }} Token</dd>
       </div>
       <div>
         <dt>{{ $t('模型窗口') }}</dt>
         <dd>
-          {{ context.windowTokens === null ? $t('未提供') : `${count(context.windowTokens)} Token` }}
+          {{
+            context.windowTokens === null ? $t('未提供') : `${count(context.windowTokens)} Token`
+          }}
         </dd>
       </div>
     </dl>
-    <div v-if="percent !== null" class="context-track"><i :style="{ width: `${fill}%` }" /></div>
+    <div
+      v-if="percent !== null"
+      class="context-track"
+    >
+      <i :style="{ width: `${fill}%` }" />
+    </div>
   </StatPopover>
 </template>
 <style scoped lang="scss">
 @use '@/styles/composer-stats';
 .context-ring {
-  width: 14px;
-  height: 14px;
+  width: var(--size-14);
+  height: var(--size-14);
   fill: none;
   stroke-width: 1.5;
   flex: none;
@@ -68,12 +86,12 @@ const count = (value: number | null) => (value === null ? t("未提供") : value
 }
 .ring-fill {
   stroke: var(--ink-2);
-  transform: rotate(-90deg);
+  transform: rotate(calc(-1 * var(--measure-90deg)));
   transform-origin: center;
 }
 .context-track {
-  height: 4px;
-  margin-top: 12px;
+  height: var(--space-2);
+  margin-top: var(--space-4);
   border-radius: var(--radius-pill);
   background: var(--rule);
   overflow: hidden;

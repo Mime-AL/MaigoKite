@@ -234,6 +234,14 @@ class SQLiteRepository:
         approval_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(approvals)").fetchall()}
         if "note" not in approval_columns:
             connection.execute("ALTER TABLE approvals ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+        for column, definition in (
+            ("reuse_scope_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("authorization_scope", "TEXT NOT NULL DEFAULT 'once'"),
+            ("authorization_expires_at", "TEXT NOT NULL DEFAULT ''"),
+            ("authorization_revoked_at", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column not in approval_columns:
+                connection.execute(f"ALTER TABLE approvals ADD COLUMN {column} {definition}")
         task_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
         for column, definition in (
             ("input_text", "TEXT NOT NULL DEFAULT ''"),
@@ -253,9 +261,10 @@ class SQLiteRepository:
                  WHEN 'plan' THEN 'read_only'
                  WHEN 'manual' THEN 'read_only'
                  WHEN 'accept_edits' THEN 'workspace'
-                 WHEN 'auto' THEN 'full_access'
+                 WHEN 'auto' THEN 'workspace_auto'
+                 WHEN 'full_access' THEN 'workspace_auto'
                  ELSE permission_mode END
-               WHERE permission_mode IN ('plan','manual','accept_edits','auto')"""
+               WHERE permission_mode IN ('plan','manual','accept_edits','auto','full_access')"""
         )
         connection.commit()
         self._connection = connection
@@ -431,6 +440,7 @@ class SQLiteRepository:
         self, workspace_id: str, conversation_id: str, permission_mode: str
     ) -> dict[str, Any]:
         async with self._lock:
+            self._revoke_authorizations(workspace_id, conversation_id)
             cursor = self._db().execute(
                 "UPDATE conversations SET permission_mode=?,updated_at=? WHERE workspace_id=? AND id=?",
                 (permission_mode, _now(), workspace_id, conversation_id),
@@ -490,6 +500,8 @@ class SQLiteRepository:
                 self._require_folder(workspace_id, folder_id)
             if folder_id is not None or archived is not None:
                 self._require_idle_conversation(workspace_id, conversation_id)
+            if any(value is not None for value in (permission_mode, folder_id, archived)):
+                self._revoke_authorizations(workspace_id, conversation_id)
             cursor = self._db().execute(
                 f"UPDATE conversations SET {','.join(assignments)} WHERE workspace_id=? AND id=?",
                 values,
@@ -572,6 +584,12 @@ class SQLiteRepository:
 
     async def save_workspace_setting(self, workspace_id: str, key: str, value: Any) -> None:
         async with self._lock:
+            if key in {"permissions.policy", "tools.selection", "extensions.applied_config"}:
+                previous = self._db().execute(
+                    "SELECT value_json FROM workspace_settings WHERE workspace_id=? AND key=?", (workspace_id, key),
+                ).fetchone()
+                if previous is None or json.loads(previous[0]) != value:
+                    self._revoke_authorizations(workspace_id)
             self._db().execute(
                 """INSERT INTO workspace_settings VALUES(?,?,?,?)
                    ON CONFLICT(workspace_id,key)
@@ -1382,6 +1400,7 @@ class SQLiteRepository:
         arguments: dict[str, Any],
         risk_level: str,
         ttl_minutes: int = 15,
+        reuse_scope: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         approval_id = f"approval_{uuid.uuid4().hex}"
         now = datetime.now(timezone.utc)
@@ -1410,6 +1429,10 @@ class SQLiteRepository:
                 ),
             )
             self._db().execute(
+                "UPDATE approvals SET reuse_scope_json=? WHERE id=?",
+                (json.dumps(reuse_scope or {}, ensure_ascii=False, sort_keys=True), approval_id),
+            )
+            self._db().execute(
                 """UPDATE tool_calls SET status='waiting_approval',risk_level=?,arguments_json=?,updated_at=?
                    WHERE id=?""",
                 (risk_level, normalized, now.isoformat(), tool_call_id),
@@ -1426,7 +1449,59 @@ class SQLiteRepository:
     def _approval_value(row: sqlite3.Row) -> dict[str, Any]:
         item = dict(row)
         item["arguments"] = json.loads(item.pop("arguments_json"))
+        item["reuse_scope"] = json.loads(item.pop("reuse_scope_json", "{}"))
         return item
+
+    def _revoke_authorizations(self, workspace_id: str, conversation_id: str = "") -> None:
+        """Called under the Repository lock, committed with the policy change."""
+        self._db().execute(
+            """UPDATE approvals SET authorization_revoked_at=? WHERE workspace_id=?
+               AND (?='' OR conversation_id=?) AND authorization_scope!='once'
+               AND authorization_revoked_at=''""",
+            (_now(), workspace_id, conversation_id, conversation_id),
+        )
+
+    async def list_authorizations(
+        self, workspace_id: str, conversation_id: str, principal_id: str, task_id: str = "",
+    ) -> list[dict[str, Any]]:
+        """Only product receipts; no new runtime/continuation state."""
+        async with self._lock:
+            rows = self._db().execute(
+                """SELECT a.* FROM approvals a JOIN tasks t ON t.id=a.task_id
+                   JOIN conversations c ON c.id=a.conversation_id
+                   WHERE a.workspace_id=? AND a.conversation_id=? AND a.principal_id=?
+                   AND a.status='consumed' AND a.authorization_revoked_at=''
+                   AND a.authorization_expires_at>? AND c.archived=0
+                   AND (a.authorization_scope='session' OR
+                        (a.authorization_scope='task' AND (?='' OR a.task_id=?)
+                         AND t.status IN ('running','waiting_approval','interrupted')))
+                   ORDER BY a.created_at DESC LIMIT 200""",
+                (workspace_id, conversation_id, principal_id, _now(), task_id, task_id),
+            ).fetchall()
+        return [{"approval_id": row["id"], "conversation_id": row["conversation_id"],
+                 "task_id": row["task_id"], "scope": row["authorization_scope"],
+                 "expires_at": row["authorization_expires_at"],
+                 "resource": json.loads(row["reuse_scope_json"])} for row in rows]
+
+    async def revoke_authorization(self, workspace_id: str, approval_id: str, principal_id: str) -> None:
+        async with self._lock:
+            row = self._db().execute(
+                "SELECT * FROM approvals WHERE workspace_id=? AND id=?", (workspace_id, approval_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(approval_id)
+            if row["principal_id"] != principal_id:
+                raise PermissionError("authorization belongs to another principal")
+            if row["authorization_scope"] == "once":
+                raise ValueError("approval has no reusable authorization")
+            if row["authorization_revoked_at"]:
+                return
+            now = _now()
+            with self._db() as db:
+                db.execute("UPDATE approvals SET authorization_revoked_at=? WHERE id=?", (now, approval_id))
+                db.execute("INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)",
+                           (f"audit_{uuid.uuid4().hex}", workspace_id, principal_id,
+                            "authorization.revoked", approval_id, "success", "{}", now))
 
     @staticmethod
     def approval_matches_arguments(approval: dict[str, Any], arguments: dict[str, Any]) -> bool:
@@ -1509,9 +1584,12 @@ class SQLiteRepository:
     async def decide_approval(
         self, workspace_id: str, approval_id: str, principal_id: str, decision: str, version: int,
         note: str = "",
+        scope: str = "once",
     ) -> dict[str, Any]:
         if decision not in {"allow", "deny"}:
             raise ValueError("decision must be allow or deny")
+        if scope not in {"once", "task", "session"} or (decision == "deny" and scope != "once"):
+            raise ValueError("scope must be once, task or session; denial is always once")
         if not isinstance(note, str) or len(note) > 2000:
             raise ValueError("approval note must not exceed 2000 characters")
         note = note.strip()
@@ -1534,6 +1612,16 @@ class SQLiteRepository:
                 raise ValueError("approval has already been decided")
             if int(item["version"]) != version:
                 raise ValueError("approval version conflict")
+            reuse = json.loads(item["reuse_scope_json"])
+            if scope != "once":
+                if not reuse or item["risk_level"] == "L5":
+                    raise PermissionError("this operation only supports one-time approval")
+                conversation = self._db().execute(
+                    "SELECT permission_mode,archived FROM conversations WHERE workspace_id=? AND id=?",
+                    (workspace_id, item["conversation_id"]),
+                ).fetchone()
+                if conversation is None or conversation["archived"] or conversation["permission_mode"] != reuse["mode"]:
+                    raise PermissionError("conversation policy changed; refresh the approval")
             task = self._db().execute(
                 "SELECT status FROM tasks WHERE workspace_id=? AND id=?", (workspace_id, item["task_id"]),
             ).fetchone()
@@ -1584,8 +1672,10 @@ class SQLiteRepository:
             task_status = "running" if decision == "allow" else "cancelled"
             with self._db() as db:
                 db.execute(
-                    "UPDATE approvals SET status=?,decided_at=?,note=?,version=version+1 WHERE id=?",
-                    (approval_status, now.isoformat(), note, approval_id),
+                    """UPDATE approvals SET status=?,decided_at=?,note=?,version=version+1,
+                       authorization_scope=?,authorization_expires_at=? WHERE id=?""",
+                    (approval_status, now.isoformat(), note, scope,
+                     (now + timedelta(hours=8)).isoformat() if scope != "once" else "", approval_id),
                 )
                 db.execute(
                     "UPDATE tool_calls SET status=?,updated_at=? WHERE id=?",
@@ -1618,7 +1708,8 @@ class SQLiteRepository:
                     (f"audit_{uuid.uuid4().hex}", workspace_id, principal_id, "approval.decided",
                      approval_id, "approved" if decision == "allow" else "denied",
                      json.dumps({"tool_call_id": item["tool_call_id"], "note": note,
-                                 "version": version, "arguments_hash": item["arguments_hash"]},
+                                 "version": version, "arguments_hash": item["arguments_hash"],
+                                 "authorization_scope": scope, "reuse_scope": reuse if scope != "once" else {}},
                                 ensure_ascii=False), now.isoformat()),
                 )
         return await self.get_approval(workspace_id, approval_id)

@@ -22,10 +22,10 @@
   color: var(--ink);
 }
 .model-chevron {
-  rotate: 90deg;
+  rotate: var(--measure-90deg);
 }
 .model-trigger[aria-expanded='true'] .model-chevron {
-  rotate: -90deg;
+  rotate: calc(-1 * var(--measure-90deg));
 }
 .model-menu {
   @include mixins.floating;

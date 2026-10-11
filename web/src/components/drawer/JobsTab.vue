@@ -31,6 +31,10 @@ const children = computed(() =>
   activeTurns.value.flatMap((turn) => turn.steps.filter((step) => step.tool === 'delegate')),
 )
 const visible = computed(() => ui.drawerOpen && ui.drawerTab === 'jobs')
+const stoppingJobs = ref(new Set<string>())
+const actionError = ref('')
+const sendingInput = ref(new Set<string>())
+const jobInputs = ref<Record<string, string>>({})
 const labels: Record<AgentTask['status'], string> = {
   created: '待开始',
   queued: '排队中',
@@ -55,6 +59,7 @@ function cleanup() {
   timer = undefined
   loading.value = false
   reload = false
+  jobInputs.value = {}
 }
 async function load() {
   const id = session.activeSessionId
@@ -74,6 +79,11 @@ async function load() {
     if (current !== generation) return
     tasks.value = items
     jobs.value = processes
+    const interactive = new Set(
+      processes.filter((job) => job.live && job.stdin_available).map((job) => job.id),
+    )
+    for (const key of Object.keys(jobInputs.value))
+      if (!interactive.has(key)) delete jobInputs.value[key]
     error.value = ''
   } catch (reason) {
     if (current === generation)
@@ -116,6 +126,44 @@ async function stop(task: AgentTask) {
   if (await session.cancelTask(task.id, task.conversation_id)) await load()
   else error.value = session.error || t('未能确认停止，请稍后重试。')
 }
+async function stopJob(job: ProcessJob) {
+  if (stoppingJobs.value.has(job.id)) return
+  const current = generation
+  stoppingJobs.value.add(job.id)
+  actionError.value = ''
+  try {
+    await api.stopJob(job.id)
+    if (current === generation) await load()
+  } catch (reason) {
+    if (current === generation)
+      actionError.value = reason instanceof Error ? reason.message : t('未能确认停止，请稍后重试。')
+  } finally {
+    stoppingJobs.value.delete(job.id)
+  }
+}
+async function writeInput(job: ProcessJob, eof = false) {
+  if (sendingInput.value.has(job.id)) return
+  const text = eof ? '' : `${jobInputs.value[job.id] || ''}\n`
+  if (new TextEncoder().encode(text).length > 4096) {
+    actionError.value = t('单次进程输入不能超过 4096 字节。')
+    return
+  }
+  const current = generation
+  sendingInput.value.add(job.id)
+  actionError.value = ''
+  // Delivery may succeed even if the HTTP response is lost. Never automatically
+  // retry or retain a secret in the input box after dispatch.
+  delete jobInputs.value[job.id]
+  try {
+    await api.writeJobInput(job.id, text, eof)
+    if (current === generation) await load()
+  } catch {
+    if (current === generation)
+      actionError.value = t('无法确认进程输入已送达，请先查看输出，不要直接重复发送。')
+  } finally {
+    sendingInput.value.delete(job.id)
+  }
+}
 watch(
   () => `${session.activeSessionId}:${visible.value}`,
   () => {
@@ -123,6 +171,7 @@ watch(
     tasks.value = []
     jobs.value = []
     error.value = ''
+    actionError.value = ''
     void load()
   },
   { immediate: true },
@@ -141,25 +190,48 @@ onUnmounted(cleanup)
 <template>
   <section class="jobs-tab">
     <header>
-      <strong>{{ $t('运行') }}</strong
-      ><button class="icon-button" :title="$t('刷新运行状态')" @click="load">
-        <IconSymbol name="refresh" :size="16" />
+      <strong>{{ $t('运行') }}</strong><button
+        class="icon-button"
+        :title="$t('刷新运行状态')"
+        @click="load"
+      >
+        <IconSymbol
+          name="refresh"
+          :size="16"
+        />
       </button>
     </header>
-    <p v-if="error" class="empty-copy" role="alert">
-      {{ error }}<button class="text-button" @click="load">{{ $t('重试') }}</button>
+    <p
+      v-if="error || actionError"
+      class="empty-copy"
+      role="alert"
+    >
+      {{ actionError || error
+      }}<button
+        class="text-button"
+        @click="load"
+      >
+        {{ $t('刷新运行状态') }}
+      </button>
     </p>
     <InkLoader v-else-if="loading && !tasks.length" />
-    <div v-else-if="!activeTasks.length" class="runtime-empty">
-      <IconSymbol name="activity" :size="24" /><strong>{{ $t('现在没有运行中的任务') }}</strong>
+    <div
+      v-else-if="!activeTasks.length"
+      class="runtime-empty"
+    >
+      <IconSymbol
+        name="activity"
+        :size="24"
+      /><strong>{{ $t('现在没有运行中的任务') }}</strong>
       <p>{{ $t('开始对话后，当前操作和等待原因会显示在这里。') }}</p>
     </div>
-    <article v-for="task in activeTasks" :key="task.id">
-      <span class="section-label">{{ $t('当前操作') }}</span
-      ><strong>{{ operation(task) }}</strong>
+    <article
+      v-for="task in activeTasks"
+      :key="task.id"
+    >
+      <span class="section-label">{{ $t('当前操作') }}</span><strong>{{ operation(task) }}</strong>
       <div>
-        <span>{{ $t(labels[task.status]) }}</span
-        ><button
+        <span>{{ $t(labels[task.status]) }}</span><button
           class="secondary-button"
           :disabled="session.stoppingTaskIds.includes(task.id)"
           @click="stop(task)"
@@ -167,29 +239,94 @@ onUnmounted(cleanup)
           {{ $t(session.stoppingTaskIds.includes(task.id) ? '请求停止中…' : '停止') }}
         </button>
       </div>
-      <p v-if="task.last_error" role="alert">{{ task.last_error }}</p>
+      <p
+        v-if="task.last_error"
+        role="alert"
+      >
+        {{ task.last_error }}
+      </p>
     </article>
     <article v-if="children.length">
       <span class="section-label">{{ $t('子 Agent') }}</span>
-      <p v-for="child in children" :key="child.id">{{ child.title }}</p>
-    </article>
-    <article v-for="job in jobs" :key="job.id">
-      <span class="section-label"
-        >{{ $t('后台进程') }} · {{ $t(job.live ? '运行中' : '已结束') }}</span
+      <p
+        v-for="child in children"
+        :key="child.id"
       >
+        {{ child.title }}
+      </p>
+    </article>
+    <article
+      v-for="job in jobs"
+      :key="job.id"
+    >
+      <span class="section-label">{{ $t('命令进程') }} · {{ $t(job.live ? '运行中' : '已结束') }}</span>
       <strong>{{ job.command }}</strong>
       <pre v-if="job.log_tail">{{ job.log_tail.split('\n').slice(-200).join('\n') }}</pre>
-      <p v-else-if="job.live && !job.live_logs_available">{{ $t('此进程暂不提供实时输出。') }}</p>
+      <p v-else-if="job.live && !job.live_logs_available">
+        {{ $t('此进程暂不提供实时输出。') }}
+      </p>
+      <form
+        v-if="job.live && job.stdin_available && session.capabilities.process_input"
+        class="process-input"
+        @submit.prevent="writeInput(job)"
+      >
+        <label :for="`stdin-${job.id}`">{{ $t('发送一行标准输入（不是终端）') }}</label>
+        <input
+          :id="`stdin-${job.id}`"
+          v-model="jobInputs[job.id]"
+          type="password"
+          autocomplete="off"
+          :disabled="sendingInput.has(job.id)"
+          maxlength="4095"
+        >
+        <button
+          class="secondary-button"
+          :disabled="sendingInput.has(job.id)"
+          type="submit"
+        >
+          {{ $t('发送输入') }}
+        </button>
+        <button
+          class="text-button"
+          :disabled="sendingInput.has(job.id)"
+          type="button"
+          @click="writeInput(job, true)"
+        >
+          {{ $t('关闭输入') }}
+        </button>
+        <p>{{ $t('输入不会写入对话；进程自身仍可能将它回显到输出。执行超时继续生效。') }}</p>
+      </form>
+      <button
+        v-if="job.live && session.capabilities.process_stop"
+        class="secondary-button"
+        :disabled="stoppingJobs.has(job.id)"
+        @click="stopJob(job)"
+      >
+        {{ $t(stoppingJobs.has(job.id) ? '请求停止中…' : '停止此进程') }}
+      </button>
+      <p
+        v-if="job.live"
+        class="empty-copy"
+      >
+        {{ $t('停止进程会返回工具结果；若要结束整轮执行，请停止上方任务。') }}
+      </p>
     </article>
-    <div v-if="history.length" class="runtime-history">
+    <div
+      v-if="history.length"
+      class="runtime-history"
+    >
       <span class="section-label">{{ $t('历史运行') }}</span>
-      <details v-for="task in history" :key="task.id">
+      <details
+        v-for="task in history"
+        :key="task.id"
+      >
         <summary>
-          <span>{{ task.title || task.input_text.split('\n')[0].slice(0, 60) || $t('任务') }}</span
-          ><small>{{ $t(labels[task.status]) }}</small>
+          <span>{{ task.title || task.input_text.split('\n')[0].slice(0, 60) || $t('任务') }}</span><small>{{ $t(labels[task.status]) }}</small>
         </summary>
         <time>{{ new Date(task.updated_at).toLocaleString($i18n.locale) }}</time>
-        <p v-if="task.last_error">{{ task.last_error }}</p>
+        <p v-if="task.last_error">
+          {{ task.last_error }}
+        </p>
       </details>
     </div>
   </section>

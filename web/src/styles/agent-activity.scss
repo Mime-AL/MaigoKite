@@ -1,15 +1,16 @@
+@use './breakpoints' as breakpoints;
 .activity-panel {
-  margin: 2px 0 20px 40px;
-  color: var(--text-secondary);
+  margin: var(--space-1) 0 var(--space-6) var(--rail-node-height);
+  color: var(--ink-2);
 }
 
 .activity-heading {
   display: flex;
   width: 100%;
-  min-height: 34px;
+  min-height: var(--measure-34px);
   align-items: center;
-  gap: 8px;
-  padding: 3px 6px;
+  gap: var(--space-3);
+  padding: var(--focus-offset) var(--size-6);
   border: 0;
   border-radius: var(--radius-md);
   color: inherit;
@@ -18,67 +19,67 @@
   text-align: left;
 }
 .activity-heading:hover {
-  background: var(--surface-muted);
+  background: var(--paper-2);
 }
 .activity-heading strong {
-  color: var(--text-primary);
+  color: var(--ink);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
 }
 .activity-heading small {
-  color: var(--text-secondary);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 .activity-state {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: var(--space-7);
+  height: var(--space-7);
   flex: none;
   place-items: center;
   border-radius: var(--radius-sm);
-  color: var(--primary-color);
-  background: var(--primary-soft);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .activity-state.pulse {
   animation: status-pulse var(--motion-pulse) var(--ease) infinite;
 }
 .failed .activity-state {
-  color: var(--danger);
-  background: var(--danger-soft);
+  color: var(--ink-2);
+  background: var(--paper-2);
 }
 .disclosure {
   margin-left: auto;
-  color: var(--text-secondary);
+  color: var(--ink-2);
   transition: transform var(--motion-pulse) var(--ease);
 }
 .disclosure.open {
-  transform: rotate(90deg);
+  transform: rotate(var(--measure-90deg));
 }
 
 .activity-items {
-  padding: 4px 0 0 8px;
+  padding: var(--space-2) 0 0 var(--space-3);
 }
 .waiting-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 7px 0 3px 11px;
-  color: var(--text-secondary);
+  gap: var(--space-3);
+  margin: var(--measure-7px) 0 var(--focus-offset) var(--measure-11px);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 .waiting-row span {
-  width: 6px;
-  height: 6px;
+  width: var(--size-6);
+  height: var(--size-6);
   border-radius: var(--radius-round);
-  background: var(--primary-color);
+  background: var(--accent);
   animation: status-pulse var(--motion-pulse) var(--ease) infinite;
 }
 .activity-item {
   position: relative;
   display: grid;
-  grid-template-columns: 20px 26px minmax(0, 1fr);
-  gap: 7px;
-  min-height: 43px;
+  grid-template-columns: var(--space-6) var(--size-26) minmax(0, 1fr);
+  gap: var(--measure-7px);
+  min-height: var(--measure-43px);
 }
 .item-rail {
   position: relative;
@@ -86,64 +87,64 @@
   justify-content: center;
 }
 .item-rail i {
-  z-index: 1;
-  width: 6px;
-  height: 6px;
-  margin-top: 11px;
-  border: 1px solid var(--border-strong);
+  z-index: var(--z-surface);
+  width: var(--size-6);
+  height: var(--size-6);
+  margin-top: var(--measure-11px);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-round);
-  background: var(--surface-solid);
+  background: var(--paper);
 }
 .item-rail span {
   position: absolute;
-  top: 17px;
-  bottom: -11px;
-  width: 1px;
-  background: var(--border-color);
+  top: var(--measure-17px);
+  bottom: calc(-1 * var(--measure-11px));
+  width: var(--hairline);
+  background: var(--rule);
 }
 .activity-item:last-child .item-rail span {
   display: none;
 }
 .item-icon {
   display: grid;
-  width: 26px;
-  height: 26px;
-  margin-top: 1px;
+  width: var(--size-26);
+  height: var(--size-26);
+  margin-top: var(--hairline);
   place-items: center;
   border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  background: var(--surface-muted);
+  color: var(--ink-2);
+  background: var(--paper-2);
 }
 .activity-item.completed .item-icon {
-  color: var(--success);
+  color: var(--ink-2);
 }
 .activity-item.failed .item-icon,
 .activity-item.denied .item-icon {
-  color: var(--danger);
+  color: var(--ink-2);
 }
 .item-copy {
   min-width: 0;
-  padding: 4px 4px 12px 0;
+  padding: var(--space-2) var(--space-2) var(--space-4) 0;
 }
 .item-title {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  gap: var(--measure-7px);
 }
 .item-title strong {
   overflow-wrap: anywhere;
-  color: var(--text-primary);
+  color: var(--ink);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
 }
 .item-title small {
   flex: none;
-  color: var(--text-secondary);
+  color: var(--ink-2);
   font-size: var(--text-xs);
 }
 .item-copy > p {
-  margin: 5px 0 0;
-  color: var(--text-secondary);
+  margin: var(--measure-5px) 0 0;
+  color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
   white-space: pre-wrap;
@@ -152,50 +153,50 @@
 .item-hint {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  margin-top: 8px;
-  padding: 9px 10px;
-  border: 1px solid var(--paper-2);
+  gap: var(--measure-7px);
+  margin-top: var(--space-3);
+  padding: var(--measure-9px) var(--size-10);
+  border: var(--hairline) solid var(--paper-2);
   border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  background: var(--warning-soft);
+  color: var(--ink-2);
+  background: var(--wait-soft);
   font-size: var(--text-xs);
   line-height: var(--leading-tight);
 }
 .item-hint .icon-symbol {
-  margin-top: 1px;
+  margin-top: var(--hairline);
   flex: none;
-  color: var(--warning);
+  color: var(--wait);
 }
 .item-hint span {
   flex: 1;
 }
 .item-hint a {
   flex: none;
-  color: var(--primary-color);
+  color: var(--accent);
   font-weight: var(--weight-semibold);
 }
 .item-hint a:hover {
   text-decoration: underline;
 }
 .item-detail {
-  margin-top: 6px;
+  margin-top: var(--size-6);
 }
 .item-detail summary {
   width: max-content;
-  color: var(--text-secondary);
+  color: var(--ink-2);
   cursor: pointer;
   font-size: var(--text-xs);
 }
 .item-detail pre {
-  max-height: 220px;
-  margin: 6px 0 0;
-  padding: 9px 10px;
+  max-height: var(--measure-220px);
+  margin: var(--size-6) 0 0;
+  padding: var(--measure-9px) var(--size-10);
   overflow: auto;
-  border: 1px solid var(--border-color);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  background: var(--surface-muted);
+  color: var(--ink-2);
+  background: var(--paper-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
@@ -203,7 +204,7 @@
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 560px) {
+@include breakpoints.sidebar-overlay {
   .activity-panel {
     margin-left: 0;
   }

@@ -88,6 +88,8 @@ GET  /workspaces/{workspace_id}/conversations/{conversation_id}/events/history?a
 GET  /workspaces/{workspace_id}/approvals
 GET  /workspaces/{workspace_id}/approvals/{approval_id}
 POST /workspaces/{workspace_id}/approvals/{approval_id}/decision
+GET  /workspaces/{workspace_id}/approval-authorizations?conversation_id={conversation_id}
+DELETE /workspaces/{workspace_id}/approvals/{approval_id}/authorization
 ```
 
 任务重试和单条工具调用独立查询尚未注册；任务级工具详情由 `inspection` 提供（见 3.8）。取消操作请求停止任务，并关闭仍待处理的审批；实际停止确认和清理顺序取决于当前执行路径，见 [智能体运行时设计](AgentRuntime.md)。第三方 MCP 调用能否立即被传输方式中止，仍有限制。
@@ -95,7 +97,11 @@ POST /workspaces/{workspace_id}/approvals/{approval_id}/decision
 审批由智能体核心创建，外部 API 不提供任意创建审批请求的入口。审批决定必须包含目标审批 ID、decision 和审批版本。服务端从已保存的规范化工具调用读取参数，同时验证版本与过期时间；客户端不能在决定时替换参数。
 
 决定请求支持 `{"decision":"deny","version":1,"note":"请只读取文件，不要修改"}`。
-`note` 可选，最多 2000 字符；与决定、版本推进、审计在同一事务中保存。GET 单条审批可查询已结束的决定，返回 `note / decided_at`，不再只能查询 pending 列表。一次性 `allow / deny` 语义不变，不新增会话级授权。
+`note` 可选，最多 2000 字符；与决定、版本推进、审计在同一事务中保存。GET 单条审批可查询已结束的决定，返回 `note / decided_at`，不再只能查询 pending 列表。
+
+允许请求可携带 `scope`：`{"decision":"allow","version":1,"scope":"session"}`。缺省为 `once`；另支持 `task / session`，仅可选择审批响应的 `allowed_scopes`。`deny` 只接受 `once`。响应增加服务端生成的 `reuse_scope`（只读）、`authorization_scope / authorization_expires_at / authorization_revoked_at`；客户端不得提交自定义 scope 规则。L5/MCP/沙箱外命令不支持复用。
+
+授权列表返回 `{"authorizations":[...]}`，项包括 `approval_id / conversation_id / task_id / scope / expires_at / resource`；撤销返回 204。两接口要求 owner 且校验主体，不删除原审批审计；任务/会话授权最长 8 小时。每次执行重新核对权限和回执，详见 [工具权限](../agent-capabilities/security/tool-permission.md#窄范围复用)。
 
 ### 3.4 用户记忆与数据摘要
 
@@ -184,7 +190,9 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 
 联网搜索凭证使用 `tavily`、`google` 引用名。网关保存或删除引用时通过内部 gRPC 同步智能体核心，并在每次消息任务开始前重新同步，以覆盖核心服务重启场景。搜索失败事件只携带稳定错误码、用户提示和设置路由，不携带敏感凭证。
 
-阶段 1 另提供 `GET/PATCH /workspaces/{workspace_id}/permissions` 管理三档默认执行模式：`read_only / workspace / full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`response_mode` 和 `permission_mode`。服务端验证模型属于当前工作区；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
+`GET/PATCH /workspaces/{workspace_id}/permissions` 管理默认执行模式：`read_only / workspace / danger_full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`response_mode` 和 `permission_mode`。服务端验证模型属于当前工作区；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
+
+2026-10-11 兼容约定：旧 `full_access` 请求仍被接受，但规范化为 `workspace_auto`，保留原工作区限制而非自动提权；历史会话、YAML/环境变量与默认设置同样处理。前端要把 `workspace_auto` 显示为兼容的“旧版受限自动”，不作为新的完全访问档位。真正完全访问须显式提交 `{"permission_mode":"danger_full_access"}` 或 `{"default_mode":"danger_full_access"}`，界面接入时应明确告知将取消工作区沙箱与逐项审批。设置默认仅影响后续新会话。
 
 创建/PATCH 会话还接受 `max_subagent_calls`（0–32，默认 0 关闭）和 `max_concurrent_subagents`（1–8，默认 1；启用时不能超过前者）。省略字段保留旧值，`0` 不当作省略。GET/List 返回会话设置；Go JSON 可能省略值为 0 的字段，客户端以 0 解读。Core 在持久化事务内校验组合；新任务原子快照限额，运行中修改仅影响后续回合。`capabilities.subagents` 表示支持此接口/执行入口，不绕过工具停用设置和共享模型调用预算。执行限制见 [运行时设计第 7 节](AgentRuntime.md#7-技能子任务与工作流边界)。
 
@@ -192,7 +200,7 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 
 权限设置请求与响应仅包含 `default_mode`。REST 写入拒绝未知字段（包括旧的 `tool_levels / grants`），不再静默接受无效设置。内部 Proto 的旧 `tool_levels` 字段号 2 和名称均保留为 reserved，Gateway/Core 需一起更新；旧产品库无需删表，旧风险配置不生效，下一次保存只写默认档位。
 
-审批 `deny` 不读取模型凭证、不创建/调用模型，结束当前任务并关闭其剩余待审批操作；仍验证主体、任务状态、参数 hash、版本及过期时间并保存审计。`allow` 保持凭证准备和原生 HITL 恢复路径。这不新增会话级永久授权，也不改变三档自动执行范围。
+审批 `deny` 不读取模型凭证、不创建/调用模型，结束当前任务并关闭其剩余待审批操作；仍验证主体、任务状态、参数 hash、版本及过期时间并保存审计。`allow` 保持凭证准备和原生 HITL 恢复路径；没有永久会话授权，也没有审核 Agent。
 
 `preferences` 是当前主体在工作区中的用户级偏好。阶段 1 支持 `assistant_name`（1–32 个字符），用于界面称呼；只修改当前个人主体的显示偏好，不改变工作区名称。
 
@@ -225,11 +233,13 @@ GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 | `POST /tasks/{task_id}/inputs` | `{"content":"先不要修改，改为说明方案"}`；必须带 `Idempotency-Key`，返回 202 与 input 记录 |
 | `GET /jobs?conversation_id=...` | `{jobs: [...]}`，真实命令进程与已保存的结束结果，最多 100 条命令调用范围内的记录 |
 | `POST /jobs/{job_id}/stop` | 终止本 Core 持有的进程句柄并等待退出，返回 204；不是取消整个 Agent 任务 |
+| `POST /jobs/{job_id}/input` | `{"text":"一行输入\n","eof":false}`；向获批的交互式命令发送最多 4096 字节，或以空 text/eof=true 关闭输入；确认后返回 204，不自动重试 |
 | `POST /tasks/{task_id}/resume` | 工作区所有者显式恢复被进程中断的文件任务，正文 `{"version":当前任务版本}`；确认接受后返回 202，不代表完成 |
 
 **能力边界。** `approval_note / approval_detail / task_inspection / file_change_events / process_list / process_stop` 为本批支持项。
+2026-10-11 增加 `process_input`，每个 job 返回 `stdin_available`。GUI 必须同时检查进程 live、stdin_available 和能力标志，不能把历史记录当成可操作进程。输入正文不保存到审计或对话，响应丢失不代表未送达；进程自行回显的输出仍可能包含输入。当前是有超时的标准管道，不提供 PTY 或断线后恢复进程。
 `structured_questions / task_input / structured_plan / context_estimate` 在 Core 的唯一 LangGraph Runtime 就绪时为 true；关闭或未就绪时不对外宣称可执行。这些标志表示后端能力，工具仍可能被工作区配置停用。
-`model_context_percentage / session_approval / turn_rollback / automatic_memory_events` 当前为 false。回合回滚不在本批需求内；会话授权留待权限简化，不创建临时 Grant 体系。
+`session_approval / task_approval / approval_authorization_revocation / permission_boundary_v2` 在 Runtime 就绪时为 true，表示支持上述新接口/语义，不代表前端已完成联调或主机沙箱可用。`auto_review / model_context_percentage / turn_rollback / automatic_memory_events` 为 false。回合回滚和审核 Agent 不在本批范围。
 
 **显式任务恢复。** `task_resume` 在 Runtime 就绪时为 true，表示提供受限恢复入口，不表示所有 interrupted 任务均可重放。Gateway 先按现有凭证入口补齐 Core 的进程内模型密钥，再调用流式 gRPC `ResumeTask(workspace_id, task_id, principal_id, version)`。Core 只接受所有者、最新版本、最新会话回合、无活跃运行、未归档且存在未完成 checkpoint 的 `interrupted` 任务；等待审批的任务继续使用 Approval API，不走这个接口。旧任务无 checkpoint 也按不可恢复处理；状态/版本/checkpoint 不满足返回 409，越权返回 403，任务不在工作区内返回 404。
 

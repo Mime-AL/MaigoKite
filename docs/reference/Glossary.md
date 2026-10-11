@@ -20,7 +20,7 @@
 | 审批 / HITL | MaigoKite 保存审批安全事实；LangGraph interrupt/恢复控制新路径暂停执行 |
 | AccessPolicy / ToolPolicy | 网关资源访问检查 / Python 工具最终决策；二者都需通过 |
 | Risk level / permission mode | 内部风险 L1–L5 / 用户三个模式，不能混为用户角色；矩阵见 [工具权限](../agent-capabilities/security/tool-permission.md) |
-| hard-deny | 用户批准和 full_access 都不可覆盖的禁止规则 |
+| hard-deny | 当前策略下不能被单次审批覆盖的禁止规则；显式部署禁用项在完全访问下仍生效，模式边界见工具权限 |
 | 沙箱 | 实际进程/文件/网络隔离；应用参数检查不是完整 OS 沙箱 |
 | MCP | 标准工具服务协议；当前 stdio，由核心服务持有客户端/子进程 |
 | BrowserRuntime | 核心服务持有的 Playwright 浏览器能力，session 易失，不是独立爬虫/协议栈 |

@@ -19,7 +19,7 @@
   content: '';
   position: absolute;
   inset: var(--space-1);
-  z-index: -1;
+  z-index: var(--z-underlay);
   border-radius: inherit;
   background-image: var(--noise);
   opacity: var(--noise-paper-opacity);
@@ -29,7 +29,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: var(--z-underlay);
   border-radius: inherit;
   pointer-events: none;
   box-shadow: 0 0 0 var(--space-2) var(--preview-accent-glow);
@@ -60,7 +60,7 @@
   height: var(--composer-drop-size);
   fill: var(--accent);
   pointer-events: none;
-  z-index: 2;
+  z-index: var(--z-detail);
   opacity: 0;
   animation: ink-drop var(--motion-drop) var(--ease-out) both;
 }

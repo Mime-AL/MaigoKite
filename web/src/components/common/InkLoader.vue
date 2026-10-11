@@ -1,10 +1,14 @@
 <template>
-  <span class="ink-loader" role="status" :aria-label="$t('正在读取')"><i /></span>
+  <span
+    class="ink-loader"
+    role="status"
+    :aria-label="$t('正在读取')"
+  ><i /></span>
 </template>
 <style scoped lang="scss">
 .ink-loader {
   display: block;
-  height: 1px;
+  height: var(--hairline);
   overflow: hidden;
   background: var(--rule);
 }

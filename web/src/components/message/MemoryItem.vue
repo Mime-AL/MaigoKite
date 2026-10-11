@@ -95,7 +95,7 @@ async function remove(item: UserMemory) {
   content: '';
   position: absolute;
   inset: 0 calc(-1 * var(--space-3));
-  z-index: -1;
+  z-index: var(--z-underlay);
   background: var(--memory-focus-wash);
   opacity: 0;
   pointer-events: none;

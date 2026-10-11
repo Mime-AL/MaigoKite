@@ -10,7 +10,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
-from agent.utils.sandbox import SandboxExecutor
+from agent.utils.sandbox import SandboxExecutor, SandboxUnavailableError
+from agent.security.sensitive_paths import is_sensitive_path, search_exclusions
 
 
 class GrepParams(BaseModel):
@@ -37,11 +38,19 @@ class GrepTool(BaseTool):
     async def execute(self, context: ExecutionContext, arguments: dict[str, Any]) -> ToolResult:
         args = GrepParams.model_validate(arguments)
         target = Path(args.path).resolve()
+        full_access = context.metadata.get("permission_mode") == "danger_full_access"
+        if not full_access and is_sensitive_path(target):
+            raise PermissionError("protected credential path")
         root = target if target.is_dir() else target.parent
+        workspace = Path(context.metadata.get("workspace_root", str(root))).resolve()
         executor = SandboxExecutor({
-            "workspace_root": context.metadata.get("workspace_root", str(root)), "workdir": str(root),
+            "workspace_root": str(workspace if full_access or root.is_relative_to(workspace) else root),
+            "workdir": str(root),
+            "sandbox_mode": "danger_full_access" if full_access else "read_only",
+            "allow_network": full_access,
         })
-        command = ["rg", "--no-config", "--json", "--sort", "path", "--context", str(args.context_lines)]
+        command = ["rg", "--no-config", "--json", "--sort", "path", "--context", str(args.context_lines),
+                   *([] if full_access else search_exclusions())]
         if args.ignore_case:
             command.append("--ignore-case")
         command.extend(["--", args.pattern, "." if target.is_dir() else str(target)])
@@ -50,6 +59,9 @@ class GrepTool(BaseTool):
         except FileNotFoundError:
             return ToolResult.failure({}, "ripgrep is not installed.", error_code="RIPGREP_UNAVAILABLE",
                                       user_hint="文件搜索需要 ripgrep（rg），请安装后重试。")
+        except SandboxUnavailableError as exc:
+            return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
+                                      user_hint="内容搜索需要可用的进程沙箱；请安装或启用 bubblewrap。")
         if result.timed_out or result.exit_code not in {0, 1}:
             return ToolResult.failure({}, result.stderr or "Content search failed.", error_code="FILE_SEARCH_FAILED")
         matches: list[tuple[str, int]] = []
@@ -70,6 +82,8 @@ class GrepTool(BaseTool):
             path = data.get("path", {}).get("text")
             text = data.get("lines", {}).get("text")
             if not isinstance(path, str) or not isinstance(text, str):
+                continue
+            if not full_access and is_sensitive_path((root / path).resolve()):
                 continue
             filename = str(Path(path).relative_to(root)) if Path(path).is_absolute() else path.removeprefix("./")
             number = int(data["line_number"])

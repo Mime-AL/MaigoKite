@@ -163,6 +163,13 @@ watch(
     if (id) void session.switchSession(id)
     else session.activeSessionId = null
     resume()
+    void nextTick(() => {
+      if (
+        !timeline.value.length &&
+        (document.activeElement === document.body || document.activeElement?.closest('.new-page'))
+      )
+        composer.value?.focus()
+    })
   },
   { immediate: true },
 )

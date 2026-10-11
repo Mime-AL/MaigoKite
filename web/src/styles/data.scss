@@ -1,0 +1,29 @@
+.data-page {
+  display: grid;
+  gap: var(--space-7);
+}
+.data-ledger {
+  margin: 0;
+  border-top: var(--hairline) solid var(--rule);
+}
+.data-ledger > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-3);
+  border-bottom: var(--hairline) solid var(--rule);
+}
+.data-ledger dt {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.data-ledger dd {
+  margin: 0;
+  font-size: var(--type-subheading);
+  font-variant-numeric: tabular-nums;
+}
+.data-storage {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  margin: 0;
+}

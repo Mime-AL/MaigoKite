@@ -85,6 +85,9 @@ def build_chat_model(provider: str, model: str, **extra: Any) -> BaseChatModel:
             kwargs["http_async_client"] = httpx.AsyncClient(timeout=timeout, trust_env=False)
             kwargs["http_socket_options"] = ()
         kwargs.update({k: v for k, v in extra.items() if k not in ("temperature", "max_tokens", "api_key", "base_url", "timeout")})
+        if provider_lower == "openai_compatible":
+            from agent.models.compatible_reasoning import ReasoningChatOpenAI
+            return ReasoningChatOpenAI(**kwargs)
         return ChatOpenAI(**kwargs)
 
     if provider_lower == "anthropic":
@@ -105,7 +108,7 @@ def build_chat_model(provider: str, model: str, **extra: Any) -> BaseChatModel:
 
     if provider_lower == "ollama":
         try:
-            from langchain_ollama import ChatOllama
+            from agent.models.ollama_reasoning import ReasoningChatOllama
         except ImportError as exc:
             raise RuntimeError("Ollama support requires the langchain-ollama package") from exc
         kwargs = {
@@ -123,7 +126,7 @@ def build_chat_model(provider: str, model: str, **extra: Any) -> BaseChatModel:
             kwargs["client_kwargs"] = {"trust_env": False}
             kwargs["async_client_kwargs"] = {"trust_env": False}
         kwargs.update({k: v for k, v in extra.items() if k not in ("temperature", "max_tokens", "api_key", "base_url", "timeout")})
-        return ChatOllama(**kwargs)
+        return ReasoningChatOllama(**kwargs)
 
     raise ValueError(
         f"Unsupported chat provider '{provider}'. "
@@ -133,15 +136,16 @@ def build_chat_model(provider: str, model: str, **extra: Any) -> BaseChatModel:
 
 async def close_chat_models(models: Iterable[Any]) -> None:
     """Close only clients owned by these models; Core calls this after runs stop."""
+    from langchain_openai import ChatOpenAI
+
     closed: set[int] = set()
     errors: list[Exception] = []
     for llm in models:
         if llm is None:
             continue
-        module = type(llm).__module__
-        if module.startswith("langchain_openai"):
+        if isinstance(llm, ChatOpenAI):
             attributes = ("root_async_client", "root_client")
-        elif module.startswith("langchain_ollama"):
+        elif any(base.__module__.startswith("langchain_ollama") for base in type(llm).__mro__):
             attributes = ("_async_client", "_client")
         else:
             # ChatAnthropic 1.x caches its transports process-wide. Closing

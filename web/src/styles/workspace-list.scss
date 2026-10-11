@@ -37,7 +37,7 @@
   transition: transform var(--motion-fast) var(--ease);
 }
 .group-toggle .expanded {
-  transform: rotate(90deg);
+  transform: rotate(var(--measure-90deg));
 }
 .group-toggle:disabled {
   opacity: 1;
@@ -77,8 +77,16 @@
 .current .workspace-name {
   color: var(--ink);
 }
-.session-date-label { margin: var(--space-5) 0 var(--space-2); padding-left: var(--space-2); color: var(--ink-2); font: var(--weight-medium) var(--text-xs) var(--font-sans); letter-spacing: var(--tracking-label); }
-.workspace-name { font-weight: var(--weight-semibold); }
+.session-date-label {
+  margin: var(--space-5) 0 var(--space-2);
+  padding-left: var(--space-2);
+  color: var(--ink-2);
+  font: var(--weight-medium) var(--text-xs) var(--font-sans);
+  letter-spacing: var(--tracking-label);
+}
+.workspace-name {
+  font-weight: var(--weight-semibold);
+}
 .workspace-new {
   opacity: 0.55;
 }

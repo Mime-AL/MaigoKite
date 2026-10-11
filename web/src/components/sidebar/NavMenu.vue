@@ -15,14 +15,35 @@ const dataItems = [
 </script>
 
 <template>
-  <nav class="nav-menu" :aria-label="$t('主导航')">
+  <nav
+    class="nav-menu"
+    :aria-label="$t('主导航')"
+  >
     <div class="nav-group">
-      <p v-show="!layoutStore.sidebarCollapsed" class="group-label">{{ $t('工作区') }}</p>
-      <NavItem v-for="item in workspaceItems" :key="item.to" v-bind="item" />
+      <p
+        v-show="!layoutStore.sidebarCollapsed"
+        class="group-label"
+      >
+        {{ $t('工作区') }}
+      </p>
+      <NavItem
+        v-for="item in workspaceItems"
+        :key="item.to"
+        v-bind="item"
+      />
     </div>
     <div class="nav-group">
-      <p v-show="!layoutStore.sidebarCollapsed" class="group-label">{{ $t('数据') }}</p>
-      <NavItem v-for="item in dataItems" :key="item.to" v-bind="item" />
+      <p
+        v-show="!layoutStore.sidebarCollapsed"
+        class="group-label"
+      >
+        {{ $t('数据') }}
+      </p>
+      <NavItem
+        v-for="item in dataItems"
+        :key="item.to"
+        v-bind="item"
+      />
     </div>
   </nav>
 </template>
@@ -31,19 +52,19 @@ const dataItems = [
 .nav-menu {
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: var(--measure-11px);
 }
 .nav-group {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
 }
 .group-label {
   margin: 0;
-  padding: 0 10px 4px;
-  color: var(--text-secondary);
+  padding: 0 var(--size-10) var(--space-2);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  letter-spacing: 0.055em;
+  letter-spacing: var(--tracking-nav);
   text-transform: uppercase;
 }
 </style>

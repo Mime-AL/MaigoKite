@@ -9,7 +9,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
-from agent.utils.sandbox import SandboxExecutor
+from agent.utils.sandbox import SandboxExecutor, SandboxUnavailableError
+from agent.security.sensitive_paths import is_sensitive_path, search_exclusions
 
 
 class GlobParams(BaseModel):
@@ -34,20 +35,33 @@ class GlobTool(BaseTool):
     async def execute(self, context: ExecutionContext, arguments: dict[str, Any]) -> ToolResult:
         args = GlobParams.model_validate(arguments)
         root = Path(args.root_dir).resolve()
+        full_access = context.metadata.get("permission_mode") == "danger_full_access"
+        if not full_access and is_sensitive_path(root):
+            raise PermissionError("protected credential path")
+        workspace = Path(context.metadata.get("workspace_root", str(root))).resolve()
         executor = SandboxExecutor({
-            "workspace_root": context.metadata.get("workspace_root", str(root)), "workdir": str(root),
+            # After an exact outside-path approval, keep rg confined to that
+            # read-only directory rather than silently giving it host/network access.
+            "workspace_root": str(workspace if full_access or root.is_relative_to(workspace) else root),
+            "workdir": str(root),
+            "sandbox_mode": "danger_full_access" if full_access else "read_only",
+            "allow_network": full_access,
         })
         try:
             result = await executor.execute_command(shlex.join([
-                "rg", "--no-config", "--files", "--null", "--sort", "path", "--glob", args.pattern, ".",
+                "rg", "--no-config", "--files", "--null", "--sort", "path", "--glob", args.pattern,
+                *([] if full_access else search_exclusions()), ".",
             ]))
         except FileNotFoundError:
             return ToolResult.failure({}, "ripgrep is not installed.", error_code="RIPGREP_UNAVAILABLE",
                                       user_hint="文件搜索需要 ripgrep（rg），请安装后重试。")
+        except SandboxUnavailableError as exc:
+            return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
+                                      user_hint="文件搜索需要可用的进程沙箱；请安装或启用 bubblewrap。")
         if result.timed_out or result.exit_code not in {0, 1}:
             return ToolResult.failure({}, result.stderr or "File search failed.", error_code="FILE_SEARCH_FAILED")
         # A capped output can end in half a filename; never present it as real.
-        paths = result.stdout.split("\0")[:-1]
+        paths = [name for name in result.stdout.split("\0")[:-1] if full_access or not is_sensitive_path((root / name).resolve())]
         matches = [name.removeprefix("./") for name in paths[:args.max_results]]
         truncated = result.output_truncated or len(paths) > args.max_results
         return ToolResult(

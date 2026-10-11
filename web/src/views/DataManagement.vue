@@ -1,114 +1,100 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import IconSymbol from '@/components/common/IconSymbol.vue'
+import { computed, onMounted } from 'vue'
 import { usePhase2Store } from '@/stores/phase2'
-
+import InkLoader from '@/components/common/InkLoader.vue'
+import RailGlyph from '@/components/rail/RailGlyph.vue'
 const phase2 = usePhase2Store()
+const entries = computed(() => {
+  const data = phase2.dataSummary
+  return data
+    ? [
+        { label: '对话', count: data.conversation_count },
+        { label: '消息', count: data.message_count },
+        { label: '用户记忆', count: data.memory_count },
+        { label: '运行记录', count: data.task_count },
+        { label: '操作记录', count: data.audit_event_count },
+      ]
+    : []
+})
+const empty = computed(() => entries.value.every((entry) => entry.count === 0))
 onMounted(() => {
   void phase2.loadDataSummary()
 })
 </script>
-
 <template>
   <main class="page-shell data-page">
-    <header class="page-header">
-      <div>
-        <h1 class="page-title">{{ $t('数据概览') }}</h1>
-      </div>
-      <button class="secondary-button" type="button" :disabled="phase2.dataLoading" @click="phase2.loadDataSummary">
-        <IconSymbol name="refresh" :size="15" />{{ phase2.dataLoading ? $t('刷新中…') : $t('刷新') }}
+    <header class="page-heading">
+      <h1 class="page-title">
+        {{ $t('数据概览') }}
+      </h1>
+      <button
+        class="secondary-button"
+        :disabled="phase2.dataLoading"
+        :aria-busy="phase2.dataLoading || undefined"
+        @click="phase2.loadDataSummary"
+      >
+        {{ $t('刷新') }}
       </button>
     </header>
-
-    <p v-if="phase2.dataError" class="error-banner" role="alert">{{ phase2.dataError }}</p>
-    <section v-if="phase2.dataSummary" class="summary-grid">
-      <article class="glass-card">
-        <span><IconSymbol name="review" :size="20" /></span><strong>{{ phase2.dataSummary.conversation_count }}</strong
-        ><small>{{ $t('对话') }}</small>
-      </article>
-      <article class="glass-card">
-        <span><IconSymbol name="compose" :size="20" /></span><strong>{{ phase2.dataSummary.message_count }}</strong
-        ><small>{{ $t('消息') }}</small>
-      </article>
-      <article class="glass-card">
-        <span><IconSymbol name="brain" :size="20" /></span><strong>{{ phase2.dataSummary.memory_count }}</strong
-        ><small>{{ $t('用户记忆') }}</small>
-      </article>
-      <article class="glass-card">
-        <span><IconSymbol name="activity" :size="20" /></span><strong>{{ phase2.dataSummary.task_count }}</strong
-        ><small>{{ $t('任务') }}</small>
-      </article>
-      <article class="glass-card">
-        <span><IconSymbol name="shield" :size="20" /></span><strong>{{ phase2.dataSummary.audit_event_count }}</strong
-        ><small>{{ $t('操作记录') }}</small>
-      </article>
+    <section
+      v-if="phase2.dataError"
+      class="page-state"
+      role="alert"
+    >
+      <strong>{{ $t('无法读取数据概览') }}</strong>
+      <p>{{ phase2.dataError }}</p>
+      <button
+        class="secondary-button"
+        :disabled="phase2.dataLoading"
+        @click="phase2.loadDataSummary"
+      >
+        {{ $t('重试') }}
+      </button>
     </section>
-    <div v-else-if="phase2.dataLoading" class="loading-card glass-card">{{ $t('正在统计数据…') }}</div>
+    <div
+      v-else-if="phase2.dataLoading && !phase2.dataSummary"
+      class="page-loading"
+    >
+      <InkLoader /><InkLoader /><InkLoader /><span class="sr-only">{{ $t('正在统计数据…') }}</span>
+    </div>
+    <template v-else-if="phase2.dataSummary">
+      <dl class="data-ledger">
+        <div
+          v-for="entry in entries"
+          :key="entry.label"
+        >
+          <dt>{{ $t(entry.label) }}</dt>
+          <dd>{{ entry.count.toLocaleString($i18n.locale) }}</dd>
+        </div>
+      </dl>
+      <p class="data-storage">
+        {{ $t('本地存储') }}
+      </p>
+      <section
+        v-if="empty"
+        class="page-state"
+      >
+        <RailGlyph kind="memory" /><strong>{{ $t('这里还没有记录') }}</strong>
+        <p>{{ $t('开始对话后，消息与操作记录会显示在这里。') }}</p>
+        <RouterLink to="/chat">
+          {{ $t('新建对话') }}
+        </RouterLink>
+      </section>
+    </template>
+    <section
+      v-else
+      class="page-state"
+    >
+      <p>{{ $t('尚未读取数据概览。') }}</p>
+      <button
+        class="secondary-button"
+        @click="phase2.loadDataSummary"
+      >
+        {{ $t('刷新') }}
+      </button>
+    </section>
   </main>
 </template>
-
 <style scoped lang="scss">
-.data-page {
-  display: flex;
-  flex-direction: column;
-  gap: 21px;
-}
-.page-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 22px;
-}
-.page-header .secondary-button {
-  flex: none;
-  gap: 7px;
-}
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-}
-.summary-grid article {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 10px;
-  padding: 15px;
-}
-.summary-grid article span {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  grid-row: span 2;
-  place-items: center;
-  border-radius: var(--radius-md);
-  color: var(--primary-color);
-  background: var(--primary-soft);
-}
-.summary-grid strong {
-  font-size: var(--text-lg);
-  line-height: var(--leading-tight);
-}
-.summary-grid small {
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-.loading-card {
-  display: grid;
-  min-height: 110px;
-  place-items: center;
-  color: var(--text-secondary);
-}
-.error-banner {
-  margin: 0;
-  padding: 11px 13px;
-  border-radius: var(--radius-md);
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-@media (max-width: 1000px) {
-  .summary-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
+@use '@/styles/data';
 </style>

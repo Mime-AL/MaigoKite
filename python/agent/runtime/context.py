@@ -13,7 +13,7 @@ from langchain.agents.middleware.summarization import DEFAULT_SUMMARY_PROMPT
 from langchain.agents.middleware.types import AgentState, ModelRequest, ModelResponse
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.messages.utils import count_tokens_approximately
+from langchain_core.messages.utils import count_tokens_approximately, merge_message_runs
 
 from agent.models.usage import message_usage
 
@@ -212,7 +212,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
 
 
 class ContextBudgetMiddleware(AgentMiddleware):
-    """Reject an oversized retained request rather than repeatedly summarizing it."""
+    """Prepare one system prefix and reject oversized requests without losing history."""
 
     def __init__(self, max_tokens: int) -> None:
         self.max_tokens = max_tokens
@@ -222,6 +222,27 @@ class ContextBudgetMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
+        # Recovery notices (including old checkpoints/imported history) are
+        # system instructions in state. create_agent separately prepends its
+        # system_message, so even consecutive systems break strict templates.
+        # Project them into ONE prefix only for this call, before counting and
+        # provider caching; leave checkpoint state and all other roles untouched.
+        systems = [item for item in request.messages if isinstance(item, SystemMessage)]
+        if systems:
+            if request.system_message is not None:
+                systems.insert(0, request.system_message)
+            system = cast(SystemMessage, merge_message_runs(systems, chunk_separator="\n\n")[0])
+            if isinstance(system.content, list):
+                # TodoList uses content blocks; merging a plain recovery note
+                # must not leave raw strings inside a provider's block array.
+                system = system.model_copy(update={"content": [
+                    {"type": "text", "text": block} if isinstance(block, str) else block
+                    for block in system.content
+                ]})
+            request = request.override(
+                system_message=system,
+                messages=[item for item in request.messages if not isinstance(item, SystemMessage)],
+            )
         messages = list(request.messages)
         if request.system_message is not None:
             messages.insert(0, request.system_message)

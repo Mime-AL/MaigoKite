@@ -55,6 +55,8 @@ const paths: Record<string, string> = {
   send: 'm21 3-7.2 18-3.1-7.7L3 10.2 21 3Zm-10.3 10.3L21 3',
   stop: 'M7 7h10v10H7z',
   plus: 'M12 5v14M5 12h14',
+  'arrow-up': 'M12 20V4m-6 6 6-6 6 6',
+  edit: 'm15 4 5 5M4 20l1-5L17 3l4 4L9 19l-5 1Z',
   chevron: 'm9 18 6-6-6-6',
   terminal: 'm5 7 4 4-4 4m6 0h8',
   check: 'm5 12 4.2 4.2L19 6.5',

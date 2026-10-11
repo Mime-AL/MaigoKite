@@ -175,7 +175,7 @@ async function resend(id: string) {
   place-content: center;
   color: var(--ink-2);
   position: relative;
-  z-index: 1;
+  z-index: var(--z-surface);
   background: var(--paper);
 }
 .node-title {

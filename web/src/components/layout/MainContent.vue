@@ -33,7 +33,8 @@ async function checkHealth() {
 }
 
 const runtimeLabel = computed(
-  () => ({ checking: t("正在连接…"), online: t("已连接"), offline: t("未连接") })[runtimeStatus.value],
+  () =>
+    ({ checking: t('正在连接…'), online: t('已连接'), offline: t('未连接') })[runtimeStatus.value],
 )
 onMounted(() => {
   void checkHealth()
@@ -48,21 +49,38 @@ onUnmounted(() => {
   <div class="main-content">
     <header class="titlebar">
       <div class="titlebar-left">
-        <button class="icon-button no-drag" type="button" :aria-label="$t('切换侧边栏')" @click="layoutStore.toggleSidebar">
-          <IconSymbol name="sidebar" :size="17" />
+        <button
+          class="icon-button no-drag"
+          type="button"
+          :aria-label="$t('切换侧边栏')"
+          @click="layoutStore.toggleSidebar"
+        >
+          <IconSymbol
+            name="sidebar"
+            :size="17"
+          />
         </button>
         <span class="titlebar-divider" />
         <strong>{{ title }}</strong>
       </div>
       <div class="titlebar-right">
-        <span class="runtime-status" :class="runtimeStatus"><i /> {{ runtimeLabel }}</span>
+        <span
+          class="runtime-status"
+          :class="runtimeStatus"
+        ><i /> {{ runtimeLabel }}</span>
       </div>
     </header>
 
     <div class="route-viewport">
       <router-view v-slot="{ Component }">
-        <transition name="page" mode="out-in">
-          <component :is="Component" :key="String(route.name || route.path)" />
+        <transition
+          name="page"
+          mode="out-in"
+        >
+          <component
+            :is="Component"
+            :key="String(route.name || route.path)"
+          />
         </transition>
       </router-view>
     </div>
@@ -75,16 +93,16 @@ onUnmounted(() => {
   height: 100%;
   min-width: 0;
   flex-direction: column;
-  background: var(--surface-solid);
+  background: var(--paper);
 }
 .titlebar {
   display: flex;
-  height: 52px;
+  height: var(--measure-52px);
   flex: none;
   align-items: center;
   justify-content: space-between;
-  padding: 0 15px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 0 var(--measure-15px);
+  border-bottom: var(--hairline) solid var(--rule);
   background: var(--paper-3);
   -webkit-app-region: drag;
 }
@@ -92,17 +110,17 @@ onUnmounted(() => {
 .titlebar-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--size-10);
 }
 .titlebar-left strong {
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-heading);
 }
 .titlebar-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--border-strong);
+  width: var(--hairline);
+  height: var(--space-5);
+  background: var(--rule);
 }
 .no-drag {
   -webkit-app-region: no-drag;
@@ -110,24 +128,24 @@ onUnmounted(() => {
 .runtime-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-secondary);
+  gap: var(--size-6);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
 }
 .runtime-status i {
-  width: 6px;
-  height: 6px;
+  width: var(--size-6);
+  height: var(--size-6);
   border-radius: var(--radius-round);
-  background: var(--success);
+  background: var(--ink-2);
   box-shadow: var(--shadow-card);
 }
 .runtime-status.checking i {
-  background: var(--warning);
+  background: var(--wait);
   box-shadow: var(--shadow-card);
 }
 .runtime-status.offline i {
-  background: var(--danger);
+  background: var(--ink-2);
   box-shadow: var(--shadow-card);
 }
 .route-viewport {
@@ -139,19 +157,14 @@ onUnmounted(() => {
 .page-enter-active,
 .page-leave-active {
   transition:
-    opacity var(--motion-pulse) var(--ease),
-    transform var(--motion-pulse) var(--ease);
+    opacity var(--motion-panel) var(--ease),
+    transform var(--motion-panel) var(--ease);
 }
 .page-enter-from {
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(var(--space-2));
 }
 .page-leave-to {
   opacity: 0;
-}
-@media (prefers-color-scheme: dark) {
-  .titlebar {
-    background: var(--paper-3);
-  }
 }
 </style>

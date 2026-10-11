@@ -109,8 +109,9 @@ defineExpose({ closeMenu })
     </select>
     <select
       :value="permissionMode"
-      :disabled="isSending || isSubmitting"
+      :disabled="isSubmitting"
       :aria-label="$t('执行权限')"
+      :title="$t('权限调整从下一个尚未开始的操作生效')"
       @change="
         emit('permission-mode-change', ($event.target as HTMLSelectElement).value as PermissionMode)
       "
@@ -146,7 +147,7 @@ defineExpose({ closeMenu })
       class="send-button"
       :disabled="busy || !hasDraft || !modelOptions.length || (isSending && guideDisabled)"
       :aria-busy="busy || undefined"
-      :aria-label="busy ? $t('正在发送消息') : isSending ? $t('引导当前任务') : $t('发送消息')"
+      :aria-label="busy ? $t('正在发送消息') : isSending ? $t('立即发送') : $t('发送消息')"
       :title="isSending ? props.guideReason : undefined"
       @click="send()"
     >
@@ -187,13 +188,13 @@ defineExpose({ closeMenu })
           :disabled="guideDisabled || !hasDraft"
           @click="send()"
         >
-          {{ $t('引导当前任务') }}<small>Enter</small>
+          {{ $t('立即发送') }}<small>Enter</small>
         </button>
         <button
           :disabled="!hasDraft"
           @click="send(true)"
         >
-          {{ $t('稍后发送') }}<small>Alt + Enter</small>
+          {{ $t('加入队列') }}<small>Alt + Enter</small>
         </button>
       </div>
     </div>

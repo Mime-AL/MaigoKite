@@ -46,12 +46,14 @@
 | `tasks` | 工作区/会话、输入、状态、最后错误、版本、时间与可选聊天提交指纹 `request_hash` |
 | `task_events` | 任务/会话、会话内 sequence、类型、payload 和发生时间 |
 | `tool_calls` | 任务、工具名、参数、结果、摘要、风险和状态；旧续接列只保留历史兼容 |
-| `approvals` | 任务/工具调用、principal、参数摘要值、风险、版本、过期和决定时间 |
+| `approvals` | 任务/工具调用、principal、参数摘要值、风险、版本、过期和决定时间；`reuse_scope_json / authorization_scope / authorization_expires_at / authorization_revoked_at` 保存有限期窄授权 |
 | `audit_events` | 工作区、actor、action、resource、result、脱敏详情和时间 |
 | `todos` | 工作区内的文本、完成状态和时间 |
 | `user_memories` | 工作区 + subject user、类别、内容、来源、置信度和时间 |
 
 User Preference 与用户记忆不合并：前者是显式产品设置，后者是用户可管理的长期信息。当前用户记忆只有手动 CRUD 和关键词查询，不会自动抽取信息、使用向量嵌入检索或注入模型上下文。
+
+2026-10-11 权限升级使用原 SQLite 增列逻辑，历史审批默认 `once`、空复用范围/期限，不生成授权。复用信息仍是审批审计回执，不新增 Grant 表、Runtime 状态表或执行续接数据。旧会话权限 `full_access / auto` 规范化为 `workspace_auto`；新的 `danger_full_access` 不由旧值推导。迁移不删除业务数据。运行验收未在本批执行。
 
 ### 当前关系（逻辑归属与外键区别）
 

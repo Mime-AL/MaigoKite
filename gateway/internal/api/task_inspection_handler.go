@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	agentgrpc "maigokite/gateway/internal/grpc"
 	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
-	"github.com/gin-gonic/gin"
 )
 
 type TaskInspectionHandler struct{ client *agentgrpc.AgentClient }
@@ -34,13 +34,34 @@ func (h *TaskInspectionHandler) Jobs(c *gin.Context) {
 	for _, job := range items.Jobs {
 		jobs = append(jobs, gin.H{"id": job.Id, "task_id": job.TaskId, "conversation_id": job.ConversationId,
 			"command": job.Command, "status": job.Status, "log_tail": job.LogTail,
-			"live": job.Live, "live_logs_available": job.LiveLogsAvailable})
+			"live": job.Live, "live_logs_available": job.LiveLogsAvailable, "stdin_available": job.StdinAvailable})
 	}
 	c.JSON(http.StatusOK, gin.H{"jobs": jobs})
 }
 
 func (h *TaskInspectionHandler) StopJob(c *gin.Context) {
 	if err := h.client.StopJob(c.Request.Context(), c.Param("workspaceID"), c.Param("jobID"), c.GetString("principal_id")); err != nil {
+		grpcError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *TaskInspectionHandler) WriteJobInput(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32*1024)
+	var req struct {
+		Text string `json:"text"`
+		EOF  bool   `json:"eof"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Text) > 4096 || (req.Text == "" && !req.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "VALIDATION", "message": "输入须为 1–4096 字节，或关闭标准输入。"}})
+		return
+	}
+	err := h.client.WriteJobInput(c.Request.Context(), &agentv1.JobInputRequest{
+		WorkspaceId: c.Param("workspaceID"), JobId: c.Param("jobID"), PrincipalId: c.GetString("principal_id"),
+		Text: req.Text, Eof: req.EOF,
+	})
+	if err != nil {
 		grpcError(c, err)
 		return
 	}

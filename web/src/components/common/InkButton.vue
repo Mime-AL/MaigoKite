@@ -1,9 +1,12 @@
 <script setup lang="ts">
-withDefaults(defineProps<{ tone?: 'plain' | 'primary' | 'danger'; disabled?: boolean; loading?: boolean }>(), {
-  tone: 'plain',
-  disabled: false,
-  loading: false,
-})
+withDefaults(
+  defineProps<{ tone?: 'plain' | 'primary' | 'danger'; disabled?: boolean; loading?: boolean }>(),
+  {
+    tone: 'plain',
+    disabled: false,
+    loading: false,
+  },
+)
 </script>
 <template>
   <button
@@ -12,14 +15,16 @@ withDefaults(defineProps<{ tone?: 'plain' | 'primary' | 'danger'; disabled?: boo
     :class="[tone, tone === 'plain' ? 'secondary-button' : `${tone}-button`]"
     :disabled="disabled || loading"
     :aria-busy="loading || undefined"
-  ><slot /></button>
+  >
+    <slot />
+  </button>
 </template>
 <style scoped lang="scss">
 .ink-button {
-  min-height: 32px;
+  min-height: var(--space-8);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-3);
 }
 </style>

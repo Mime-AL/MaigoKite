@@ -6,7 +6,9 @@ import { i18n, resolveLanguage, t, type Language } from '@/i18n'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type Accent = 'stone' | 'blue' | 'green' | 'earth' | 'lotus' | 'ink'
+export type TextSize = 'small' | 'default' | 'large'
 export interface Appearance {
+  textSize?: TextSize
   language?: Language
   theme: ThemeMode
   accent: Accent
@@ -31,6 +33,7 @@ export function validAppearance(value: unknown): value is Appearance {
     ['system', 'light', 'dark'].includes(String(p.theme)) &&
     accents.some((a) => a.id === p.accent) &&
     typeof p.texture === 'boolean' &&
+    (p.textSize === undefined || ['small', 'default', 'large'].includes(String(p.textSize))) &&
     (p.language === undefined || ['zh-CN', 'en', 'system'].includes(String(p.language))) &&
     (p.showContextUsage === undefined || typeof p.showContextUsage === 'boolean') &&
     typeof p.greetingName === 'string' &&
@@ -51,6 +54,7 @@ export const useUIStore = defineStore('ui', () => {
     avatar: '助',
     capsuleShortcut: 'Alt+Space',
     showContextUsage: true,
+    textSize: 'default',
   }
   const storageKey = import.meta.env.VITE_MOCK === '1' ? 'maigokite_inkline_demo' : 'maigokite_inkline'
   let stored: unknown
@@ -100,6 +104,7 @@ export const useUIStore = defineStore('ui', () => {
     document.documentElement.dataset.theme = theme.value
     document.documentElement.dataset.accent = appearance.value.accent
     document.documentElement.dataset.texture = String(appearance.value.texture)
+    document.documentElement.dataset.textSize = appearance.value.textSize || 'default'
     try {
       localStorage.setItem(storageKey, JSON.stringify(appearance.value))
     } catch {

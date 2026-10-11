@@ -21,6 +21,8 @@ service AgentService {
   rpc ListTaskEvents(TaskEventListRequest) returns (TaskEventList);
   rpc ListApprovals(ApprovalListRequest) returns (ApprovalList);
   rpc GetApproval(ApprovalRequest) returns (Approval);
+  rpc ListApprovalAuthorizations(ApprovalAuthorizationRequest) returns (ApprovalAuthorizationList);
+  rpc RevokeApprovalAuthorization(ApprovalAuthorizationRequest) returns (Empty);
   rpc GetTaskInspection(TaskRequest) returns (TaskInspection);
   rpc ListQuestions(ApprovalListRequest) returns (QuestionList);
   rpc AnswerQuestion(QuestionAnswerRequest) returns (stream AgentEvent);
@@ -28,6 +30,7 @@ service AgentService {
   rpc ListTaskInputs(TaskRequest) returns (TaskInputList);
   rpc ListJobs(TaskListRequest) returns (JobList);
   rpc StopJob(JobRequest) returns (Empty);
+  rpc WriteJobInput(JobInputRequest) returns (Empty);
   rpc DecideApproval(ApprovalDecisionRequest) returns (stream AgentEvent);
   rpc CheckWorkspaceAccess(WorkspaceAccessRequest) returns (WorkspaceAccessResponse);
   rpc ListAuditEvents(ListConversationsRequest) returns (AuditEventList);
@@ -193,12 +196,24 @@ message Approval {
   string arguments_json = 7; string resource_scope = 8; string risk_level = 9;
   string status = 10; int32 version = 11; string expires_at = 12;
   string note = 13; string decided_at = 14;
+  repeated string allowed_scopes = 15;
+  string reuse_scope_json = 16;
+  string authorization_scope = 17;
+  string authorization_expires_at = 18;
+  string authorization_revoked_at = 19;
 }
 message ApprovalList { repeated Approval approvals = 1; }
 message ApprovalDecisionRequest {
   string workspace_id = 1; string approval_id = 2; string principal_id = 3;
   string decision = 4; int32 version = 5; string note = 6;
+  // Empty is the backward-compatible one-time decision. No client-defined rules.
+  string scope = 7;
 }
+message ApprovalAuthorizationRequest {
+  string workspace_id = 1; string conversation_id = 2;
+  string principal_id = 3; string approval_id = 4;
+}
+message ApprovalAuthorizationList { string json = 1; }
 message ToolCall {
   string id = 1; string task_id = 2; string tool_name = 3;
   string arguments_json = 4; string result_json = 5; string summary = 6;
@@ -229,10 +244,15 @@ message TaskInput {
 }
 message TaskInputList { repeated TaskInput inputs = 1; }
 message JobRequest { string workspace_id = 1; string job_id = 2; string principal_id = 3; }
+message JobInputRequest {
+  string workspace_id = 1; string job_id = 2; string principal_id = 3;
+  string text = 4; bool eof = 5;
+}
 message Job {
   string id = 1; string task_id = 2; string conversation_id = 3;
   string command = 4; string status = 5; string log_tail = 6;
   bool live = 7; bool live_logs_available = 8;
+  bool stdin_available = 9;
 }
 message JobList { repeated Job jobs = 1; }
 message HealthResponse {

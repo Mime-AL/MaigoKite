@@ -17,6 +17,7 @@ const expanded = ref(false),
   copied = ref(false),
   error = ref('')
 let timer: ReturnType<typeof setTimeout> | undefined
+let alive = true
 const lines = computed(() => codeLines(props.content, props.kind === 'diff'))
 const visible = computed(() => visibleCodeLines(lines.value, expanded.value, props.previewLines))
 const caption = computed(
@@ -29,17 +30,20 @@ async function copy() {
   error.value = ''
   try {
     if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
-    await navigator.clipboard.writeText(props.content)
+    const content = props.content
+    await navigator.clipboard.writeText(content)
+    if (!alive || props.content !== content) return
     copied.value = true
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
       copied.value = false
     }, 1800)
   } catch {
-    error.value = t('无法复制，请选中文字后复制。')
+    if (alive) error.value = t('无法复制，请选中文字后复制。')
   }
 }
 onBeforeUnmount(() => {
+  alive = false
   if (timer) clearTimeout(timer)
 })
 </script>
@@ -80,11 +84,15 @@ onBeforeUnmount(() => {
             v-if="kind === 'diff'"
             class="code-number"
             aria-hidden="true"
-          >{{ line.before ?? '' }}</span>
+          >{{
+            line.before ?? ''
+          }}</span>
           <span
             class="code-number"
             aria-hidden="true"
-          >{{ kind === 'diff' ? line.after ?? '' : line.index }}</span>
+          >{{
+            kind === 'diff' ? (line.after ?? '') : line.index
+          }}</span>
           <span class="code-text">{{ line.text || ' ' }}{{ '\n' }}</span>
         </code>
       </div>

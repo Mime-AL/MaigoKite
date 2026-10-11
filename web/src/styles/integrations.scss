@@ -1,0 +1,152 @@
+@use './mixins' as mixins;
+.extensions-page {
+  display: grid;
+  gap: var(--space-6);
+}
+.page-copy {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+  margin: var(--space-3) 0;
+}
+.extension-runtime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-block: var(--hairline) solid var(--rule);
+  font-size: var(--text-sm);
+}
+.extension-runtime > span {
+  margin-inline-end: auto;
+}
+.extension-tabs {
+  display: flex;
+  gap: var(--space-2);
+}
+.extension-tabs button {
+  @include mixins.interactive-row;
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  background: var(--paper-2);
+}
+.extension-tabs button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-selected);
+}
+h2 {
+  font-size: var(--type-subheading);
+  margin: 0;
+}
+h3 {
+  font-size: var(--text-sm);
+  margin: var(--space-6) 0 var(--space-3);
+}
+.extension-item {
+  padding: var(--space-5) 0;
+  border-bottom: var(--hairline) solid var(--rule);
+}
+.extension-item header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.extension-item strong {
+  font-size: var(--text-md);
+}
+.extension-item header > span {
+  margin-inline-start: auto;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.extension-item > p {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+.extension-tools {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.extension-item .page-actions {
+  margin-top: var(--space-4);
+}
+.extension-editor {
+  padding: var(--space-6);
+  margin-block: var(--space-5);
+  border-inline-start: var(--focus-width) solid var(--accent);
+  background: var(--paper-2);
+}
+fieldset {
+  display: grid;
+  gap: var(--space-4);
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+label {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+input:not([type='checkbox']),
+textarea,
+select {
+  width: 100%;
+  min-width: 0;
+}
+textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+.check {
+  display: flex;
+  align-items: center;
+  accent-color: var(--accent);
+}
+.extension-error {
+  color: var(--ink);
+  border-inline-start: var(--focus-width) solid var(--rule);
+  padding-inline-start: var(--space-3);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.extension-result {
+  color: var(--accent);
+  font-size: var(--text-sm);
+}
+.extension-wait {
+  color: var(--wait-ink);
+  font-size: var(--text-sm);
+}
+.extension-confirm {
+  width: min(var(--session-dialog-width), calc(100vw - var(--space-8)));
+  padding: var(--space-7);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: var(--paper-raised, var(--paper));
+  box-shadow: var(--shadow-float);
+}
+.extension-confirm p {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+.extension-confirm::backdrop {
+  background: var(--backdrop);
+}
+.extension-confirm[open] {
+  animation: paper-arrive var(--motion-panel) var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .extension-confirm[open] {
+    animation: paper-fade var(--motion-reduced) var(--ease-out) both !important;
+  }
+}

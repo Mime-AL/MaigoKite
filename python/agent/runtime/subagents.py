@@ -23,7 +23,6 @@ from pydantic import BaseModel, Field
 from agent.runtime.context import ContextBudgetMiddleware
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
-
 READ_TOOLS = frozenset({"file_read", "glob", "grep"})
 CHILD_TAG = "maigokite:subagent"
 
@@ -45,6 +44,7 @@ class ChildContext:
     request: Any
     execution_metadata: dict[str, Any]
     model_info: dict[str, Any]
+    scope: asyncio.TaskGroup | None = None
 
     @property
     def adapter(self) -> Any:
@@ -52,32 +52,15 @@ class ChildContext:
 
 
 class _ReadOnlyTools(AgentMiddleware):
-    async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
-    ) -> ModelResponse:
-        enabled = request.runtime.context.execution_metadata["enabled_tools"]
-        return await handler(request.override(tools=[tool for tool in request.tools if getattr(tool, "name", "") in enabled]))
-
-    async def awrap_tool_call(self, request: ToolCallRequest, handler: Any) -> Any:
-        # ToolNode uses gather; on one unexpected failure siblings can otherwise
-        # outlive its await. The same root scope also owns in-flight child reads.
-        async def read() -> Any:
-            try:
-                return await self._read(request, handler)
-            except Exception as exc:
-                return ToolMessage(content=str(exc), tool_call_id=request.tool_call["id"], status="error")
-
-        parent = request.runtime.context.parent
-        return await parent.child_scope.create_task(read())
-
-    async def _read(self, request: ToolCallRequest, handler: Any) -> Any:
-        child: ChildContext = request.runtime.context
+    @staticmethod
+    async def refresh_authority(child: ChildContext) -> None:
         adapter, parent = child.adapter, child.parent
-        # Re-check revocation and the actual workspace on every read, including replay.
         if adapter._execution_metadata is not None:
             fresh = await adapter._execution_metadata(parent.request)
-            if (fresh.get("permission_mode") != parent.request.permission_mode
-                    or fresh.get("workspace_root") != child.execution_metadata.get("workspace_root")):
+            # Children stay read-only regardless of the parent's live mode.
+            # A mode change does not stop an already-admitted investigation.
+            if (fresh.get("workspace_root") != child.execution_metadata.get("workspace_root")
+                    or "delegate" not in fresh.get("enabled_tools", [])):
                 raise PermissionError("父任务权限或工作区已改变，请重新发起任务。")
             child.execution_metadata["enabled_tools"] = sorted(
                 set(child.execution_metadata["enabled_tools"]) & set(fresh.get("enabled_tools", [])),
@@ -85,6 +68,33 @@ class _ReadOnlyTools(AgentMiddleware):
         task = await adapter.repository.get_task(child.request.workspace_id, child.request.task_id)
         if task["status"] != "running":
             raise asyncio.CancelledError()
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        await self.refresh_authority(request.runtime.context)
+        enabled = request.runtime.context.execution_metadata["enabled_tools"]
+        return await handler(request.override(tools=[tool for tool in request.tools if getattr(tool, "name", "") in enabled]))
+
+    async def awrap_tool_call(self, request: ToolCallRequest, handler: Any) -> Any:
+        # A child owns its reads. Drain them before returning a failed/timed-out
+        # delegation; the parent root scope still owns the entire delegation.
+        async def read() -> Any:
+            try:
+                return await self._read(request, handler)
+            except Exception as exc:
+                return ToolMessage(content=str(exc), tool_call_id=request.tool_call["id"], status="error")
+
+        child = request.runtime.context
+        if child.scope is None:
+            raise RuntimeError("subagent requires an active task scope")
+        return await child.scope.create_task(read())
+
+    async def _read(self, request: ToolCallRequest, handler: Any) -> Any:
+        child: ChildContext = request.runtime.context
+        adapter, parent = child.adapter, child.parent
+        # Re-check revocation and the actual workspace on every read, including replay.
+        await self.refresh_authority(child)
         call = request.tool_call
         decision = adapter._policy_decision(call["name"], dict(call.get("args") or {}), child)
         if call["name"] not in READ_TOOLS or decision.outcome != "allow":
@@ -217,9 +227,12 @@ class DelegateTool(BaseTool):
                 # Tags keep inherited child model streams out of the main reply.
                 config = {**runtime.config, "tags": [*runtime.config.get("tags", []), CHILD_TAG]}
                 async with asyncio.timeout(120):
-                    result = await graph.ainvoke(
-                        {"messages": [HumanMessage(content=task)]}, config=config, context=child, durability="sync",
-                    )
+                    async with asyncio.TaskGroup() as reads:
+                        child.scope = reads
+                        await _ReadOnlyTools.refresh_authority(child)
+                        result = await graph.ainvoke(
+                            {"messages": [HumanMessage(content=task)]}, config=config, context=child, durability="sync",
+                        )
                 last = result["messages"][-1]
                 if not isinstance(last, AIMessage) or last.tool_calls or not last.text:
                     raise DelegationError("子 Agent 没有产出最终摘要。")

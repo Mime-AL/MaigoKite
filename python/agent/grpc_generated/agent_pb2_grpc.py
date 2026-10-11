@@ -124,6 +124,16 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.ApprovalRequest.SerializeToString,
                 response_deserializer=agent__pb2.Approval.FromString,
                 _registered_method=True)
+        self.ListApprovalAuthorizations = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/ListApprovalAuthorizations',
+                request_serializer=agent__pb2.ApprovalAuthorizationRequest.SerializeToString,
+                response_deserializer=agent__pb2.ApprovalAuthorizationList.FromString,
+                _registered_method=True)
+        self.RevokeApprovalAuthorization = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/RevokeApprovalAuthorization',
+                request_serializer=agent__pb2.ApprovalAuthorizationRequest.SerializeToString,
+                response_deserializer=agent__pb2.Empty.FromString,
+                _registered_method=True)
         self.GetTaskInspection = channel.unary_unary(
                 '/maigokite.agent.v1.AgentService/GetTaskInspection',
                 request_serializer=agent__pb2.TaskRequest.SerializeToString,
@@ -157,6 +167,11 @@ class AgentServiceStub:
         self.StopJob = channel.unary_unary(
                 '/maigokite.agent.v1.AgentService/StopJob',
                 request_serializer=agent__pb2.JobRequest.SerializeToString,
+                response_deserializer=agent__pb2.Empty.FromString,
+                _registered_method=True)
+        self.WriteJobInput = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/WriteJobInput',
+                request_serializer=agent__pb2.JobInputRequest.SerializeToString,
                 response_deserializer=agent__pb2.Empty.FromString,
                 _registered_method=True)
         self.DecideApproval = channel.unary_stream(
@@ -422,6 +437,18 @@ class AgentServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListApprovalAuthorizations(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RevokeApprovalAuthorization(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetTaskInspection(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -459,6 +486,12 @@ class AgentServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def StopJob(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def WriteJobInput(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -737,6 +770,16 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     request_deserializer=agent__pb2.ApprovalRequest.FromString,
                     response_serializer=agent__pb2.Approval.SerializeToString,
             ),
+            'ListApprovalAuthorizations': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListApprovalAuthorizations,
+                    request_deserializer=agent__pb2.ApprovalAuthorizationRequest.FromString,
+                    response_serializer=agent__pb2.ApprovalAuthorizationList.SerializeToString,
+            ),
+            'RevokeApprovalAuthorization': grpc.unary_unary_rpc_method_handler(
+                    servicer.RevokeApprovalAuthorization,
+                    request_deserializer=agent__pb2.ApprovalAuthorizationRequest.FromString,
+                    response_serializer=agent__pb2.Empty.SerializeToString,
+            ),
             'GetTaskInspection': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTaskInspection,
                     request_deserializer=agent__pb2.TaskRequest.FromString,
@@ -770,6 +813,11 @@ def add_AgentServiceServicer_to_server(servicer, server):
             'StopJob': grpc.unary_unary_rpc_method_handler(
                     servicer.StopJob,
                     request_deserializer=agent__pb2.JobRequest.FromString,
+                    response_serializer=agent__pb2.Empty.SerializeToString,
+            ),
+            'WriteJobInput': grpc.unary_unary_rpc_method_handler(
+                    servicer.WriteJobInput,
+                    request_deserializer=agent__pb2.JobInputRequest.FromString,
                     response_serializer=agent__pb2.Empty.SerializeToString,
             ),
             'DecideApproval': grpc.unary_stream_rpc_method_handler(
@@ -1420,6 +1468,60 @@ class AgentService:
             _registered_method=True)
 
     @staticmethod
+    def ListApprovalAuthorizations(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/ListApprovalAuthorizations',
+            agent__pb2.ApprovalAuthorizationRequest.SerializeToString,
+            agent__pb2.ApprovalAuthorizationList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RevokeApprovalAuthorization(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/RevokeApprovalAuthorization',
+            agent__pb2.ApprovalAuthorizationRequest.SerializeToString,
+            agent__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetTaskInspection(request,
             target,
             options=(),
@@ -1597,6 +1699,33 @@ class AgentService:
             target,
             '/maigokite.agent.v1.AgentService/StopJob',
             agent__pb2.JobRequest.SerializeToString,
+            agent__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def WriteJobInput(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/WriteJobInput',
+            agent__pb2.JobInputRequest.SerializeToString,
             agent__pb2.Empty.FromString,
             options,
             channel_credentials,

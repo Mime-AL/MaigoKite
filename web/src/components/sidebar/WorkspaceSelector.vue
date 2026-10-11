@@ -223,17 +223,17 @@ function close() {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   flex: 1;
   min-width: 0;
 }
 .workspace-label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--size-6);
   flex: 1;
   min-width: 0;
-  padding-left: 8px;
+  padding-left: var(--space-3);
   font-size: var(--text-xs);
 }
 .workspace-label small {
@@ -241,22 +241,22 @@ function close() {
   font-size: var(--text-xs);
 }
 .workspace-selector > .icon-button {
-  width: 32px;
-  min-height: 36px;
+  width: var(--space-8);
+  min-height: var(--titlebar-button-size);
 }
 .folder-picker {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
 }
 .workspace-selector > p {
   width: 100%;
   overflow-wrap: anywhere;
 }
 .workspace-dialog {
-  width: min(420px, calc(100vw - 32px));
-  padding: 20px;
-  border: 1px solid var(--rule);
+  width: min(var(--measure-420px), calc(100vw - var(--space-8)));
+  padding: var(--space-6);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-md);
   color: var(--ink);
   background: var(--paper);
@@ -270,15 +270,15 @@ footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
 }
 header {
-  margin-bottom: 18px;
+  margin-bottom: var(--size-18);
 }
 label {
   display: grid;
-  gap: 8px;
-  margin: 14px 0;
+  gap: var(--space-3);
+  margin: var(--size-14) 0;
   font-size: var(--text-sm);
 }
 input,
@@ -287,6 +287,6 @@ select {
 }
 footer {
   justify-content: flex-end;
-  margin-top: 20px;
+  margin-top: var(--space-6);
 }
 </style>

@@ -54,6 +54,22 @@ pre {
 .runtime-history {
   padding-block-start: var(--space-6);
 }
+.process-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block: var(--space-4);
+  font-size: var(--text-sm);
+  label,
+  p {
+    flex-basis: 100%;
+  }
+  input {
+    flex: 1;
+    min-width: 0;
+  }
+}
 details {
   padding-block: var(--space-4);
 }

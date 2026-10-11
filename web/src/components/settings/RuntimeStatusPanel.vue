@@ -1,68 +1,132 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import IconSymbol from '@/components/common/IconSymbol.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useWorkspaceStore } from '@/stores/workspace'
-
-const settings = useSettingsStore()
-const workspace = useWorkspaceStore()
+import Pulse from '@/components/shell/Pulse.vue'
+import InkLoader from '@/components/common/InkLoader.vue'
+const settings = useSettingsStore(),
+  workspace = useWorkspaceStore()
 const status = computed(() => settings.runtimeStatus)
-
-watch(() => workspace.selectedId, (id) => void settings.loadRuntimeStatus(id), { immediate: true })
+watch(
+  () => workspace.selectedId,
+  (id) => void settings.loadRuntimeStatus(id),
+  { immediate: true },
+)
 </script>
-
 <template>
-  <section class="runtime-settings glass-card">
-    <header class="runtime-heading">
-      <span class="section-icon"><IconSymbol name="folder" :size="21" /></span>
-      <div>
-        <h2>{{ $t('工作区与运行状态') }}</h2>
-      </div>
+  <section
+    class="runtime-settings settings-panel"
+    data-settings-field="runtime-status"
+  >
+    <header class="panel-heading">
+      <h2>{{ $t('运行状态') }}</h2>
       <button
-        class="refresh-button"
-        type="button"
+        class="secondary-button"
         :disabled="settings.runtimeLoading"
         @click="settings.loadRuntimeStatus(workspace.selectedId)"
       >
-        <IconSymbol name="refresh" :size="14" />{{ settings.runtimeLoading ? $t('刷新中…') : $t('刷新') }}
+        {{ settings.runtimeLoading ? $t('刷新中…') : $t('刷新') }}
       </button>
     </header>
-
-    <div v-if="settings.runtimeError" class="runtime-error" role="alert">
-      <IconSymbol name="alert" :size="15" />{{ settings.runtimeError }}
+    <div
+      v-if="settings.runtimeError"
+      class="field-error"
+      role="alert"
+    >
+      {{ settings.runtimeError
+      }}<button
+        class="secondary-button"
+        @click="settings.loadRuntimeStatus(workspace.selectedId)"
+      >
+        {{ $t('重试') }}
+      </button>
     </div>
-    <div v-else-if="!status" class="runtime-loading" role="status">{{ $t('正在读取运行状态…') }}</div>
-    <template v-else>
-      <div class="workspace-block">
-        <span class="block-label">{{ $t('工作区位置') }}</span>
-        <code>{{ status.workspaceRoot }}</code>
-      </div>
-
-      <div class="service-grid">
-        <article>
-          <span class="service-icon"><IconSymbol name="globe" :size="17" /></span>
-          <div>
-            <strong>{{ $t('应用服务') }}</strong><small>{{ status.gateway.version || $t('版本未知') }}</small>
-          </div>
-          <span class="service-state ready"><i />{{ $t('运行中') }}</span>
+    <div
+      v-else-if="settings.runtimeLoading"
+      class="runtime-loading"
+    >
+      <InkLoader /><InkLoader /><span class="sr-only">{{ $t('正在读取运行状态…') }}</span>
+    </div>
+    <template v-else-if="status">
+      <section class="setting-group">
+        <h3>{{ $t('工作区位置') }}</h3>
+        <code class="workspace-path">{{ status.workspaceRoot || $t('未指定工作区') }}</code>
+      </section>
+      <section class="setting-group">
+        <h3>{{ $t('服务与版本') }}</h3>
+        <article
+          v-for="service in [
+            { label: '应用服务', value: status.gateway },
+            { label: '智能服务', value: status.agentCore },
+          ]"
+          :key="service.label"
+          class="runtime-service"
+        >
+          <Pulse :state="service.value.status === 'serving' ? 'idle' : 'offline'" /><strong>{{
+            $t(service.label)
+          }}</strong><code>{{ service.value.version || $t('版本未知') }}</code><span>{{ service.value.status === 'serving' ? $t('运行中') : $t('不可用') }}</span>
         </article>
-        <article>
-          <span class="service-icon core"><IconSymbol name="brain" :size="17" /></span>
-          <div>
-            <strong>{{ $t('智能服务') }}</strong><small>{{ status.agentCore.version || $t('版本未知') }}</small>
-          </div>
-          <span class="service-state" :class="status.agentCore.status === 'serving' ? 'ready' : 'unavailable'">
-            <i />{{ status.agentCore.status === 'serving' ? $t('运行中') : $t('不可用') }}
-          </span>
-        </article>
-      </div>
-
-      <footer v-if="status.restart.pending" class="pending">
-        <IconSymbol name="alert" :size="14" />{{ $t('重启应用后生效。') }}</footer>
+      </section>
+      <p
+        v-if="status.restart.pending"
+        class="runtime-wait pending"
+      >
+        {{ $t('重启应用后生效。') }}
+      </p>
     </template>
+    <p
+      v-else
+      class="panel-copy"
+    >
+      {{ $t('尚未读取运行状态。')
+      }}<button
+        class="secondary-button"
+        @click="settings.loadRuntimeStatus(workspace.selectedId)"
+      >
+        {{ $t('刷新') }}
+      </button>
+    </p>
   </section>
 </template>
-
 <style scoped lang="scss">
-@use '@/styles/runtime-status';
+.runtime-loading {
+  display: grid;
+  gap: var(--space-5);
+  padding-block: var(--space-7);
+}
+.workspace-path {
+  display: block;
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--rule);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.runtime-service {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding-block: var(--space-5);
+  border-bottom: var(--hairline) solid var(--rule);
+  font-size: var(--text-sm);
+}
+.runtime-service code {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  margin-inline-start: auto;
+}
+.runtime-service span {
+  color: var(--ink-2);
+}
+.runtime-wait {
+  color: var(--wait-ink);
+  padding: var(--space-4);
+  background: var(--wait-soft);
+  font-size: var(--text-sm);
+}
 </style>

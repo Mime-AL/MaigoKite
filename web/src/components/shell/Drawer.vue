@@ -20,6 +20,7 @@ const wide = ref(false),
 const tabList = ref<HTMLElement | null>(null)
 const content = ref<HTMLElement | null>(null)
 const scrollPositions: Partial<Record<typeof ui.drawerTab, number>> = {}
+let opener: HTMLElement | null = null
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
 const tabs = [
   { id: 'pending', label: '等你处理', icon: 'pending', component: PendingTab },
@@ -33,11 +34,18 @@ const pendingCount = computed(() => inbox.items.filter(pendingItem).length)
 const current = computed(() => tabs.find((tab) => tab.id === ui.drawerTab) ?? tabs[0])
 watch(
   () => ui.drawerOpen,
-  (open) => {
-    if (open) everOpened.value = true
-    else {
+  async (open) => {
+    if (open) {
+      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      everOpened.value = true
+      await nextTick()
+      tabList.value?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus()
+    } else {
       wide.value = false
       resizing.value = false
+      await nextTick()
+      if (opener?.isConnected && !opener.closest('[inert]') && opener.getClientRects().length)
+        opener.focus({ preventScroll: true })
     }
   },
 )
@@ -65,7 +73,11 @@ async function moveTab(event: KeyboardEvent) {
 }
 </script>
 <template>
-  <div v-if="ui.drawerOpen" class="drawer-shade" @click="ui.drawerOpen = false" />
+  <div
+    v-if="ui.drawerOpen"
+    class="drawer-shade"
+    @click="ui.drawerOpen = false"
+  />
   <aside
     v-if="everOpened"
     v-show="ui.drawerOpen"
@@ -75,8 +87,14 @@ async function moveTab(event: KeyboardEvent) {
     :aria-label="$t('工作抽屉')"
   >
     <header class="drawer-heading">
-      <div class="drawer-workspace" :title="ui.drawerTab === 'pending' ? undefined : workspace.current?.root_path">
-        <IconSymbol :name="ui.drawerTab === 'pending' ? 'pending' : 'folder'" :size="16" /><span>{{
+      <div
+        class="drawer-workspace"
+        :title="ui.drawerTab === 'pending' ? undefined : workspace.current?.root_path"
+      >
+        <IconSymbol
+          :name="ui.drawerTab === 'pending' ? 'pending' : 'folder'"
+          :size="16"
+        /><span>{{
           ui.drawerTab === 'pending' ? $t('所有对话') : workspace.current?.name || $t('工作区')
         }}</span>
       </div>
@@ -88,7 +106,10 @@ async function moveTab(event: KeyboardEvent) {
           :aria-pressed="wide"
           @click="wide = !wide"
         >
-          <IconSymbol :name="wide ? 'restore' : 'expand'" :size="18" />
+          <IconSymbol
+            :name="wide ? 'restore' : 'expand'"
+            :size="18"
+          />
         </button>
         <button
           class="drawer-control"
@@ -96,7 +117,10 @@ async function moveTab(event: KeyboardEvent) {
           :title="$t('关闭抽屉') + ' (' + mod + '+.)'"
           @click="ui.drawerOpen = false"
         >
-          <IconSymbol name="close" :size="18" />
+          <IconSymbol
+            name="close"
+            :size="18"
+          />
         </button>
       </div>
     </header>
@@ -118,7 +142,15 @@ async function moveTab(event: KeyboardEvent) {
         :class="{ active: ui.drawerTab === tab.id }"
         @click="ui.drawerTab = tab.id"
       >
-        <IconSymbol :name="tab.icon" :size="15" /><span>{{ $t(tab.label) }}</span><small v-if="tab.id === 'pending' && pendingCount" class="tab-count">{{ pendingCount }}</small>
+        <IconSymbol
+          :name="tab.icon"
+          :size="15"
+        /><span>{{ $t(tab.label) }}</span><small
+          v-if="tab.id === 'pending' && pendingCount"
+          class="tab-count"
+        >{{
+          pendingCount
+        }}</small>
       </button>
     </nav>
     <div
@@ -130,9 +162,12 @@ async function moveTab(event: KeyboardEvent) {
       tabindex="0"
     >
       <!-- Keep tab content alive so file selection and scroll positions survive panel toggles. -->
-      <KeepAlive :max="5"
-        ><component :is="current.component" :embedded="current.id === 'files' || undefined"
-      /></KeepAlive>
+      <KeepAlive :max="5">
+        <component
+          :is="current.component"
+          :embedded="current.id === 'files' || undefined"
+        />
+      </KeepAlive>
     </div>
     <ResizeHandle
       v-if="ui.drawerOpen && !wide"

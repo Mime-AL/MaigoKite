@@ -3,13 +3,13 @@
 .model-field {
   display: grid;
   min-width: 0;
-  gap: 8px;
+  gap: var(--space-3);
 }
 .model-field > label {
   font-size: var(--text-sm);
 }
 .model-field b {
-  margin-left: 6px;
+  margin-left: var(--size-6);
   color: var(--ink-2);
   font-size: var(--text-xs);
   font-weight: var(--weight-normal);
@@ -24,7 +24,7 @@
 }
 .model-input-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-3);
 }
 .model-input-row input {
   width: 100%;
@@ -43,7 +43,7 @@
 .selected-model {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
 }
 .model-catalog-actions,
 .selected-models {
@@ -51,9 +51,9 @@
 }
 .selected-model {
   max-width: 100%;
-  gap: 6px;
-  padding: 4px 6px 4px 8px;
-  border: 1px solid var(--rule);
+  gap: var(--size-6);
+  padding: var(--space-2) var(--size-6) var(--space-2) var(--space-3);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-sm);
   background: var(--paper-2);
 }
@@ -67,8 +67,8 @@
 .selected-model button {
   @include mixins.interactive-row;
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: var(--space-7);
+  height: var(--space-7);
   flex: none;
   place-items: center;
   padding: 0;

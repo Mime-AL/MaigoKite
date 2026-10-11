@@ -20,14 +20,18 @@ const activityGroupByTask = computed(
 )
 
 function messageTaskId(message: ChatMessage): string {
-  return message.role === 'assistant' && message.id.startsWith('stream-') ? message.id.slice('stream-'.length) : ''
+  return message.role === 'assistant' && message.id.startsWith('stream-')
+    ? message.id.slice('stream-'.length)
+    : ''
 }
 
 function activityGroupForMessage(message: ChatMessage): AgentActivityGroup | undefined {
   return activityGroupByTask.value.get(messageTaskId(message))
 }
 
-const anchoredTaskIds = computed(() => new Set(sessionStore.activeMessages.map(messageTaskId).filter(Boolean)))
+const anchoredTaskIds = computed(
+  () => new Set(sessionStore.activeMessages.map(messageTaskId).filter(Boolean)),
+)
 const unanchoredActivityGroups = computed(() =>
   sessionStore.activeActivityGroups.filter((group) => !anchoredTaskIds.value.has(group.task_id)),
 )
@@ -89,23 +93,58 @@ const suggestions = [
 </script>
 
 <template>
-  <div ref="listElement" class="message-list" :aria-label="$t('对话 {0}', [props.sessionId])">
-    <div v-if="sessionStore.activeMessages.length === 0" class="welcome-state">
-      <div class="welcome-orb"><IconSymbol name="sparkles" :size="27" :stroke-width="1.55" /></div>
-      <p class="welcome-eyebrow">{{ props.assistantName }}</p>
+  <div
+    ref="listElement"
+    class="message-list"
+    :aria-label="$t('对话 {0}', [props.sessionId])"
+  >
+    <div
+      v-if="sessionStore.activeMessages.length === 0"
+      class="welcome-state"
+    >
+      <div class="welcome-orb">
+        <IconSymbol
+          name="sparkles"
+          :size="27"
+          :stroke-width="1.55"
+        />
+      </div>
+      <p class="welcome-eyebrow">
+        {{ props.assistantName }}
+      </p>
       <h2>{{ $t('新对话') }}</h2>
       <div class="suggestions">
-        <button v-for="item in suggestions" :key="item.title" type="button" @click="emit('suggest', item.prompt)">
-          <IconSymbol :name="item.icon" :size="17" />
+        <button
+          v-for="item in suggestions"
+          :key="item.title"
+          type="button"
+          @click="emit('suggest', item.prompt)"
+        >
+          <IconSymbol
+            :name="item.icon"
+            :size="17"
+          />
           <span>{{ $t(item.title) }}</span>
-          <IconSymbol name="chevron" :size="14" />
+          <IconSymbol
+            name="chevron"
+            :size="14"
+          />
         </button>
       </div>
     </div>
 
-    <div v-else class="messages-inner">
-      <template v-for="message in sessionStore.activeMessages" :key="message.id">
-        <AgentActivityPanel v-if="activityGroupForMessage(message)" :group="activityGroupForMessage(message)!" />
+    <div
+      v-else
+      class="messages-inner"
+    >
+      <template
+        v-for="message in sessionStore.activeMessages"
+        :key="message.id"
+      >
+        <AgentActivityPanel
+          v-if="activityGroupForMessage(message)"
+          :group="activityGroupForMessage(message)!"
+        />
         <UserMessage
           v-if="message.role === 'user'"
           :content="message.content"
@@ -119,8 +158,16 @@ const suggestions = [
           :is-streaming="message.streaming"
         />
       </template>
-      <AgentActivityPanel v-for="group in unanchoredActivityGroups" :key="group.task_id" :group="group" />
-      <ApprovalCard v-for="approval in sessionStore.activeApprovals" :key="approval.id" :approval="approval" />
+      <AgentActivityPanel
+        v-for="group in unanchoredActivityGroups"
+        :key="group.task_id"
+        :group="group"
+      />
+      <ApprovalCard
+        v-for="approval in sessionStore.activeApprovals"
+        :key="approval.id"
+        :approval="approval"
+      />
     </div>
   </div>
 </template>
@@ -133,84 +180,82 @@ const suggestions = [
   overscroll-behavior: contain;
 }
 .messages-inner {
-  width: min(780px, 100%);
+  width: min(var(--measure-780px), 100%);
   margin: 0 auto;
-  padding: 28px clamp(20px, 4vw, 48px) 20px;
+  padding: var(--size-28) clamp(var(--space-6), 4vw, var(--space-9)) var(--space-6);
 }
 .welcome-state {
   display: flex;
-  width: min(620px, 100%);
+  width: min(var(--measure-620px), 100%);
   min-height: 100%;
   align-items: center;
   justify-content: center;
   flex-direction: column;
   margin: 0 auto;
-  padding: 40px 28px 28px;
+  padding: var(--rail-node-height) var(--size-28) var(--size-28);
   text-align: center;
 }
 .welcome-orb {
   display: grid;
-  width: 64px;
-  height: 64px;
-  margin-bottom: 18px;
+  width: var(--space-10);
+  height: var(--space-10);
+  margin-bottom: var(--size-18);
   place-items: center;
-  border: 1px solid var(--paper-3);
+  border: var(--hairline) solid var(--paper-3);
   border-radius: var(--radius-lg);
   color: var(--on-accent);
   background: var(--paper-2);
   box-shadow: var(--shadow-card);
 }
 .welcome-eyebrow {
-  margin: 0 0 7px;
-  color: var(--primary-color);
+  margin: 0 0 var(--measure-7px);
+  color: var(--accent);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
-  letter-spacing: 0.09em;
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 .welcome-state h2 {
   margin: 0;
-  font-size: clamp(25px, 4vw, 34px);
+  font-size: clamp(var(--measure-25px), 4vw, var(--measure-34px));
   font-weight: var(--weight-bold);
-  letter-spacing: -0.04em;
+  letter-spacing: var(--tracking-poster);
 }
 .welcome-copy {
-  max-width: 450px;
-  margin: 10px 0 24px;
-  color: var(--text-secondary);
+  max-width: var(--measure-450px);
+  margin: var(--size-10) 0 var(--space-7);
+  color: var(--ink-2);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
 .suggestions {
   display: grid;
-  width: min(500px, 100%);
-  gap: 8px;
+  width: min(var(--measure-500px), 100%);
+  gap: var(--space-3);
 }
 .suggestions button {
   display: flex;
   width: 100%;
-  min-height: 46px;
+  min-height: var(--measure-46px);
   align-items: center;
-  gap: 11px;
-  padding: 0 14px;
-  border: 1px solid var(--border-color);
+  gap: var(--measure-11px);
+  padding: 0 var(--size-14);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-lg);
-  color: var(--text-secondary);
-  background: var(--surface);
+  color: var(--ink-2);
+  background: var(--paper-2);
   box-shadow: var(--shadow-card);
   cursor: pointer;
   text-align: left;
   transition:
-    color var(--motion-pulse) var(--ease),
-    background var(--motion-pulse) var(--ease),
-    transform var(--motion-pulse) var(--ease),
-    box-shadow var(--motion-pulse) var(--ease);
+    transform var(--motion-fast) var(--ease),
+    opacity var(--motion-fast) var(--ease);
 }
 .suggestions button:hover {
-  color: var(--text-primary);
-  background: var(--surface-solid);
+  color: var(--ink);
+  background: var(--paper);
   box-shadow: var(--shadow-card);
-  transform: translateY(-1px);
+  transform: translateY(calc(-1 * var(--hairline)));
 }
 .suggestions button span {
   flex: 1;
