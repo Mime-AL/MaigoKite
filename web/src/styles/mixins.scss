@@ -27,3 +27,13 @@
     transition-duration: var(--motion-press);
   }
 }
+@mixin text-action {
+  @include interactive-row;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--transparent);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+}

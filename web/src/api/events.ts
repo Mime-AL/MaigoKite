@@ -1,3 +1,5 @@
+import type { TaskInput } from './client'
+
 export type PulseState = 'idle' | 'thinking' | 'acting' | 'waiting' | 'error' | 'offline'
 export type Verdict = 'allow' | 'allow_session' | 'deny'
 export interface ToolHintAction {
@@ -17,6 +19,10 @@ export interface TurnSummary {
 export interface PlanItem {
   content: string
   status: 'pending' | 'in_progress' | 'completed'
+}
+export interface SupplementInput extends TaskInput {
+  seq?: number
+  sentAsTaskId?: string
 }
 export interface TokenUsage {
   input_tokens?: number
@@ -94,6 +100,7 @@ export type GatewayEvent = {
   | { type: 'question_answered'; awaitId: string; answer: string }
   | { type: 'file_change'; path: string; diff: string }
   | { type: 'plan_update'; items: PlanItem[] }
+  | { type: 'input_update'; input: TaskInput }
   | { type: 'memory_added'; memoryId: string; text: string }
   | { type: 'job_update'; jobId: string; status: string; logTail: string }
   | { type: 'turn_resumed' }
@@ -157,9 +164,20 @@ export interface Turn {
   steps: Step[]
   awaits: AwaitItem[]
   memories: { id: string; text: string }[]
-  timeline: { id: string; kind: 'step' | 'await' | 'memory' | 'error'; seq?: number; time?: string }[]
+  timeline: {
+    id: string
+    kind: 'step' | 'await' | 'memory' | 'error'
+    seq?: number
+    time?: string
+  }[]
   changes: { path: string; diff: string }[]
   plan: PlanItem[]
+  planSeq?: number
+  planLoading?: boolean
+  planError?: string
+  inputs?: SupplementInput[]
+  inputsLoading?: boolean
+  inputsError?: string
   jobs: { id: string; status: string; logTail: string }[]
   error?: string
   summary?: TurnSummary

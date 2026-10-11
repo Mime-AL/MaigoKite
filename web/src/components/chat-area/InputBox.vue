@@ -1,67 +1,32 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { PermissionMode, ResponseMode } from '@/api/client'
-import type { ModelOption } from '@/config/model-groups'
 import { useUIStore } from '@/stores/ui'
 import { useMentions } from '@/composables/useMentions'
-import ModePill from '@/components/inkwell/ModePill.vue'
-import ComposerStats from '@/components/inkwell/ComposerStats.vue'
-import ModelPicker from '@/components/inkwell/ModelPicker.vue'
-import SubagentSettings from './SubagentSettings.vue'
-import MentionMenu, { type Mention } from '@/components/inkwell/MentionMenu.vue'
-import SlashMenu, { type SlashCommand } from '@/components/inkwell/SlashMenu.vue'
-import IconSymbol from '@/components/common/IconSymbol.vue'
-const props = withDefaults(
-  defineProps<{
-    sessionId: string
-    assistantName?: string
-    isSending?: boolean
-    isSubmitting?: boolean
-    isStopping?: boolean
-    modelId?: string
-    modelOptions?: ModelOption[]
-    responseMode?: ResponseMode
-    permissionMode?: PermissionMode
-    lastMessage?: string
-    subagentsSupported?: boolean
-    subagentModelsSupported?: boolean
-    subagentModelIds?: string[]
-    maxSubagentCalls?: number
-    maxConcurrentSubagents?: number
-    savingSubagents?: boolean
-    waiting?: boolean
-  }>(),
-  {
-    assistantName: '助手',
-    isSending: false,
-    isSubmitting: false,
-    isStopping: false,
-    modelId: '',
-    modelOptions: () => [],
-    responseMode: 'balanced',
-    permissionMode: 'workspace',
-    lastMessage: '',
-    subagentsSupported: false,
-    subagentModelsSupported: false,
-    subagentModelIds: () => [],
-    maxSubagentCalls: 0,
-    maxConcurrentSubagents: 1,
-    savingSubagents: false,
-  },
-)
-const emit = defineEmits<{
-  (event: 'send', content: string): void
-  (event: 'cancel'): void
-  (event: 'model-change', value: string): void
-  (event: 'response-mode-change', value: ResponseMode): void
-  (event: 'permission-mode-change', value: PermissionMode): void
-  (event: 'subagents-change', value: { calls: number; concurrent: number; modelIds?: string[] }): void
-}>()
+import type { Mention } from '@/components/inkwell/MentionMenu.vue'
+import type { SlashCommand } from '@/components/inkwell/SlashMenu.vue'
+import {
+  composerDefaults,
+  type ComposerProps,
+  type ComposerEmits,
+} from '@/utils/composer-presentation'
+import ComposerToolbar from '@/components/inkwell/ComposerToolbar.vue'
+import ComposerFooter from '@/components/inkwell/ComposerFooter.vue'
+import ComposerDraft from '@/components/inkwell/ComposerDraft.vue'
+const props = withDefaults(defineProps<ComposerProps>(), composerDefaults)
+const emit = defineEmits<ComposerEmits>()
+const toolbar = ref<InstanceType<typeof ComposerToolbar> | null>(null),
+  sent = ref(0)
+const menuId = computed(() => 'inkwell-' + props.sessionId)
 const inputValue = ref(''),
-  textarea = ref<HTMLTextAreaElement | null>(null),
-  selected = ref(0),
-  menuDismissed = ref(false)
+  textarea = ref<InstanceType<typeof ComposerDraft> | null>(null)
+const submitting = ref(false),
+  submitError = ref('')
+const busy = computed(() => props.isSubmitting || submitting.value)
+const guideDisabled = computed(() => Boolean(props.waiting || props.guideReason))
+const showGuideHelp = ref(false)
+let draftRevision = 0
 const mode = ref<'ask' | 'plan' | 'auto'>(props.permissionMode === 'read_only' ? 'ask' : 'auto')
 const ui = useUIStore(),
   router = useRouter(),
@@ -80,18 +45,8 @@ const slashItems = computed(() =>
     ? commands.filter((c) => c.id.includes(inputValue.value.slice(1)))
     : [],
 )
-const menuLength = computed(() =>
-  mentions.query.value !== undefined ? mentions.items.value.length : slashItems.value.length,
-)
-watch(inputValue, async () => {
-  menuDismissed.value = false
-  selected.value = 0
-  await nextTick()
-  if (textarea.value) {
-    textarea.value.style.height = 'auto'
-    const lineHeight = Number.parseFloat(getComputedStyle(textarea.value).lineHeight) || 26
-    textarea.value.style.height = Math.min(textarea.value.scrollHeight, lineHeight * 10) + 'px'
-  }
+watch(inputValue, () => {
+  draftRevision++
 })
 watch(
   () => props.permissionMode,
@@ -110,11 +65,51 @@ function chooseMode(value: 'ask' | 'plan' | 'auto') {
   mode.value = value
   emit('permission-mode-change', value === 'auto' ? 'workspace' : 'read_only')
 }
-function send() {
+async function send(later = false) {
   const content = inputValue.value.trim()
-  if (!content || !props.modelOptions.length || props.isSubmitting) return
-  emit('send', mode.value === 'plan' ? '请先分析并列出计划，暂不执行修改。\n\n' + content : content)
-  inputValue.value = ''
+  if (!content || !props.modelOptions.length || busy.value) return
+  if (props.isSending && !later && guideDisabled.value) {
+    submitError.value = props.guideReason || t('请先处理审批或回答问题；也可以在驳回时附上理由。')
+    return
+  }
+  const intent = props.isSending ? (later ? 'later' : 'guide') : 'send'
+  const payload =
+    mode.value === 'plan' && intent !== 'guide'
+      ? '请先分析并列出计划，暂不执行修改。\n\n' + content
+      : content
+  toolbar.value?.closeMenu()
+  submitError.value = ''
+  if (!props.submit) {
+    emit('send', payload)
+    sent.value++
+    inputValue.value = ''
+    return
+  }
+  const id = props.sessionId,
+    draft = inputValue.value,
+    revision = draftRevision
+  submitting.value = true
+  if (intent === 'guide') {
+    try {
+      if (localStorage.getItem('maigokite.steering-help') !== 'seen') {
+        showGuideHelp.value = true
+        localStorage.setItem('maigokite.steering-help', 'seen')
+      }
+    } catch {
+      showGuideHelp.value = true
+    }
+  }
+  try {
+    await props.submit(payload, intent)
+    sent.value++
+    if (props.sessionId === id && inputValue.value === draft && draftRevision === revision)
+      inputValue.value = ''
+  } catch (reason) {
+    if (props.sessionId === id)
+      submitError.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    submitting.value = false
+  }
 }
 function chooseMention(item: Mention) {
   mentions.select(item)
@@ -143,30 +138,14 @@ function command(item: SlashCommand) {
 }
 function handleKeydown(event: KeyboardEvent) {
   if (event.isComposing) return
-  if (
-    event.key === 'Escape' &&
-    !menuDismissed.value &&
-    (mentions.query.value !== undefined || slashItems.value.length)
-  ) {
+  if (event.key === 'Escape' && toolbar.value?.closeMenu()) {
     event.preventDefault()
     event.stopPropagation()
-    menuDismissed.value = true
     return
   }
-  if (
-    event.key === 'Escape' &&
-    !ui.drawerOpen &&
-    !ui.commandOpen &&
-    !ui.shortcutsOpen
-  ) {
+  if (event.key === 'Escape' && !ui.drawerOpen && !ui.commandOpen && !ui.shortcutsOpen) {
     event.stopPropagation()
     emit('cancel')
-    return
-  }
-  if (!menuDismissed.value && menuLength.value && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
-    event.preventDefault()
-    selected.value =
-      (selected.value + (event.key === 'ArrowDown' ? 1 : -1) + menuLength.value) % menuLength.value
     return
   }
   if (event.key === 'ArrowUp' && !inputValue.value) {
@@ -174,125 +153,96 @@ function handleKeydown(event: KeyboardEvent) {
     inputValue.value = props.lastMessage
     return
   }
-  if (event.key !== 'Enter' || event.shiftKey) return
-  event.preventDefault()
-  if (
-    !menuDismissed.value &&
-    mentions.query.value !== undefined &&
-    mentions.items.value[selected.value]
-  )
-    chooseMention(mentions.items.value[selected.value])
-  else if (!menuDismissed.value && slashItems.value[selected.value])
-    command(slashItems.value[selected.value])
-  else send()
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    void send(event.altKey)
+  }
 }
 </script>
 <template>
-  <div class="composer-wrap">
-    <div class="composer" :aria-busy="isSending || isSubmitting">
-      <MentionMenu
-        v-if="!menuDismissed && mentions.query.value !== undefined"
-        :items="mentions.items.value"
-        :selected="selected"
-        :loading="mentions.loading.value"
-        @select="chooseMention"
-      />
-      <SlashMenu
-        v-else-if="!menuDismissed && slashItems.length"
-        :items="slashItems"
-        :selected="selected"
-        @select="command"
-      />
-      <textarea
+  <div
+    class="composer-wrap"
+    :class="{ 'is-running': isSending, 'is-waiting': waiting, 'has-queue': queuedCount > 0 }"
+  >
+    <div
+      class="composer"
+      :aria-busy="isSending || busy"
+    >
+      <svg
+        v-if="sent"
+        :key="sent"
+        class="send-drop"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path d="M12 2C10 7 5 11 5 15a7 7 0 0 0 14 0c0-4-5-8-7-13Z" />
+      </svg>
+      <ComposerDraft
         ref="textarea"
         v-model="inputValue"
+        :menu-id="menuId"
+        :mentions="mentions.items.value"
+        :mention-query="mentions.query.value"
+        :loading="mentions.loading.value"
+        :commands="slashItems"
         :placeholder="waiting ? $t('等你确认后继续…') : $t('问问 ') + assistantName + '…'"
         :disabled="!modelOptions.length"
-        rows="1"
-        :aria-label="$t('消息内容')"
+        @mention="chooseMention"
+        @command="command"
         @keydown="handleKeydown"
       />
-      <div class="composer-controls">
-        <button class="reference-button" :aria-label="$t('引用文件、会话或记忆')" @click="reference">
-          ＠
-        </button>
-        <ModePill :model-value="mode" :disabled="isSending || isSubmitting" @update:model-value="chooseMode" />
-        <div class="control-spacer" />
-        <ModelPicker
-          :key="sessionId"
-          :model-value="modelId"
-          :models="modelOptions"
-          :disabled="isSending || isSubmitting || !modelOptions.length"
-          @update:model-value="emit('model-change', $event)"
-        />
-        <select
-          :value="responseMode"
-          :disabled="isSending || isSubmitting"
-          :aria-label="$t('响应速度')"
-          @change="
-            emit('response-mode-change', ($event.target as HTMLSelectElement).value as ResponseMode)
-          "
-        >
-          <option value="fast">{{ $t('快速') }}</option>
-          <option value="balanced">{{ $t('均衡') }}</option>
-          <option value="thorough">{{ $t('深度') }}</option>
-        </select>
-        <select
-          :value="permissionMode"
-          :disabled="isSending || isSubmitting"
-          :aria-label="$t('执行权限')"
-          @change="
-            emit(
-              'permission-mode-change',
-              ($event.target as HTMLSelectElement).value as PermissionMode,
-            )
-          "
-        >
-          <option value="read_only">{{ $t('只读') }}</option>
-          <option value="workspace">{{ $t('工作区') }}</option>
-          <option value="full_access">{{ $t('完全访问') }}</option>
-        </select>
-        <button
-          v-if="isSending"
-          class="icon-button"
-          :disabled="isStopping"
-          :aria-busy="isStopping || undefined"
-          :aria-label="isStopping ? $t('正在请求停止') : $t('停止任务')"
-          @click="emit('cancel')"
-        >
-          <IconSymbol v-if="!isStopping" name="stop" :size="15" />
-        </button>
-        <button
-          class="send-button"
-          :disabled="isSubmitting || !inputValue.trim() || !modelOptions.length"
-          :aria-busy="isSubmitting || undefined"
-          :aria-label="isSubmitting ? $t('正在发送消息') : isSending ? $t('排队发送') : $t('发送消息')"
-          @click="send"
-        >
-          <IconSymbol v-if="!isSubmitting" name="send" :size="15" />
-        </button>
-      </div>
+      <ComposerToolbar
+        ref="toolbar"
+        v-bind="props"
+        :mode="mode"
+        :busy="busy"
+        :has-draft="Boolean(inputValue.trim())"
+        :guide-disabled="guideDisabled"
+        @reference="reference"
+        @mode="chooseMode"
+        @cancel="emit('cancel')"
+        @send="send"
+        @model-change="emit('model-change', $event)"
+        @response-mode-change="emit('response-mode-change', $event)"
+        @permission-mode-change="emit('permission-mode-change', $event)"
+      />
     </div>
-    <ComposerStats :session-id="sessionId" :model-name="modelOptions.find((item) => item.id === modelId)?.model || ''" />
-    <SubagentSettings
-      v-if="subagentsSupported" :key="sessionId" :calls="maxSubagentCalls" :concurrent="maxConcurrentSubagents"
-      :model-options="modelOptions" :model-ids="subagentModelIds" :model-selection-supported="subagentModelsSupported"
-      :saving="savingSubagents" :disabled="isSubmitting" @change="emit('subagents-change', $event)"
-    />
-    <p class="composer-help">
-      {{
-        isStopping
-          ? $t('正在请求停止，等待服务确认…')
-          : isSubmitting
-            ? $t('正在发送，草稿会保留…')
-          : isSending
-            ? $t('可继续写，当前任务成功后发送 · Esc 中断')
-            : $t('Enter 发送 · Shift + Enter 换行')
-      }}
-    </p>
-    <router-link v-if="!modelOptions.length" class="configure-link" to="/settings?tab=models"
-      >{{ $t('连接模型') }}</router-link
+    <p
+      v-if="submitError"
+      class="composer-notice"
+      role="alert"
     >
+      {{ submitError }}
+    </p>
+    <p
+      v-else-if="isSending && guideReason"
+      class="composer-notice"
+      role="status"
+    >
+      {{ guideReason }}
+    </p>
+    <p
+      v-if="showGuideHelp"
+      class="composer-notice"
+      role="status"
+    >
+      {{
+        $t(
+          '补充会在 Agent 下一步之前送达，它准备执行的下一个操作会先暂停重新考虑；已执行的操作不会撤回。',
+        )
+      }}
+      <button
+        class="text-button"
+        @click="showGuideHelp = false"
+      >
+        {{ $t('知道了') }}
+      </button>
+    </p>
+    <ComposerFooter
+      v-bind="props"
+      :busy="busy"
+      @subagents-change="emit('subagents-change', $event)"
+    />
   </div>
 </template>
 <style scoped lang="scss">

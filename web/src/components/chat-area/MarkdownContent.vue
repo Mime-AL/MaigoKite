@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { renderAssistantMarkdown } from '@/utils/markdown'
-
-const props = withDefaults(defineProps<{ content: string; isStreaming?: boolean }>(), { isStreaming: false })
+import { assistantMarkdownBlocks } from '@/utils/markdown'
+import CodeBlock from '@/components/common/CodeBlock.vue'
+const props = withDefaults(defineProps<{ content: string; isStreaming?: boolean }>(), {
+  isStreaming: false,
+})
 const displayed = ref(props.content)
 let timer: ReturnType<typeof setTimeout> | undefined
-// Keep Markdown parsing out of the per-frame token path. Final text flushes now.
+// Keep parsing out of the per-token path; final text flushes immediately.
 watch(
   () => [props.content, props.isStreaming],
   () => {
@@ -20,128 +22,31 @@ watch(
       }, 100)
   },
 )
-const renderedContent = computed(() => renderAssistantMarkdown(displayed.value))
+const blocks = computed(() => assistantMarkdownBlocks(displayed.value))
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })
 </script>
-
 <template>
-  <!-- renderAssistantMarkdown sanitizes the generated HTML before it reaches v-html. -->
-  <div class="markdown-content" v-html="renderedContent" />
+  <div class="markdown-content">
+    <template
+      v-for="(block, index) in blocks"
+      :key="index"
+    >
+      <!-- Sanitized prose; fences render as literal Vue text, never raw HTML. -->
+      <div
+        v-if="block.kind === 'html'"
+        class="markdown-prose"
+        v-html="block.html"
+      />
+      <CodeBlock
+        v-else
+        :content="block.content"
+        :language="block.language"
+      />
+    </template>
+  </div>
 </template>
-
 <style scoped lang="scss">
-.markdown-content {
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  overflow-wrap: anywhere;
-}
-
-.markdown-content :deep(> :first-child) {
-  margin-top: 0;
-}
-.markdown-content :deep(> :last-child) {
-  margin-bottom: 0;
-}
-.markdown-content :deep(p) {
-  margin: 0 0 10px;
-}
-.markdown-content :deep(h1),
-.markdown-content :deep(h2),
-.markdown-content :deep(h3),
-.markdown-content :deep(h4) {
-  margin: 20px 0 9px;
-  color: var(--text-primary);
-  line-height: var(--leading-tight);
-  letter-spacing: -0.018em;
-}
-.markdown-content :deep(h1) {
-  font-size: var(--text-lg);
-}
-.markdown-content :deep(h2) {
-  font-size: var(--text-lg);
-}
-.markdown-content :deep(h3) {
-  font-size: var(--text-md);
-}
-.markdown-content :deep(h4) {
-  font-size: var(--text-sm);
-}
-.markdown-content :deep(ul),
-.markdown-content :deep(ol) {
-  margin: 8px 0 12px;
-  padding-left: 24px;
-}
-.markdown-content :deep(li) {
-  margin: 4px 0;
-  padding-left: 2px;
-}
-.markdown-content :deep(li > p) {
-  margin: 0;
-}
-.markdown-content :deep(blockquote) {
-  margin: 12px 0;
-  padding: 2px 0 2px 13px;
-  border-left: 3px solid var(--border-strong);
-  color: var(--text-secondary);
-}
-.markdown-content :deep(blockquote p) {
-  margin: 0;
-}
-.markdown-content :deep(a) {
-  color: var(--primary-color);
-  text-decoration: none;
-}
-.markdown-content :deep(a:hover) {
-  text-decoration: underline;
-}
-.markdown-content :deep(code) {
-  padding: 2px 5px;
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  background: var(--surface-strong);
-  font-family: var(--font-mono);
-  font-size: var(--text-code-inline);
-}
-.markdown-content :deep(pre) {
-  max-width: 100%;
-  margin: 12px 0;
-  padding: 12px 14px;
-  overflow: auto;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--surface-muted);
-}
-.markdown-content :deep(pre code) {
-  padding: 0;
-  border-radius: var(--radius-none);
-  background: var(--transparent);
-  font-size: var(--text-xs);
-  line-height: var(--leading-normal);
-  white-space: pre;
-}
-.markdown-content :deep(table) {
-  display: block;
-  max-width: 100%;
-  margin: 12px 0;
-  overflow-x: auto;
-  border-collapse: collapse;
-}
-.markdown-content :deep(th),
-.markdown-content :deep(td) {
-  padding: 7px 10px;
-  border: 1px solid var(--border-color);
-  text-align: left;
-}
-.markdown-content :deep(th) {
-  background: var(--surface-muted);
-  font-weight: var(--weight-semibold);
-}
-.markdown-content :deep(hr) {
-  margin: 18px 0;
-  border: 0;
-  border-top: 1px solid var(--border-color);
-}
+@use '@/styles/markdown-content';
 </style>

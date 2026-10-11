@@ -1,0 +1,70 @@
+@use './mixins';
+.mention-menu,
+.slash-menu {
+  position: absolute;
+  bottom: calc(100% + var(--space-3));
+  inset-inline: 0;
+  max-height: var(--composer-menu-height);
+  overflow: auto;
+  padding: var(--size-6);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  box-shadow: var(--shadow-float);
+  z-index: 10;
+  overscroll-behavior: contain;
+}
+button {
+  @include mixins.interactive-row;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--space-4);
+  border: 0;
+  padding: var(--size-10);
+  text-align: start;
+  color: var(--ink-2);
+  background: var(--transparent);
+  font-size: var(--text-sm);
+}
+button[aria-selected='true'] {
+  color: var(--ink);
+  background: var(--accent-selected);
+  box-shadow: inset var(--pending-line) 0 0 var(--accent);
+}
+small,
+kbd {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  flex: none;
+}
+kbd {
+  margin-inline-start: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+code {
+  min-width: calc(var(--space-10) + var(--space-7));
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+p {
+  margin: var(--size-10);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+footer {
+  position: sticky;
+  bottom: 0;
+  padding: var(--space-3) var(--space-4);
+  margin-top: var(--space-2);
+  border-top: var(--hairline) solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}

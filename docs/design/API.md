@@ -244,8 +244,12 @@ GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 
 GUI 的收件箱与活动卡片已接入问题选项、自由文本及“回答并继续”。提交当前展示的 version；
 成功、冲突或网络失败后重读快照和持久事件，不用 HTTP 202 冒充执行完成，也不自动重复回答。
-普通聊天输入仍走原待发队列，不隐式充当问题回答。驳回理由通过 Approval API 的 note 保存，
-不再只保留在页面内。最新 GUI 接线未运行验收；Mock 未实现问题续接，返回空问题列表。
+普通聊天输入不隐式充当问题回答：运行中 Enter 通过 `/tasks/{task_id}/inputs` 引导，
+Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能稍后发送，或就地处理卡片。
+驳回理由通过 Approval API 的 note 保存，不再只保留在页面内。
+阶段 3a 的补充输入、计划恢复与运行抽屉已进行真实 Gateway/Core 验收，见
+[UI 设计的阶段 3a 记录](agent-ui-design.md#10-阶段-3a--数据链路)。
+该验收不代表审批/回答的跨进程恢复通过；Mock 未实现问题续接，返回空问题列表。
 
 **插话。** 仅接受当前活跃的普通模型任务，不接受 `/tool` 或正在等待交互的任务。content 最多 10000 字符，每任务最多 20 条未消费输入；幂等键最多 128 字节，同键不同内容返回 409。`task.input.queued` 是接收回执；下一模型步骤在原生 middleware 中追加 `HumanMessage`，包含该输入的模型调用成功返回后才保存可见用户消息并发出 `task.input.consumed`。预算拒绝、失败和取消不冒充已消费；Provider 可能已收到但响应丢失的情况仍不能确认，`not_consumed` 不是“服务端一定没收到”的证明。`consumed` 也不保证后续工具或整个任务成功。尚未开始的旧工具提议会收到未执行结果，让模型读取新输入后重新判断；不抢停已经开始的工具或模型流。若当前回合结束前未确认消费，查询状态为 `not_consumed`，不自动新建回合或重发。客户端按 input ID 合并状态，不能因迟到的 queued 回执把 consumed 状态改回 queued。
 

@@ -1,96 +1,94 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { Turn } from '@/api/events'
 import { formatDuration } from '@/utils/format'
 import { useUIStore } from '@/stores/ui'
-defineProps<{ turn: Turn }>()
-const ui = useUIStore()
-const expanded = ref(true)
+import RailGlyph from './RailGlyph.vue'
+const props = defineProps<{ turn: Turn }>()
+const ui = useUIStore(),
+  expanded = ref(true)
+const hasOperations = computed(() =>
+  Boolean(
+    props.turn.steps.length ||
+    props.turn.awaits.length ||
+    props.turn.changes.length ||
+    props.turn.memories.length ||
+    props.turn.jobs.length ||
+    props.turn.summary?.files ||
+    props.turn.summary?.commands ||
+    props.turn.summary?.awaits,
+  ),
+)
 </script>
 <template>
-  <section v-if="turn.summary" class="receipt" :class="turn.status">
+  <section
+    v-if="turn.summary"
+    class="receipt"
+    :class="[turn.status, { compact: !hasOperations }]"
+  >
     <button
       class="end-glyph"
-      :data-rail-node="`${turn.id}:end`"
-      :aria-expanded="expanded"
-      :aria-label="$t('展开或收起执行小结')"
-      @click="expanded = !expanded"
+      :data-rail-node="turn.id + ':end'"
+      :aria-expanded="hasOperations ? expanded : undefined"
+      :aria-label="hasOperations ? $t('展开或收起执行小结') : $t('已回复')"
+      @click="hasOperations && (expanded = !expanded)"
     >
-      {{ turn.status === 'cancelled' ? '×' : turn.status === 'failed' ? '×' : '◆' }}
+      <RailGlyph
+        :kind="turn.status === 'failed' || turn.status === 'cancelled' ? 'failed' : 'end'"
+      />
     </button>
-    <div>
+    <div class="receipt-sheet">
       <header>
         <h3>
-          {{ turn.status === 'cancelled' ? $t('已停止') : turn.status === 'failed' ? $t('执行未完成') : $t('执行小结') }}
+          {{
+            turn.status === 'cancelled'
+              ? $t('已停止')
+              : turn.status === 'failed'
+                ? $t('执行未完成')
+                : hasOperations
+                  ? $t('执行小结')
+                  : $t('已回复')
+          }}
         </h3>
         <time>{{ formatDuration(turn.summary.durationMs) }}</time>
       </header>
-      <template v-if="expanded">
+      <template v-if="hasOperations && expanded">
         <div class="receipt-rule" />
-        <p>{{ $t('改动 {0} 个文件', [turn.summary.files]) }}<span v-if="turn.changes.length">+{{ turn.summary.added }} −{{ turn.summary.removed }}</span
-          ><span v-else-if="turn.summary.files">{{ $t('行数见变更') }}</span
-          ><button v-if="turn.summary.files" @click="ui.openDrawer('changes')">{{ $t('查看变更') }}</button>
-        </p>
-        <p>{{ $t('执行 {0} 条命令', [turn.summary.commands]) }}<span>{{ turn.summary.failed ? $t('{0} 项失败', [turn.summary.failed]) : $t('无失败项') }}</span>
-        </p>
-        <p>{{ $t('等你 {0} 次', [turn.summary.awaits]) }}</p>
+        <dl class="receipt-facts">
+          <div>
+            <dt>{{ $t('改动文件') }}</dt>
+            <dd>
+              {{ turn.summary.files
+              }}<small v-if="turn.changes.length">+{{ turn.summary.added }} / −{{ turn.summary.removed }}</small><small v-else-if="turn.summary.files">{{ $t('行数见变更') }}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>{{ $t('执行命令') }}</dt>
+            <dd>{{ turn.summary.commands }}</dd>
+          </div>
+          <div>
+            <dt>{{ $t('等你处理') }}</dt>
+            <dd>{{ turn.summary.awaits }}</dd>
+          </div>
+          <div
+            v-if="turn.summary.failed"
+            class="failed-fact"
+          >
+            <dt>{{ $t('失败') }}</dt>
+            <dd>{{ turn.summary.failed }}</dd>
+          </div>
+        </dl>
+        <button
+          v-if="turn.summary.files"
+          class="changes-link"
+          @click="ui.openDrawer('changes')"
+        >
+          {{ $t('查看变更') }}<span aria-hidden="true">↗</span>
+        </button>
       </template>
     </div>
   </section>
 </template>
 <style scoped lang="scss">
-.receipt {
-  display: grid;
-  grid-template-columns: var(--rail-width) minmax(0, 1fr);
-  gap: 12px;
-  margin: 20px 0 32px;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-}
-.end-glyph {
-  margin: 0;
-  width: var(--rail-width);
-  display: grid;
-  place-content: start center;
-  padding-top: 3px;
-  color: var(--ink);
-  background: var(--paper);
-  z-index: 1;
-}
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-}
-h3 {
-  margin: 0;
-  font: var(--text-md) var(--font-serif);
-  color: var(--ink);
-}
-time {
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-}
-.receipt-rule {
-  margin: 12px 0;
-  border-top: 1px dashed var(--rule);
-}
-p {
-  display: flex;
-  gap: 16px;
-  margin: 8px 0;
-  flex-wrap: wrap;
-}
-p span {
-  color: var(--ink-2);
-}
-.receipt div button {
-  margin-left: auto;
-  border: 0;
-  padding: 0;
-  color: var(--accent);
-  background: var(--transparent);
-  font-size: var(--text-sm);
-}
+@use '@/styles/receipt';
 </style>

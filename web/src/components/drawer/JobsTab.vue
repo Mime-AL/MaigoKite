@@ -1,20 +1,41 @@
 <script setup lang="ts">
 import { t } from '@/i18n'
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { api, type AgentTask } from '@/api/client'
+import { api, type AgentTask, type ProcessJob } from '@/api/client'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
+import { useUIStore } from '@/stores/ui'
+import IconSymbol from '@/components/common/IconSymbol.vue'
+import InkLoader from '@/components/common/InkLoader.vue'
 const run = useRunStore(),
-  session = useSessionStore()
+  session = useSessionStore(),
+  ui = useUIStore()
 const tasks = ref<AgentTask[]>([]),
+  jobs = ref<ProcessJob[]>([]),
   error = ref(''),
   loading = ref(false)
-const jobs = computed(() => (run.turns[session.activeSessionId || ''] || []).flatMap((t) => t.jobs))
+const liveStatuses = ['created', 'queued', 'running', 'waiting_approval', 'retry_wait']
+const activeTasks = computed(() => tasks.value.filter((task) => liveStatuses.includes(task.status)))
+const history = computed(() =>
+  tasks.value
+    .filter((task) => !liveStatuses.includes(task.status))
+    .slice()
+    .reverse(),
+)
+const activeTurns = computed(() =>
+  (run.turns[session.activeSessionId || ''] || []).filter((turn) =>
+    activeTasks.value.some((task) => task.id === turn.id),
+  ),
+)
+const children = computed(() =>
+  activeTurns.value.flatMap((turn) => turn.steps.filter((step) => step.tool === 'delegate')),
+)
+const visible = computed(() => ui.drawerOpen && ui.drawerTab === 'jobs')
 const labels: Record<AgentTask['status'], string> = {
   created: '待开始',
   queued: '排队中',
   running: '正在做',
-  waiting_approval: '等你批准',
+  waiting_approval: '等你处理',
   retry_wait: '等待重试',
   succeeded: '已完成',
   failed: '失败',
@@ -22,121 +43,157 @@ const labels: Record<AgentTask['status'], string> = {
   timed_out: '超时',
   interrupted: '已中断',
 }
+let controller: AbortController | undefined
 let generation = 0
-let disposed = false
+let reload = false
+let timer: ReturnType<typeof setTimeout> | undefined
+function cleanup() {
+  generation++
+  controller?.abort()
+  controller = undefined
+  if (timer) clearTimeout(timer)
+  timer = undefined
+  loading.value = false
+  reload = false
+}
 async function load() {
-  const current = ++generation,
-    id = session.activeSessionId
-  if (!id) {
-    tasks.value = []
-    loading.value = false
-    error.value = ''
+  const id = session.activeSessionId
+  if (!id || !visible.value) return
+  if (loading.value) {
+    reload = true
     return
   }
+  const current = generation
+  controller = new AbortController()
   loading.value = true
   try {
-    const items = await api.listTasks(id)
-    if (current === generation) {
-      tasks.value = items
-      error.value = ''
-    }
+    const [items, processes] = await Promise.all([
+      api.listTasks(id),
+      session.capabilities.process_list ? api.listJobs(id, controller.signal) : Promise.resolve([]),
+    ])
+    if (current !== generation) return
+    tasks.value = items
+    jobs.value = processes
+    error.value = ''
   } catch (reason) {
-    if (current === generation) error.value = String(reason)
+    if (current === generation)
+      error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
-    if (current === generation) loading.value = false
+    if (current === generation) {
+      loading.value = false
+      if (timer) clearTimeout(timer)
+      if (reload && visible.value) {
+        reload = false
+        void load()
+      } else {
+        // Only an open panel with real live processes needs log-tail polling.
+        if (visible.value && jobs.value.some((job) => job.live))
+          timer = setTimeout(() => {
+            void load()
+          }, 2000)
+      }
+    }
   }
 }
-async function stop(task: AgentTask) {
-  const stopped = await session.cancelTask(task.id, task.conversation_id)
-  if (disposed || task.conversation_id !== session.activeSessionId) return
-  if (stopped) {
-    await load()
-  } else error.value = session.error || t("未能确认停止，请稍后重试。")
+function operation(task: AgentTask) {
+  const turn = activeTurns.value.find((item) => item.id === task.id)
+  if (task.status === 'waiting_approval') {
+    const pending = turn?.awaits.find(
+      (item) => !item.closed && !item.verdict && item.answer === undefined,
+    )
+    return pending?.mode === 'question'
+      ? pending.title || t('Agent 在等你回答')
+      : t('等你确认后继续…')
+  }
+  return (
+    turn?.steps
+      .slice()
+      .reverse()
+      .find((step) => step.status === 'running')?.title || t(labels[task.status])
+  )
 }
-onUnmounted(() => {
-  disposed = true
-  generation++
-})
+async function stop(task: AgentTask) {
+  if (await session.cancelTask(task.id, task.conversation_id)) await load()
+  else error.value = session.error || t('未能确认停止，请稍后重试。')
+}
 watch(
-  () => session.activeSessionId,
+  () => `${session.activeSessionId}:${visible.value}`,
   () => {
+    cleanup()
     tasks.value = []
+    jobs.value = []
     error.value = ''
     void load()
   },
   { immediate: true },
 )
 watch(
-  () => (run.turns[session.activeSessionId || ''] || []).map((t) => t.id + t.status).join('|'),
+  () =>
+    (run.turns[session.activeSessionId || ''] || [])
+      .map((turn) => `${turn.id}:${turn.status}:${turn.steps.length}`)
+      .join('|'),
   () => {
-    void load()
+    if (visible.value) void load()
   },
 )
+onUnmounted(cleanup)
 </script>
 <template>
   <section class="jobs-tab">
-    <header>{{ $t('会话任务') }}<button class="icon-button" :title="$t('刷新任务')" @click="load">↻</button></header>
-    <p v-if="error" class="empty-copy" role="alert">{{ error }}</p>
-    <p v-else-if="loading && !tasks.length" class="empty-copy">{{ $t('正在读取任务…') }}</p>
-    <p v-else-if="!tasks.length" class="empty-copy">{{ $t('还没有会话任务。') }}</p>
-    <article v-for="task in tasks" :key="task.id">
-      <strong>{{ task.input_text || $t('当前任务') }}</strong>
+    <header>
+      <strong>{{ $t('运行') }}</strong
+      ><button class="icon-button" :title="$t('刷新运行状态')" @click="load">
+        <IconSymbol name="refresh" :size="16" />
+      </button>
+    </header>
+    <p v-if="error" class="empty-copy" role="alert">
+      {{ error }}<button class="text-button" @click="load">{{ $t('重试') }}</button>
+    </p>
+    <InkLoader v-else-if="loading && !tasks.length" />
+    <div v-else-if="!activeTasks.length" class="runtime-empty">
+      <IconSymbol name="activity" :size="24" /><strong>{{ $t('现在没有运行中的任务') }}</strong>
+      <p>{{ $t('开始对话后，当前操作和等待原因会显示在这里。') }}</p>
+    </div>
+    <article v-for="task in activeTasks" :key="task.id">
+      <span class="section-label">{{ $t('当前操作') }}</span
+      ><strong>{{ operation(task) }}</strong>
       <div>
         <span>{{ $t(labels[task.status]) }}</span
         ><button
-          v-if="
-            ['created', 'queued', 'running', 'waiting_approval', 'retry_wait'].includes(task.status)
-          "
           class="secondary-button"
           :disabled="session.stoppingTaskIds.includes(task.id)"
           @click="stop(task)"
         >
-          {{ session.stoppingTaskIds.includes(task.id) ? $t('请求停止中…') : $t('停止') }}
+          {{ $t(session.stoppingTaskIds.includes(task.id) ? '请求停止中…' : '停止') }}
         </button>
       </div>
-      <p v-if="task.last_error" class="empty-copy">{{ task.last_error }}</p>
+      <p v-if="task.last_error" role="alert">{{ task.last_error }}</p>
+    </article>
+    <article v-if="children.length">
+      <span class="section-label">{{ $t('子 Agent') }}</span>
+      <p v-for="child in children" :key="child.id">{{ child.title }}</p>
     </article>
     <article v-for="job in jobs" :key="job.id">
-      <header>{{ job.id }} · {{ job.status }}</header>
-      <pre>{{ job.logTail.split('\n').slice(-200).join('\n') }}</pre>
+      <span class="section-label"
+        >{{ $t('后台进程') }} · {{ $t(job.live ? '运行中' : '已结束') }}</span
+      >
+      <strong>{{ job.command }}</strong>
+      <pre v-if="job.log_tail">{{ job.log_tail.split('\n').slice(-200).join('\n') }}</pre>
+      <p v-else-if="job.live && !job.live_logs_available">{{ $t('此进程暂不提供实时输出。') }}</p>
     </article>
+    <div v-if="history.length" class="runtime-history">
+      <span class="section-label">{{ $t('历史运行') }}</span>
+      <details v-for="task in history" :key="task.id">
+        <summary>
+          <span>{{ task.title || task.input_text.split('\n')[0].slice(0, 60) || $t('任务') }}</span
+          ><small>{{ $t(labels[task.status]) }}</small>
+        </summary>
+        <time>{{ new Date(task.updated_at).toLocaleString($i18n.locale) }}</time>
+        <p v-if="task.last_error">{{ task.last_error }}</p>
+      </details>
+    </div>
   </section>
 </template>
 <style scoped lang="scss">
-.jobs-tab {
-  padding: 20px;
-  overflow: auto;
-}
-header,
-article > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: var(--text-sm);
-  color: var(--ink-2);
-}
-article {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--rule);
-}
-strong {
-  display: block;
-  font-weight: var(--weight-medium);
-  font-size: var(--text-sm);
-  margin-bottom: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-article span {
-  font-size: var(--text-xs);
-  color: var(--ink-2);
-}
-pre {
-  overflow: auto;
-  max-height: 300px;
-  background: var(--paper-2);
-  font: var(--text-sm)/var(--leading-small) var(--font-mono);
-  padding: 12px;
-}
+@use '@/styles/jobs-tab';
 </style>

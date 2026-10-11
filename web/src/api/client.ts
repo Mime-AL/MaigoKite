@@ -1,5 +1,6 @@
 import { request, workspacePath } from './http'
 import { mockConnect } from './mock'
+import type { PlanItem } from './events'
 export type PermissionMode = 'read_only' | 'workspace' | 'full_access'
 export type ResponseMode = 'fast' | 'balanced' | 'thorough'
 
@@ -347,6 +348,31 @@ export interface ConversationSnapshot {
   truncated: boolean
 }
 
+export interface TaskInput {
+  id: string
+  task_id: string
+  content: string
+  status: 'queued' | 'consumed' | 'not_consumed'
+  created_at: string
+}
+
+export interface TaskInspection {
+  task: AgentTask
+  projection: { plan: PlanItem[] | null; truncated: boolean }
+  last_sequence: number
+}
+
+export interface ProcessJob {
+  id: string
+  task_id: string
+  conversation_id: string
+  command: string
+  status: string
+  log_tail: string
+  live: boolean
+  live_logs_available: boolean
+}
+
 export interface MessageReceipt {
   task_id: string
   status: AgentTask['status'] | 'processing'
@@ -461,13 +487,19 @@ export const api = {
     return chatModelFromWire(body.models.chat)
   },
   async listChatModels(): Promise<{ models: ChatModelProfile[]; defaultModelId: string }> {
-    const body = await request<{ models: ChatModelWire[]; default_model_id: string }>(`${path}/models`)
+    const body = await request<{ models: ChatModelWire[]; default_model_id: string }>(
+      `${path}/models`,
+    )
     return {
       models: (body.models || []).map(chatModelProfileFromWire),
       defaultModelId: body.default_model_id || '',
     }
   },
-  async saveChatModel(profile: ChatModelProfile, apiKey = '', credentialSourceId = ''): Promise<ChatModelProfile> {
+  async saveChatModel(
+    profile: ChatModelProfile,
+    apiKey = '',
+    credentialSourceId = '',
+  ): Promise<ChatModelProfile> {
     const url = profile.id ? `${path}/models/${encodeURIComponent(profile.id)}` : `${path}/models`
     const body = await request<ChatModelWire>(url, {
       method: profile.id ? 'PUT' : 'POST',
@@ -482,7 +514,9 @@ export const api = {
   deleteChatModel(id: string): Promise<void> {
     return request(`${path}/models/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
-  async setDefaultChatModel(id: string): Promise<{ models: ChatModelProfile[]; defaultModelId: string }> {
+  async setDefaultChatModel(
+    id: string,
+  ): Promise<{ models: ChatModelProfile[]; defaultModelId: string }> {
     const body = await request<{ models: ChatModelWire[]; default_model_id: string }>(
       `${path}/models/${encodeURIComponent(id)}/default`,
       { method: 'POST' },
@@ -510,20 +544,24 @@ export const api = {
     })
   },
   async discoverChatModels(
-    settings: Pick<ChatModelSettings, 'provider' | 'baseUrl'> & Partial<Pick<ChatModelProfile, 'id'>>,
+    settings: Pick<ChatModelSettings, 'provider' | 'baseUrl'> &
+      Partial<Pick<ChatModelProfile, 'id'>>,
     apiKey = '',
     signal?: AbortSignal,
   ): Promise<DiscoveredChatModel[]> {
-    const body = await request<{ models: DiscoveredChatModel[] }>(`${path}/models/actions/discover`, {
-      method: 'POST',
-      signal,
-      body: JSON.stringify({
-        id: settings.id || undefined,
-        provider: settings.provider,
-        base_url: settings.baseUrl,
-        api_key: apiKey || undefined,
-      }),
-    })
+    const body = await request<{ models: DiscoveredChatModel[] }>(
+      `${path}/models/actions/discover`,
+      {
+        method: 'POST',
+        signal,
+        body: JSON.stringify({
+          id: settings.id || undefined,
+          provider: settings.provider,
+          base_url: settings.baseUrl,
+          api_key: apiKey || undefined,
+        }),
+      },
+    )
     return body.models || []
   },
   async listCredentialReferences(): Promise<CredentialStatus[]> {
@@ -578,12 +616,39 @@ export const api = {
     return request(`${path}/extension-settings`, { method: 'PUT', body: JSON.stringify(config) })
   },
   applyExtensions(revision: number, restoreOnly = false): Promise<ExtensionSettings> {
-    return request(`${path}/extension-settings/apply`, { method: 'POST', body: JSON.stringify({ revision, restore_only: restoreOnly }) })
+    return request(`${path}/extension-settings/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ revision, restore_only: restoreOnly }),
+    })
   },
   async listTasks(conversationId?: string): Promise<AgentTask[]> {
     const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ''
     const body = await request<{ tasks: AgentTask[] }>(`${path}/tasks${query}`)
     return body.tasks || []
+  },
+  submitTaskInput(taskId: string, content: string, key: string): Promise<TaskInput> {
+    return request(`${path}/tasks/${encodeURIComponent(taskId)}/inputs`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': key },
+      body: JSON.stringify({ content }),
+    })
+  },
+  async listTaskInputs(taskId: string, signal?: AbortSignal): Promise<TaskInput[]> {
+    const body = await request<{ inputs: TaskInput[] }>(
+      `${path}/tasks/${encodeURIComponent(taskId)}/inputs`,
+      { signal },
+    )
+    return body.inputs || []
+  },
+  getTaskInspection(taskId: string, signal?: AbortSignal): Promise<TaskInspection> {
+    return request(`${path}/tasks/${encodeURIComponent(taskId)}/inspection`, { signal })
+  },
+  async listJobs(conversationId: string, signal?: AbortSignal): Promise<ProcessJob[]> {
+    const body = await request<{ jobs: ProcessJob[] }>(
+      `${path}/jobs?conversation_id=${encodeURIComponent(conversationId)}`,
+      { signal },
+    )
+    return body.jobs || []
   },
   async getCapabilities(): Promise<Record<string, boolean>> {
     const body = await request<{ capabilities: Record<string, boolean> }>(`${path}/capabilities`)
@@ -591,13 +656,18 @@ export const api = {
   },
   resumeTask(taskId: string, version: number): Promise<MessageReceipt> {
     return request(`${path}/tasks/${encodeURIComponent(taskId)}/resume`, {
-      method: 'POST', body: JSON.stringify({ version }),
+      method: 'POST',
+      body: JSON.stringify({ version }),
     })
   },
   cancelTask(taskId: string): Promise<AgentTask> {
     return request(`${path}/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
   },
-  async listTaskEvents(conversationId: string, after = 0, signal?: AbortSignal): Promise<AgentEvent[]> {
+  async listTaskEvents(
+    conversationId: string,
+    after = 0,
+    signal?: AbortSignal,
+  ): Promise<AgentEvent[]> {
     const body = await request<{ events: AgentEvent[] }>(
       `${path}/conversations/${encodeURIComponent(conversationId)}/events/history?after=${after}`,
       { signal },
@@ -614,7 +684,8 @@ export const api = {
   },
   async createWorkspaceFolder(rootPath: string, name = ''): Promise<WorkspaceFolder> {
     const folder = await request<WorkspaceFolder>(`${path}/folders`, {
-      method: 'POST', body: JSON.stringify({ root_path: rootPath, name }),
+      method: 'POST',
+      body: JSON.stringify({ root_path: rootPath, name }),
     })
     return { ...folder, id: folder.id || '' }
   },
@@ -644,7 +715,17 @@ export const api = {
   },
   updateConversationSettings(
     id: string,
-    settings: { permission_mode?: PermissionMode; model_id?: string; response_mode?: ResponseMode; title?: string; folder_id?: string; archived?: boolean; max_subagent_calls?: number; max_concurrent_subagents?: number; subagent_model_ids?: string[] },
+    settings: {
+      permission_mode?: PermissionMode
+      model_id?: string
+      response_mode?: ResponseMode
+      title?: string
+      folder_id?: string
+      archived?: boolean
+      max_subagent_calls?: number
+      max_concurrent_subagents?: number
+      subagent_model_ids?: string[]
+    },
   ): Promise<Conversation> {
     return request(`${path}/conversations/${id}`, {
       method: 'PATCH',
@@ -657,19 +738,25 @@ export const api = {
   },
   async getConversationSnapshot(id: string): Promise<ConversationSnapshot> {
     // Snapshot approvals currently use the protobuf JSON shape; keep it out of stores.
-    const body = await request<Omit<ConversationSnapshot, 'approvals' | 'questions'> & {
-      approvals: (Approval & { arguments_json?: string })[]
-      questions: (AgentQuestion & { options_json?: string })[]
-    }>(`${path}/conversations/${encodeURIComponent(id)}/snapshot`)
+    const body = await request<
+      Omit<ConversationSnapshot, 'approvals' | 'questions'> & {
+        approvals: (Approval & { arguments_json?: string })[]
+        questions: (AgentQuestion & { options_json?: string })[]
+      }
+    >(`${path}/conversations/${encodeURIComponent(id)}/snapshot`)
     return {
-      messages: body.messages || [], tasks: body.tasks || [],
+      messages: body.messages || [],
+      tasks: body.tasks || [],
       questions: (body.questions || []).map(({ options_json, ...question }) => ({
-        ...question, options: options_json ? JSON.parse(options_json) : question.options || [],
+        ...question,
+        options: options_json ? JSON.parse(options_json) : question.options || [],
       })),
       approvals: (body.approvals || []).map(({ arguments_json, ...approval }) => ({
-        ...approval, arguments: arguments_json ? JSON.parse(arguments_json) : approval.arguments || {},
+        ...approval,
+        arguments: arguments_json ? JSON.parse(arguments_json) : approval.arguments || {},
       })),
-      last_sequence: Number(body.last_sequence || 0), truncated: Boolean(body.truncated),
+      last_sequence: Number(body.last_sequence || 0),
+      truncated: Boolean(body.truncated),
     }
   },
   sendMessage(id: string, content: string, idempotencyKey: string): Promise<MessageReceipt> {
@@ -691,10 +778,16 @@ export const api = {
   },
   answerQuestion(id: string, answer: string, version: number): Promise<{ task_id: string }> {
     return request(`${path}/questions/${encodeURIComponent(id)}/answer`, {
-      method: 'POST', body: JSON.stringify({ answer, version }),
+      method: 'POST',
+      body: JSON.stringify({ answer, version }),
     })
   },
-  decideApproval(id: string, decision: 'allow' | 'deny', version: number, note?: string): Promise<{ task_id: string }> {
+  decideApproval(
+    id: string,
+    decision: 'allow' | 'deny',
+    version: number,
+    note?: string,
+  ): Promise<{ task_id: string }> {
     return request(`${path}/approvals/${encodeURIComponent(id)}/decision`, {
       method: 'POST',
       body: JSON.stringify({ decision, version, note }),
@@ -723,7 +816,9 @@ export const api = {
     return body.entries || []
   },
   getWorkspaceFile(relativePath: string, folderId = ''): Promise<WorkspaceFileContent> {
-    return request(`${path}/files/content?path=${encodeURIComponent(relativePath)}&${folderQuery(folderId)}`)
+    return request(
+      `${path}/files/content?path=${encodeURIComponent(relativePath)}&${folderQuery(folderId)}`,
+    )
   },
   async listWorkspaceChanges(folderId = ''): Promise<{
     changes: WorkspaceChange[]
@@ -733,18 +828,23 @@ export const api = {
     return request(`${path}/changes?${folderQuery(folderId)}`)
   },
   async getWorkspaceDiff(filePath: string, folderId = ''): Promise<WorkspaceChange> {
-    return request(`${path}/changes/diff?path=${encodeURIComponent(filePath)}&${folderQuery(folderId)}`)
+    return request(
+      `${path}/changes/diff?path=${encodeURIComponent(filePath)}&${folderQuery(folderId)}`,
+    )
   },
   connectEvents(conversationId: string, onEvent: (event: AgentEvent) => void): WebSocket {
     if (import.meta.env.VITE_MOCK === '1') return mockConnect(conversationId, onEvent)
     const configured = import.meta.env.VITE_WS_URL
     const host = location.protocol === 'file:' ? '127.0.0.1:8080' : location.host
     const base = configured || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${host}`
-    const socket = new WebSocket(`${base}${path}/events?conversation_id=${encodeURIComponent(conversationId)}`)
+    const socket = new WebSocket(
+      `${base}${path}/events?conversation_id=${encodeURIComponent(conversationId)}`,
+    )
     socket.onmessage = ({ data }) => {
       try {
         const event: unknown = JSON.parse(String(data))
-        if (event && typeof event === 'object' && 'type' in event && 'payload' in event) onEvent(event as AgentEvent)
+        if (event && typeof event === 'object' && 'type' in event && 'payload' in event)
+          onEvent(event as AgentEvent)
       } catch {
         /* A malformed frame must not interrupt reconnection/replay. */
       }

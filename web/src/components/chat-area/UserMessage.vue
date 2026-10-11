@@ -4,31 +4,33 @@ defineProps<{ content: string; timestamp?: Date }>()
 <template>
   <article class="user-message">
     <p>{{ content }}</p>
-    <time v-if="timestamp">{{ timestamp.toLocaleTimeString($i18n.locale, { hour: '2-digit', minute: '2-digit' }) }}</time>
+    <time v-if="timestamp">{{
+      timestamp.toLocaleTimeString($i18n.locale, { hour: '2-digit', minute: '2-digit' })
+    }}</time>
   </article>
 </template>
 <style scoped lang="scss">
 .user-message {
-  margin: 12px 0 24px 60px;
+  margin: var(--space-4) 0 var(--space-7) calc(var(--rail-width) + var(--space-4));
   display: flex;
   align-items: flex-end;
   flex-direction: column;
 }
 p {
   max-width: 90%;
-  padding: 12px 16px;
+  padding: var(--space-4) var(--space-5);
   margin: 0;
   border-radius: var(--radius-md);
   background: var(--paper-3);
   color: var(--ink);
-  font-size: var(--text-md);
-  line-height: var(--leading-body);
+  font-size: var(--type-body);
+  line-height: var(--leading-message);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 time {
   color: var(--ink-3);
-  margin-top: 6px;
+  margin-top: var(--size-6);
   font-size: var(--text-xs);
 }
 </style>

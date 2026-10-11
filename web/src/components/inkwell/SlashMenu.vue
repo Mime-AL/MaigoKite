@@ -1,59 +1,48 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 export interface SlashCommand {
   id: string
   label: string
 }
-defineProps<{ items: SlashCommand[]; selected: number }>()
+const props = withDefaults(
+  defineProps<{ items: SlashCommand[]; selected: number; id?: string }>(),
+  { id: 'inkwell-commands' },
+)
 const emit = defineEmits<{ (event: 'select', item: SlashCommand): void }>()
+const menu = ref<HTMLElement | null>(null)
+watch(
+  () => [props.selected, props.items.length],
+  async () => {
+    await nextTick()
+    menu.value
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest' })
+  },
+  { immediate: true, flush: 'post' },
+)
 </script>
 <template>
-  <div class="slash-menu" role="listbox" :aria-label="$t('命令')">
+  <div
+    :id="id"
+    ref="menu"
+    class="slash-menu"
+    role="listbox"
+    :aria-label="$t('命令')"
+  >
     <button
       v-for="(item, index) in items"
+      :id="id + '-option-' + index"
       :key="item.id"
       role="option"
       :aria-selected="index === selected"
       @mousedown.prevent
       @click="emit('select', item)"
     >
-      <code>/{{ item.id }}</code
-      ><span>{{ $t(item.label) }}</span>
+      <code>/{{ item.id }}</code><span>{{ $t(item.label) }}</span><kbd v-if="index < 9">{{ index + 1 }}</kbd>
     </button>
+    <footer>{{ $t('↑ ↓ 选择 · Enter 确认 · Alt + 数字') }}</footer>
   </div>
 </template>
 <style scoped lang="scss">
-@use '@/styles/mixins' as mixins;
-.slash-menu {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  inset-inline: 0;
-  max-height: 280px;
-  overflow: auto;
-  padding: 6px;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-md);
-  background: var(--paper);
-  box-shadow: var(--shadow-float);
-  z-index: 10;
-}
-button {
-  @include mixins.interactive-row;
-  display: flex;
-  width: 100%;
-  gap: 20px;
-  border: 0;
-  padding: 10px;
-  background: var(--transparent);
-  color: var(--ink-2);
-  text-align: left;
-  font-size: var(--text-sm);
-}
-button[aria-selected='true'] {
-  background: var(--accent-selected);
-}
-code {
-  width: 90px;
-  font-family: var(--font-mono);
-  color: var(--ink-2);
-}
+@use '@/styles/composer-menu';
 </style>

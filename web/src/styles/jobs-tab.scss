@@ -1,0 +1,68 @@
+@use './mixins';
+.text-button {
+  @include mixins.text-action;
+}
+.jobs-tab {
+  padding: var(--space-6);
+  overflow: auto;
+}
+header,
+article > div,
+summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+}
+article {
+  padding: var(--space-5) 0;
+  border-bottom: var(--hairline) solid var(--rule);
+}
+strong {
+  display: block;
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+  margin-block: var(--space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.section-label,
+article span,
+small,
+time {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+p {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+pre {
+  overflow: auto;
+  max-height: calc(var(--space-10) * 4);
+  background: var(--paper-2);
+  font: var(--text-sm)/var(--leading-small) var(--font-mono);
+  padding: var(--space-4);
+}
+.runtime-empty {
+  padding: var(--space-8) 0;
+  color: var(--ink-2);
+}
+.runtime-history {
+  padding-block-start: var(--space-6);
+}
+details {
+  padding-block: var(--space-4);
+}
+summary {
+  cursor: pointer;
+}
+summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

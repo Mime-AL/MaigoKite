@@ -24,7 +24,7 @@ const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
 const tabs = [
   { id: 'pending', label: '等你处理', icon: 'pending', component: PendingTab },
   { id: 'changes', label: '变更', icon: 'review', component: ChangesTab },
-  { id: 'jobs', label: '任务', icon: 'activity', component: JobsTab },
+  { id: 'jobs', label: '运行', icon: 'activity', component: JobsTab },
   { id: 'plan', label: '计划', icon: 'check', component: PlanTab },
   { id: 'files', label: '文件', icon: 'files', component: FileExplorer },
 ] as const

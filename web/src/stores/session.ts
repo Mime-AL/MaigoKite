@@ -11,6 +11,7 @@ import {
   type MessageReceipt,
   type PermissionMode,
   type ResponseMode,
+  type TaskInput,
 } from '@/api/client'
 import { GatewayError } from '@/api/http'
 import { EventSocket } from '@/api/socket'
@@ -29,7 +30,7 @@ export const useSessionStore = defineStore('session', () => {
     error = ref<string | null>(null)
   const runningTaskIds = ref<Record<string, string[]>>({}),
     approvals = ref<Record<string, Approval[]>>({})
-  const queuedMessages = ref<Record<string, string[]>>({})
+  const queuedMessages = ref<Record<string, { id: string; content: string }[]>>({})
   const queuedPaused = ref<Record<string, boolean>>({})
   const stoppingTaskIds = ref<string[]>([])
   const tasks = ref<Record<string, AgentTask[]>>({})
@@ -38,10 +39,31 @@ export const useSessionStore = defineStore('session', () => {
   const resumingTaskIds = ref<string[]>([])
   // One key per logical submission, retained after an ambiguous transport error.
   // This is client request bookkeeping, not execution state or an automatic retry queue.
-  const submissions = ref<Record<string, { key: string; content: string; uncertain: boolean }>>({})
-  const snapshotFacts = new Map<string, {
-    sequence: number; tasks: Map<string, AgentTask>; pendingIds?: Set<string>
-  }>()
+  const submissions = ref<
+    Record<
+      string,
+      {
+        key: string
+        content: string
+        uncertain: boolean
+        inputOrigin?: { taskId: string; inputId: string }
+      }
+    >
+  >({})
+  const inputSubmissions = ref<
+    Record<string, { key: string; content: string; uncertain: boolean }>
+  >({})
+  const inputErrors = ref<Record<string, string>>({})
+  const detailRequests = new Map<string, { controller: AbortController; promise: Promise<void> }>()
+  const resendingInputs = new Set<string>()
+  const snapshotFacts = new Map<
+    string,
+    {
+      sequence: number
+      tasks: Map<string, AgentTask>
+      pendingIds?: Set<string>
+    }
+  >()
   const taskSequences = new Map<string, number>()
   const isStopping = computed(() =>
     (runningTaskIds.value[activeSessionId.value || ''] || []).some((id) =>
@@ -58,9 +80,13 @@ export const useSessionStore = defineStore('session', () => {
   const activeSession = computed(() =>
     sessions.value.find((item) => item.id === activeSessionId.value),
   )
-  const visibleSessions = computed(() => sessions.value.filter((item) =>
-    (item.folder_id || '') === workspace.selectedId && Boolean(item.archived) === showArchived.value,
-  ))
+  const visibleSessions = computed(() =>
+    sessions.value.filter(
+      (item) =>
+        (item.folder_id || '') === workspace.selectedId &&
+        Boolean(item.archived) === showArchived.value,
+    ),
+  )
   const activeMessages = computed(() =>
     activeSessionId.value ? messages.value[activeSessionId.value] || [] : [],
   )
@@ -120,9 +146,15 @@ export const useSessionStore = defineStore('session', () => {
     const snapshot = snapshotFacts.get(id)
     const covered = Boolean(snapshot && event.sequence <= snapshot.sequence)
     const stateKey = `${id}:${task}`
-    const stateEvent = ['task.', 'approval.', 'question.'].some((prefix) => event.type.startsWith(prefix))
+    const stateEvent =
+      !event.type.startsWith('task.input.') &&
+      ['task.', 'approval.', 'question.'].some((prefix) => event.type.startsWith(prefix))
     const staleState = stateEvent && event.sequence <= (taskSequences.get(stateKey) || 0)
     if (stateEvent && !staleState) taskSequences.set(stateKey, event.sequence)
+    if (!covered && !staleState && ['task.started', 'task.resumed'].includes(event.type)) {
+      const known = tasks.value[id]?.find((item) => item.id === task)
+      if (known) known.status = 'running'
+    }
     if (event.type === 'task.started') {
       if (!covered && !staleState) mark(id, task)
       run.markStarted(
@@ -179,17 +211,20 @@ export const useSessionStore = defineStore('session', () => {
     ) {
       clear(id, task)
       approvals.value[id] = (approvals.value[id] || []).filter((a) => a.task_id !== task)
-      if (event.type === 'task.failed') error.value = String(event.payload.message || t("执行失败"))
+      if (event.type === 'task.failed') error.value = String(event.payload.message || t('执行失败'))
       const succeeded = ['task.succeeded', 'task.completed'].includes(event.type)
       if (!succeeded && queuedAfterTask.get(id) === task) queuedPaused.value[id] = true
       if (!replay && succeeded) void sendNext(id, task)
       const epoch = lifecycle
-      if (!replay) void (async () => {
-        await loadingSessions.get(id)
-        if (epoch === lifecycle && !deletedSessions.has(id)) await refreshSnapshot(id)
-      })().catch(() => {
-        error.value = t("任务状态更新失败，请重新打开对话。")
-      })
+      if (!replay)
+        void (async () => {
+          await loadingSessions.get(id)
+          if (epoch === lifecycle && !deletedSessions.has(id))
+            await refreshTaskDetails(id, task, true)
+          if (epoch === lifecycle && !deletedSessions.has(id)) await refreshSnapshot(id)
+        })().catch(() => {
+          error.value = t('任务状态更新失败，请重新打开对话。')
+        })
     }
   }
   function watchSession(id: string) {
@@ -204,9 +239,10 @@ export const useSessionStore = defineStore('session', () => {
         if (online) connectedOnce = true
         run.setConnection(id, online)
         if (!online && queuedMessages.value[id]?.length) queuedPaused.value[id] = true
-        if (reconnected) void refreshSnapshot(id).catch(() => {
-          error.value = t("已重新连接，但未能刷新会话状态。请重新打开对话。")
-        })
+        if (reconnected)
+          void refreshSnapshot(id).catch(() => {
+            error.value = t('已重新连接，但未能刷新会话状态。请重新打开对话。')
+          })
       },
     })
     streams.set(id, stream)
@@ -218,12 +254,17 @@ export const useSessionStore = defineStore('session', () => {
     error.value = null
     try {
       await workspace.load()
-      sessions.value = (await api.listConversations()).filter((item) => !deletedSessions.has(item.id))
+      sessions.value = (await api.listConversations()).filter(
+        (item) => !deletedSessions.has(item.id),
+      )
       const current = activeSession.value
-      if (current) { workspace.select(current.folder_id || ''); showArchived.value = Boolean(current.archived) }
+      if (current) {
+        workspace.select(current.folder_id || '')
+        showArchived.value = Boolean(current.archived)
+      }
     } catch (reason) {
       error.value =
-        t("无法连接应用服务：") + (reason instanceof Error ? reason.message : String(reason))
+        t('无法连接应用服务：') + (reason instanceof Error ? reason.message : String(reason))
     } finally {
       isLoading.value = false
     }
@@ -251,7 +292,8 @@ export const useSessionStore = defineStore('session', () => {
     } catch (reason) {
       if (current === generation) {
         activeSessionId.value = null
-        error.value = t("无法载入对话：") + (reason instanceof Error ? reason.message : String(reason))
+        error.value =
+          t('无法载入对话：') + (reason instanceof Error ? reason.message : String(reason))
       }
       return
     }
@@ -265,7 +307,8 @@ export const useSessionStore = defineStore('session', () => {
       await refreshSnapshot(id)
     } catch (reason) {
       if (current === generation)
-        error.value = t("无法载入对话：") + (reason instanceof Error ? reason.message : String(reason))
+        error.value =
+          t('无法载入对话：') + (reason instanceof Error ? reason.message : String(reason))
     }
   }
   function refreshSnapshot(id: string): Promise<void> {
@@ -293,21 +336,27 @@ export const useSessionStore = defineStore('session', () => {
           if (snapshot.truncated) {
             const known = new Map((tasks.value[id] || []).map((task) => [task.id, task]))
             for (const task of snapshot.tasks) known.set(task.id, task)
-            tasks.value[id] = [...known.values()].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+            tasks.value[id] = [...known.values()].sort(
+              (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
+            )
           } else tasks.value[id] = snapshot.tasks
           capabilities.value = available
           historyTruncated.value[id] = snapshot.truncated
-          const pendingIds = snapshot.truncated ? undefined : new Set([
-            ...snapshot.approvals.map((item) => item.id),
-            ...snapshot.questions.map((item) => item.id),
-          ])
+          const pendingIds = snapshot.truncated
+            ? undefined
+            : new Set([
+                ...snapshot.approvals.map((item) => item.id),
+                ...snapshot.questions.map((item) => item.id),
+              ])
           snapshotFacts.set(id, {
             sequence: snapshot.last_sequence,
-            tasks: new Map(snapshot.tasks.map((task) => [task.id, task])), pendingIds,
+            tasks: new Map(snapshot.tasks.map((task) => [task.id, task])),
+            pendingIds,
           })
           const includedTasks = new Set(snapshot.tasks.map((task) => task.id))
-          const sending = (runningTaskIds.value[id] || []).filter((task) =>
-            task.startsWith('pending-') || (snapshot.truncated && !includedTasks.has(task)),
+          const sending = (runningTaskIds.value[id] || []).filter(
+            (task) =>
+              task.startsWith('pending-') || (snapshot.truncated && !includedTasks.has(task)),
           )
           runningTaskIds.value[id] = [
             ...sending,
@@ -319,7 +368,8 @@ export const useSessionStore = defineStore('session', () => {
               )
               .map((t) => t.id),
           ]
-          for (const task of snapshot.tasks) run.hydrateTask(id, task, pendingIds, snapshot.last_sequence)
+          for (const task of snapshot.tasks)
+            run.hydrateTask(id, task, pendingIds, snapshot.last_sequence)
           run.hydratePending(id, snapshot)
           for (const task of snapshot.tasks)
             taskSequences.set(`${id}:${task.id}`, snapshot.last_sequence)
@@ -330,6 +380,15 @@ export const useSessionStore = defineStore('session', () => {
               handleEvent(id, item.event, item.replay)
         }
         if (epoch === lifecycle) await streams.get(id)?.recover()
+        if (epoch === lifecycle && !deletedSessions.has(id)) {
+          const latest = tasks.value[id]?.slice(-1)[0]
+          // Older inputs are reconciled when the user expands transcript history.
+          const known = (run.turns[id] || [])
+            .slice(-20)
+            .filter((turn) => turn.inputs?.some((input) => input.status !== 'consumed'))
+          const ids = new Set([...(latest ? [latest.id] : []), ...known.map((turn) => turn.id)])
+          await Promise.all([...ids].map((taskId) => refreshTaskDetails(id, taskId)))
+        }
       })().finally(() => {
         if (loadingSessions.get(id) === loading) loadingSessions.delete(id)
       })
@@ -337,28 +396,223 @@ export const useSessionStore = defineStore('session', () => {
     }
     return loading
   }
-  async function sendToSession(id: string, content: string) {
+  function requestKey() {
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
+      b.toString(16).padStart(2, '0'),
+    ).join('')
+  }
+  function steeringTask(id: string) {
+    const ids = (runningTaskIds.value[id] || []).filter((task) => !task.startsWith('pending-'))
+    return ids.length === 1 ? ids[0] : undefined
+  }
+  function steeringReason(id: string) {
+    if (sessions.value.find((item) => item.id === id)?.archived) return t('此对话已归档。')
+    if (!capabilities.value.task_input) return t('当前服务不支持引导任务。')
+    const taskId = steeringTask(id)
+    if (!taskId) return t('当前没有可引导的任务。')
+    if (run.connected[id] === false) return t('连接恢复后可引导任务。')
+    const turn = run.turns[id]?.find((item) => item.id === taskId)
+    const task = tasks.value[id]?.find((item) => item.id === taskId)
+    if (turn?.status === 'waiting' || (!turn && task?.status === 'waiting_approval'))
+      return t('请先处理审批或回答问题；也可以在驳回时附上理由。')
+    if (task && ['created', 'queued', 'retry_wait'].includes(task.status))
+      return t('任务运行后可引导；现在可以稍后发送。')
+    if (turn ? turn.status !== 'running' : task?.status !== 'running')
+      return t('任务运行后可引导；现在可以稍后发送。')
+    if ((turn?.userText || task?.input_text || '').startsWith('/tool '))
+      return t('直接工具任务不接受引导，可以稍后发送。')
+    if (stoppingTaskIds.value.includes(taskId)) return t('正在停止任务，可以稍后发送。')
+    if (inputSubmissions.value[taskId]) return t('请先确认上一条补充的提交结果。')
+    if ((turn?.inputs || []).filter((item) => item.status === 'queued').length >= 20)
+      return t('已有 20 条补充等待纳入，请等待处理后再提交。')
+    return ''
+  }
+  async function guideTask(
+    id: string,
+    content: string,
+    confirmingTask?: string,
+  ): Promise<TaskInput> {
+    const taskId = confirmingTask || steeringTask(id)
+    const previous = taskId ? inputSubmissions.value[taskId] : undefined
+    const reason = steeringReason(id)
+    if (!taskId || (reason && !(previous?.uncertain && confirmingTask === taskId)))
+      throw new Error(reason || t('当前没有可引导的任务。'))
+    content = content.trim()
+    if (!content || content.length > 10000) throw new Error(t('补充内容需要 1–10000 个字符。'))
+    if (previous && previous.content !== content)
+      throw new Error(t('请先确认上一条补充的提交结果。'))
+    const submission = previous || { key: requestKey(), content, uncertain: false }
+    submission.uncertain = false
+    inputSubmissions.value[taskId] = submission
+    inputErrors.value[id] = ''
+    const epoch = lifecycle
+    try {
+      const input = await api.submitTaskInput(taskId, content, submission.key)
+      if (epoch === lifecycle && !deletedSessions.has(id)) {
+        delete inputSubmissions.value[taskId]
+        run.mergeInput(id, input)
+        // A run may finish while the POST acknowledgement is in flight.
+        if (run.turns[id]?.find((turn) => turn.id === taskId)?.status !== 'running')
+          void refreshTaskDetails(id, taskId, true)
+      }
+      return input
+    } catch (failure) {
+      if (epoch === lifecycle && !deletedSessions.has(id)) {
+        const refused =
+          failure instanceof GatewayError && failure.status >= 400 && failure.status < 500
+        if (refused) delete inputSubmissions.value[taskId]
+        else inputSubmissions.value[taskId].uncertain = true
+        inputErrors.value[id] =
+          (failure instanceof Error ? failure.message : String(failure)) +
+          (refused ? '' : t(' 提交结果未知，请确认，勿重复发送。'))
+      }
+      throw failure
+    }
+  }
+  async function confirmInputSubmission(id: string, taskId: string) {
+    const submission = inputSubmissions.value[taskId]
+    if (submission?.uncertain) await guideTask(id, submission.content, taskId)
+  }
+  function queueMessage(id: string, content: string) {
+    if (sessions.value.find((item) => item.id === id)?.archived)
+      throw new Error(t('此对话已归档。'))
+    const queue = (queuedMessages.value[id] ||= [])
+    if (!queue.length) {
+      const task = steeringTask(id)
+      if (task) queuedAfterTask.set(id, task)
+      queuedPaused.value[id] = !task || run.connected[id] === false
+    }
+    queue.push({ id: requestKey(), content })
+  }
+  function editQueued(id: string, entryId: string, content: string) {
+    const item = queuedMessages.value[id]?.find((entry) => entry.id === entryId)
+    if (item && content.trim()) item.content = content.trim()
+  }
+  async function guideQueued(id: string, entryId: string) {
+    const item = queuedMessages.value[id]?.find((entry) => entry.id === entryId)
+    if (!item) return
+    await guideTask(id, item.content)
+    const index = queuedMessages.value[id]?.findIndex((entry) => entry.id === entryId) ?? -1
+    if (index >= 0) removeQueued(id, index)
+  }
+  function refreshTaskDetails(id: string, taskId: string, fresh = false): Promise<void> {
+    const key = `${id}:${taskId}`
+    const existing = detailRequests.get(key)
+    if (existing) {
+      const epoch = lifecycle
+      return fresh
+        ? existing.promise.then(() => {
+            if (epoch === lifecycle && !deletedSessions.has(id))
+              return refreshTaskDetails(id, taskId)
+          })
+        : existing.promise
+    }
+    const epoch = lifecycle
+    const controller = new AbortController()
+    const readAfter = run.inputReadSequence(id, taskId)
+    const current = () =>
+      epoch === lifecycle && !deletedSessions.has(id) && !controller.signal.aborted
+    const jobs: Promise<void>[] = []
+    if (capabilities.value.task_input) {
+      run.setDetailStatus(id, taskId, 'inputs', true)
+      jobs.push(
+        api
+          .listTaskInputs(taskId, controller.signal)
+          .then((inputs) => {
+            if (current()) run.hydrateInputs(id, taskId, inputs, readAfter)
+          })
+          .then(() => {
+            if (current()) run.setDetailStatus(id, taskId, 'inputs', false)
+          })
+          .catch(() => {
+            if (current())
+              run.setDetailStatus(id, taskId, 'inputs', false, t('补充状态未确认，请重试。'))
+          }),
+      )
+    }
+    if (capabilities.value.structured_plan && capabilities.value.task_inspection) {
+      run.setDetailStatus(id, taskId, 'plan', true)
+      jobs.push(
+        api
+          .getTaskInspection(taskId, controller.signal)
+          .then((inspection) => {
+            if (current()) {
+              run.hydratePlan(id, inspection)
+              const turn = run.turns[id]?.find((item) => item.id === taskId)
+              run.setDetailStatus(
+                id,
+                taskId,
+                'plan',
+                false,
+                inspection.projection.truncated &&
+                  inspection.projection.plan === null &&
+                  turn?.planSeq === undefined
+                  ? t('较早的计划记录未完整加载，请重试。')
+                  : '',
+              )
+            }
+          })
+          .catch(() => {
+            if (current())
+              run.setDetailStatus(id, taskId, 'plan', false, t('计划读取失败，请重试。'))
+          }),
+      )
+    }
+    const promise = Promise.all(jobs)
+      .then(() => {})
+      .finally(() => {
+        if (detailRequests.get(key)?.controller === controller) detailRequests.delete(key)
+      })
+    detailRequests.set(key, { controller, promise })
+    return promise
+  }
+  async function resendInput(id: string, taskId: string, inputId: string) {
+    const item = run.turns[id]
+      ?.find((turn) => turn.id === taskId)
+      ?.inputs?.find((input) => input.id === inputId)
+    if (
+      !item ||
+      item.status !== 'not_consumed' ||
+      item.sentAsTaskId ||
+      resendingInputs.has(inputId)
+    )
+      return
+    if (runningTaskIds.value[id]?.length) throw new Error(t('当前任务结束后可作为新回合发送。'))
+    resendingInputs.add(inputId)
+    try {
+      await sendToSession(id, item.content, { taskId, inputId })
+    } finally {
+      resendingInputs.delete(inputId)
+    }
+  }
+  async function sendToSession(
+    id: string,
+    content: string,
+    inputOrigin?: { taskId: string; inputId: string },
+  ) {
     const previous = submissions.value[id]
     if (!previous && sessions.value.find((item) => item.id === id)?.archived)
-      throw new Error(t("对话已归档，恢复后可发送消息。"))
-    if (previous && !previous.uncertain) throw new Error(t("消息正在提交，请稍候。"))
+      throw new Error(t('对话已归档，恢复后可发送消息。'))
+    if (previous && !previous.uncertain) throw new Error(t('消息正在提交，请稍候。'))
     if (previous && previous.content !== content)
-      throw new Error(t("上一条消息提交结果未知，请点击“确认提交结果”。"))
+      throw new Error(t('上一条消息提交结果未知，请点击“确认提交结果”。'))
+    if (
+      previous &&
+      inputOrigin &&
+      (previous.inputOrigin?.taskId !== inputOrigin.taskId ||
+        previous.inputOrigin?.inputId !== inputOrigin.inputId)
+    )
+      throw new Error(t('上一条消息提交结果未知，请点击“确认提交结果”。'))
     if (!previous && runningTaskIds.value[id]?.length) {
-      if (!queuedMessages.value[id]?.length) {
-        queuedAfterTask.set(id, runningTaskIds.value[id][0])
-        queuedPaused.value[id] =
-          runningTaskIds.value[id].length !== 1 || run.connected[id] === false
-      }
-      const queue = (queuedMessages.value[id] ||= [])
-      queue.push(content)
-      return
+      throw new Error(t('任务正在运行，请选择引导或稍后发送。'))
     }
     watchSession(id)
     // getRandomValues also works on a private-network HTTP origin (unlike randomUUID).
     const submission = previous || {
-      key: Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''),
-      content, uncertain: false,
+      key: requestKey(),
+      content,
+      uncertain: false,
+      inputOrigin,
     }
     submission.uncertain = false
     submissions.value[id] = submission
@@ -387,19 +641,30 @@ export const useSessionStore = defineStore('session', () => {
       const refused = reason instanceof GatewayError && reason.status >= 400 && reason.status < 500
       if (refused) delete submissions.value[id]
       else submissions.value[id].uncertain = true
-      error.value = (reason instanceof Error ? reason.message : String(reason)) +
-        (refused ? '' : t(" 提交结果未知，请点击“确认提交结果”。"))
+      error.value =
+        (reason instanceof Error ? reason.message : String(reason)) +
+        (refused ? '' : t(' 提交结果未知，请点击“确认提交结果”。'))
       throw reason
     }
     // Once acknowledged, a later snapshot failure is NOT a failed submission.
     delete submissions.value[id]
     if (epoch !== lifecycle || deletedSessions.has(id)) return
     clear(id, pending)
+    // Confirmation of an ambiguous resend must close the same source action.
+    if (submission.inputOrigin)
+      run.markInputSent(
+        id,
+        submission.inputOrigin.taskId,
+        submission.inputOrigin.inputId,
+        result.task_id,
+      )
     if (queuedAfterTask.get(id) === pending) queuedAfterTask.set(id, result.task_id)
     run.markStarted(id, result.task_id, content)
     const turn = run.getTurn(id, result.task_id)
-    if (!['completed', 'failed', 'cancelled'].includes(turn.status) &&
-      !['succeeded', 'failed', 'cancelled', 'interrupted', 'timed_out'].includes(result.status))
+    if (
+      !['completed', 'failed', 'cancelled'].includes(turn.status) &&
+      !['succeeded', 'failed', 'cancelled', 'interrupted', 'timed_out'].includes(result.status)
+    )
       mark(id, result.task_id)
     else if (turn.status === 'completed' && !result.replayed) void sendNext(id, result.task_id)
     else queuedPaused.value[id] = true
@@ -414,8 +679,9 @@ export const useSessionStore = defineStore('session', () => {
       if (epoch !== lifecycle || deletedSessions.has(id)) return
       await refreshSnapshot(id)
     } catch {
-      error.value = t("消息已提交，状态更新失败。请重新打开对话，勿重复发送。")
+      error.value = t('消息已提交，状态更新失败。请重新打开对话，勿重复发送。')
     }
+    return result
   }
   async function confirmSubmission(id: string) {
     const submission = submissions.value[id]
@@ -424,8 +690,9 @@ export const useSessionStore = defineStore('session', () => {
       await sendToSession(id, submission.content)
     } catch {
       // A definitive refusal releases the key but must not lose the user's text.
-      if (!deletedSessions.has(id) && !submissions.value[id]) {
-        ;(queuedMessages.value[id] ||= []).unshift(submission.content)
+      if (!deletedSessions.has(id) && !submissions.value[id] && !submission.inputOrigin) {
+        const queue = (queuedMessages.value[id] ||= [])
+        queue.unshift({ id: submission.key, content: submission.content })
         queuedPaused.value[id] = true
       }
     }
@@ -434,7 +701,12 @@ export const useSessionStore = defineStore('session', () => {
     if (activeSessionId.value) await sendToSession(activeSessionId.value, content)
   }
   async function sendNext(id: string, completedTask?: string, confirmed = false) {
-    if (draining.has(id) || submissions.value[id] || runningTaskIds.value[id]?.length || !queuedMessages.value[id]?.length)
+    if (
+      draining.has(id) ||
+      submissions.value[id] ||
+      runningTaskIds.value[id]?.length ||
+      !queuedMessages.value[id]?.length
+    )
       return
     if (
       !confirmed &&
@@ -464,7 +736,7 @@ export const useSessionStore = defineStore('session', () => {
       if (!next) return
       queuedPaused.value[id] = false
       try {
-        await sendToSession(id, next)
+        await sendToSession(id, next.content)
       } catch {
         // An ambiguous send already has a confirmation entry with the original key.
         if (!submissions.value[id]) (queuedMessages.value[id] ||= []).unshift(next)
@@ -519,10 +791,16 @@ export const useSessionStore = defineStore('session', () => {
     await loadingSessions.get(id)
     await streams.get(id)?.recover()
   }
-  async function setSubagentLimits(calls: number, concurrent: number, id = activeSessionId.value, modelIds?: string[]) {
+  async function setSubagentLimits(
+    calls: number,
+    concurrent: number,
+    id = activeSessionId.value,
+    modelIds?: string[],
+  ) {
     if (!id) return
     const updated = await api.updateConversationSettings(id, {
-      max_subagent_calls: calls, max_concurrent_subagents: concurrent,
+      max_subagent_calls: calls,
+      max_concurrent_subagents: concurrent,
       ...(modelIds === undefined ? {} : { subagent_model_ids: modelIds }),
     })
     const i = sessions.value.findIndex((s) => s.id === updated.id)
@@ -538,9 +816,13 @@ export const useSessionStore = defineStore('session', () => {
     return latest?.status === 'interrupted' ? latest : undefined
   }
   function canResumeTask(id: string) {
-    return Boolean(capabilities.value.task_resume && interruptedTask(id) &&
+    return Boolean(
+      capabilities.value.task_resume &&
+      interruptedTask(id) &&
       !sessions.value.find((item) => item.id === id)?.archived &&
-      !runningTaskIds.value[id]?.length && !submissions.value[id])
+      !runningTaskIds.value[id]?.length &&
+      !submissions.value[id],
+    )
   }
   async function resumeInterruptedTask(id: string) {
     const task = interruptedTask(id)
@@ -554,7 +836,7 @@ export const useSessionStore = defineStore('session', () => {
       if (epoch !== lifecycle || deletedSessions.has(id)) return
       const current = interruptedTask(id)
       if (!canResumeTask(id) || current?.id !== task.id)
-        throw new Error(t("任务状态已变化，请查看最新进展。"))
+        throw new Error(t('任务状态已变化，请查看最新进展。'))
       // Checkpoint eligibility and all permission checks remain on the server.
       await api.resumeTask(current.id, current.version)
       if (epoch !== lifecycle || deletedSessions.has(id)) return
@@ -562,9 +844,14 @@ export const useSessionStore = defineStore('session', () => {
       await refreshSnapshot(id)
     } catch (reason) {
       if (epoch === lifecycle && !deletedSessions.has(id)) {
-        error.value = t("未能确认恢复：") + (reason instanceof Error ? reason.message : String(reason))
+        error.value =
+          t('未能确认恢复：') + (reason instanceof Error ? reason.message : String(reason))
         // A timeout may have happened after acceptance. Reconcile, never re-submit.
-        try { await refreshSnapshot(id) } catch { /* Keep the original error. */ }
+        try {
+          await refreshSnapshot(id)
+        } catch {
+          /* Keep the original error. */
+        }
       }
     } finally {
       resumingTaskIds.value = resumingTaskIds.value.filter((item) => item !== task.id)
@@ -580,7 +867,8 @@ export const useSessionStore = defineStore('session', () => {
       await refreshEvents(conversationId)
       return true
     } catch (reason) {
-      error.value = t("未能确认停止：") + (reason instanceof Error ? reason.message : String(reason))
+      error.value =
+        t('未能确认停止：') + (reason instanceof Error ? reason.message : String(reason))
       return false
     } finally {
       stoppingTaskIds.value = stoppingTaskIds.value.filter((id) => id !== task)
@@ -592,7 +880,7 @@ export const useSessionStore = defineStore('session', () => {
     const task = id ? runningTaskIds.value[id]?.find((t) => !t.startsWith('pending-')) : undefined
     if (id && task) await cancelTask(task, id)
     else if (id && runningTaskIds.value[id]?.length)
-      error.value = t("消息正在提交，任务建立后可停止。待发消息已暂停。")
+      error.value = t('消息正在提交，任务建立后可停止。待发消息已暂停。')
   }
   function disconnect() {
     generation++
@@ -600,6 +888,9 @@ export const useSessionStore = defineStore('session', () => {
     bufferedEvents.clear()
     snapshotFacts.clear()
     taskSequences.clear()
+    for (const request of detailRequests.values()) request.controller.abort()
+    detailRequests.clear()
+    for (const submission of Object.values(inputSubmissions.value)) submission.uncertain = true
     loadingSessions.clear()
     for (const [id, submission] of Object.entries(submissions.value)) {
       submission.uncertain = true
@@ -610,7 +901,10 @@ export const useSessionStore = defineStore('session', () => {
     streams.clear()
     flushDeltas()
   }
-  async function manageSession(id: string, patch: { title?: string; archived?: boolean; folder_id?: string }) {
+  async function manageSession(
+    id: string,
+    patch: { title?: string; archived?: boolean; folder_id?: string },
+  ) {
     const item = await api.updateConversationSettings(id, patch)
     const index = sessions.value.findIndex((session) => session.id === id)
     if (index >= 0) sessions.value[index] = item
@@ -627,9 +921,24 @@ export const useSessionStore = defineStore('session', () => {
     bufferedEvents.delete(id)
     snapshotFacts.delete(id)
     for (const key of taskSequences.keys()) if (key.startsWith(`${id}:`)) taskSequences.delete(key)
+    for (const [key, request] of detailRequests)
+      if (key.startsWith(`${id}:`)) {
+        request.controller.abort()
+        detailRequests.delete(key)
+      }
+    for (const turn of run.turns[id] || []) delete inputSubmissions.value[turn.id]
+    delete inputErrors.value[id]
     deltas.splice(0, deltas.length, ...deltas.filter((item) => item.id !== id))
-    for (const map of [messages.value, approvals.value, runningTaskIds.value, queuedMessages.value, queuedPaused.value,
-      tasks.value, submissions.value, historyTruncated.value])
+    for (const map of [
+      messages.value,
+      approvals.value,
+      runningTaskIds.value,
+      queuedMessages.value,
+      queuedPaused.value,
+      tasks.value,
+      submissions.value,
+      historyTruncated.value,
+    ])
       delete map[id]
     queuedAfterTask.delete(id)
     sessions.value = sessions.value.filter((item) => item.id !== id)
@@ -648,6 +957,8 @@ export const useSessionStore = defineStore('session', () => {
     runningTaskIds,
     queuedMessages,
     queuedPaused,
+    inputSubmissions,
+    inputErrors,
     activeSessionId,
     isLoading,
     isSending,
@@ -673,6 +984,15 @@ export const useSessionStore = defineStore('session', () => {
     refreshSnapshot,
     sendMessage,
     sendToSession,
+    guideTask,
+    steeringTask,
+    steeringReason,
+    confirmInputSubmission,
+    queueMessage,
+    editQueued,
+    guideQueued,
+    refreshTaskDetails,
+    resendInput,
     setPermissionMode,
     setConversationRuntime,
     setSubagentLimits,

@@ -1,0 +1,116 @@
+@use './mixins';
+.code-block {
+  min-width: 0;
+  margin-block: var(--space-4);
+  overflow: hidden;
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+  box-shadow: var(--elevation-inset);
+  color: var(--ink);
+  font-size: var(--text-xs);
+}
+.code-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--code-menu-height);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--hairline) solid var(--rule);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+}
+.code-heading > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+small {
+  font: inherit;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.copy-button {
+  @include mixins.interactive-row;
+  display: inline-flex;
+  flex: none;
+  gap: var(--space-2);
+  align-items: center;
+  margin-inline-start: auto;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  color: var(--ink-2);
+  background: var(--transparent);
+  font-size: var(--text-xs);
+}
+.code-scroll {
+  max-height: var(--code-max-height);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.code-body {
+  margin: 0;
+  padding-block: var(--space-3);
+  background: var(--transparent);
+}
+code {
+  display: block;
+  min-width: max-content;
+  font: var(--text-xs) / var(--code-line-height) var(--font-mono);
+}
+.code-line {
+  display: flex;
+}
+.code-number {
+  position: sticky;
+  left: 0;
+  flex: none;
+  min-width: var(--code-gutter-width);
+  padding-inline: var(--space-3);
+  text-align: right;
+  color: var(--ink-3);
+  background: var(--paper-2);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.code-text {
+  display: block;
+  padding-inline: var(--space-4);
+  white-space: pre;
+}
+.code-text::selection {
+  background: var(--code-selection);
+}
+.addition {
+  background: var(--code-addition);
+}
+.deletion {
+  background: var(--code-deletion);
+}
+.hunk {
+  color: var(--accent);
+}
+.header {
+  color: var(--ink-2);
+}
+.diff .code-number {
+  min-width: var(--code-diff-gutter);
+}
+.diff .code-number:nth-child(2) {
+  left: var(--code-diff-gutter);
+}
+.code-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-top: var(--hairline) solid var(--rule);
+  padding: var(--space-2) var(--space-4);
+}
+.code-footer button {
+  @include mixins.text-action;
+  font-size: var(--text-xs);
+}
+.copy-error {
+  margin: var(--space-3) var(--space-4);
+  color: var(--ink-2);
+}

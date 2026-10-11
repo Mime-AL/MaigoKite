@@ -1,4 +1,8 @@
 @use './mixins';
+@use './breakpoints' as breakpoints;
+.chat-page .text-button {
+  @include mixins.text-action;
+}
 
 .chat-page {
   position: relative;
@@ -22,7 +26,8 @@
 .chat-page.empty {
   overflow: auto;
   justify-content: center;
-  background: radial-gradient(ellipse at top right, var(--preview-light), var(--transparent)), var(--paper);
+  background:
+    radial-gradient(ellipse at top right, var(--preview-light), var(--transparent)), var(--paper);
 }
 .chat-page.empty .conversation {
   flex: none;
@@ -55,8 +60,8 @@
   padding: var(--space-8) var(--space-7) var(--space-4);
 }
 .turn {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 260px;
+  // The view bounds history to 20 entries; real heights drive the minimap.
+  contain: style;
 }
 .welcome-state {
   max-width: var(--content-width);
@@ -64,8 +69,8 @@
 }
 .unfinished {
   display: grid;
-  gap: 12px;
-  max-width: 440px;
+  gap: var(--space-4);
+  max-width: var(--unfinished-width);
 }
 .unfinished > span {
   color: var(--ink-2);
@@ -81,11 +86,11 @@
 .follow-button {
   @include mixins.interactive-row;
   position: absolute;
-  right: 24px;
-  bottom: 12px;
-  border: 1px solid var(--rule);
+  right: var(--space-7);
+  bottom: var(--space-4);
+  border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-sm);
-  padding: 8px 12px;
+  padding: var(--space-3) var(--space-4);
   background: var(--paper);
   box-shadow: var(--shadow-float);
   color: var(--accent);
@@ -93,33 +98,42 @@
 }
 .chat-error {
   max-width: var(--content-width);
-  margin: 8px auto 0;
-  padding: 8px 16px;
+  margin: var(--space-3) auto 0;
+  padding: var(--space-3) var(--space-5);
   color: var(--ink-2);
-  border-left: 2px solid var(--wait);
+  border-left: var(--pending-line) solid var(--wait);
   font-size: var(--text-sm);
 }
-.archived-notice { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 16px; color: var(--ink-2); font-size: var(--text-sm); }
+.archived-notice {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: var(--space-5);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
 .earlier {
   @include mixins.interactive-row;
   border: 0;
   color: var(--ink-2);
   background: var(--transparent);
-  padding: 12px;
+  padding: var(--space-4);
   font-size: var(--text-sm);
 }
 .queued-messages {
   max-width: var(--content-width);
   width: 100%;
   margin: auto;
-  padding: 0 24px;
+  padding: 0 var(--space-7);
 }
 .queued-messages p {
   display: flex;
-  gap: 8px;
+  gap: var(--space-3);
   font-size: var(--text-xs);
   color: var(--ink-2);
-  margin: 6px 0;
+  margin: var(--size-6) 0;
 }
 .queued-messages span {
   flex: 1;
@@ -132,117 +146,25 @@
   background: var(--transparent);
   border: 0;
 }
-@media (max-width: 720px) {
+@include breakpoints.sidebar-overlay {
   .messages-inner {
-    padding-inline: 12px;
+    padding-inline: var(--space-4);
   }
 }
 
-/* Presentation-only sample. Stores, transport and tool semantics stay untouched. */
-.inkline-preview :deep(.composer-wrap) { padding-inline: var(--welcome-side-space); }
-.inkline-preview :deep(.composer) {
-  isolation: isolate;
-  background: var(--paper-raised);
-  border-color: var(--rule);
-  padding: var(--space-6) var(--space-6) var(--space-4);
-  box-shadow: var(--elevation-inset), var(--elevation-raised);
+.inkline-preview :deep(.composer-wrap) {
+  padding-inline: var(--welcome-side-space);
 }
-.inkline-preview :deep(.composer::before) {
-  content: '';
-  position: absolute;
-  inset: var(--space-1);
-  z-index: -1;
-  border-radius: inherit;
-  background-image: var(--noise);
-  opacity: var(--noise-paper-opacity);
-  pointer-events: none;
-}
-.inkline-preview :deep(.composer::after) {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  box-shadow: 0 0 0 var(--space-2) var(--preview-accent-glow);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-fast) var(--ease-out);
-}
-.inkline-preview :deep(.composer:focus-within) { border-color: var(--accent); }
-.inkline-preview :deep(.composer:focus-within::after) { opacity: 1; }
-.inkline-preview :deep(.send-button) { width: var(--preview-button-size); height: var(--preview-button-size); }
-.inkline-preview :deep(.composer-help) { color: var(--ink-2); text-align: right; }
-.inkline-preview :deep(.markdown-content) { font-size: var(--type-body); line-height: var(--leading-reading); }
-.inkline-preview :deep(.markdown-content h2) { font-size: var(--type-heading); }
-.inkline-preview :deep(.markdown-content h3) { font-size: var(--type-subheading); }
-.inkline-preview :deep(.markdown-content pre),
-.inkline-preview :deep(.node-details pre) {
-  position: relative;
-  isolation: isolate;
-  box-shadow: var(--elevation-inset);
-}
-.inkline-preview :deep(.markdown-content pre::before),
-.inkline-preview :deep(.node-details pre::before) {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image: var(--noise);
-  opacity: var(--noise-code-opacity);
-  pointer-events: none;
-}
-.inkline-preview :deep(.process-heading) { padding-right: var(--space-4); }
-.inkline-preview :deep(.process-heading strong) { font-weight: var(--weight-semibold); }
-.inkline-preview :deep(.node-button) { border-radius: var(--radius-sm); }
-.inkline-preview :deep(.node-glyph) { font-family: var(--font-mono); animation: ink-land var(--motion-panel) var(--ease-spring) both; }
-.inkline-preview :deep(.waiting .node-glyph) { animation: ink-breathe var(--motion-pulse) var(--ease) infinite; }
-.inkline-preview :deep(.receipt) { gap: var(--space-4); margin-block: var(--space-7) var(--space-8); }
-.inkline-preview :deep(.end-glyph) {
-  height: var(--preview-button-size);
-  padding: 0;
-  border: 0;
-  align-self: start;
-  align-content: center;
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-}
-.inkline-preview :deep(.receipt > div) {
-  position: relative;
-  isolation: isolate;
-  max-width: var(--receipt-width);
-  padding: var(--space-5) var(--space-6);
-  border: var(--hairline) solid var(--rule);
-  border-radius: var(--radius-sm) var(--radius-sm) var(--radius-none) var(--radius-none);
-  background: var(--paper-raised);
-  box-shadow: var(--elevation-sheet);
-}
-.inkline-preview :deep(.receipt > div::before) {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image: var(--noise);
-  opacity: var(--noise-paper-opacity);
-  pointer-events: none;
-}
-.inkline-preview :deep(.receipt > div::after) {
-  content: '';
-  position: absolute;
-  left: calc(-1 * var(--hairline));
-  right: calc(-1 * var(--hairline));
-  top: 100%;
-  height: var(--receipt-cut);
-  background: linear-gradient(135deg, var(--paper-raised) 25%, var(--transparent) 25%) calc(var(--receipt-cut) / 2) 0,
-    linear-gradient(225deg, var(--paper-raised) 25%, var(--transparent) 25%) calc(var(--receipt-cut) / 2) 0;
-  background-size: var(--receipt-cut) var(--receipt-cut);
-}
-.inkline-preview :deep(.receipt h3) { font-size: var(--type-subheading); }
-.inkline-preview :deep(.receipt p) { font-variant-numeric: tabular-nums; }
-.inkline-preview :deep(.receipt p span) { color: var(--ink-2); }
-@media (max-width: 720px) {
-  .inkline-preview :deep(.composer-wrap) { padding-inline: var(--space-5); }
+@include breakpoints.sidebar-overlay {
+  .inkline-preview :deep(.composer-wrap) {
+    padding-inline: var(--space-5);
+  }
   .inkline-preview :deep(.answer),
   .inkline-preview :deep(.node-body),
-  .inkline-preview :deep(.thinking) { margin-left: var(--rail-width); }
-  .inkline-preview :deep(.process-heading small) { display: none; }
+  .inkline-preview :deep(.thinking) {
+    margin-left: var(--rail-width);
+  }
+  .inkline-preview :deep(.process-heading small) {
+    display: none;
+  }
 }

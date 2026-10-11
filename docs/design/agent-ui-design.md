@@ -387,3 +387,197 @@ macOS 下 `Ctrl` 自动换成 `⌘`。
 - 浏览器交互专项：[主记录](../../web/test-results/inkline-stage2/interaction-results.json)、[补充记录](../../web/test-results/inkline-stage2/extra-results.json)。覆盖版本化审批、驳回理由、提问错误保留、正文原样、顺序降级、定位焦点、计数、命令键盘、三个覆盖边界、互斥、焦点 / 滚动还原、宽度拖拽、双击重命名、英文与 reduced-motion；未报告页面异常。
 - 未覆盖：真实 Gateway / Core 的审批与回答端到端，macOS 红绿灯、Windows 窗口按钮、失焦系统提醒及托盘。相关业务 / Electron 代码保留，浏览器验证不能替代真实桌面验收。
 - 仍保留的边界：没有调用 ID 的审批不可能精确关联；缺少真实序号及时间的提问只能回落到末尾。没有新增后端接口需求，也不以猜测补齐缺失数据。
+
+## 10. 阶段 3a · 数据链路
+
+本阶段只接入运行中补充输入、真实计划和抽屉职责划分。3b 的 SVG 墨线、补充节点、小票、代码块与砚台视觉尚未开始。未修改 Go、Python 产品代码、Electron、composables、UI/layout store 或依赖；未执行 Git 命令。
+
+### 输入与恢复语义
+
+- 运行中 Enter 默认引导：立即向现有 `/tasks/{task_id}/inputs` 提交，携带单次逻辑请求的 `Idempotency-Key`；只有实际 `running` 的普通任务可提交。等待审批/提问、排队、重试等待、停止中、直接 `/tool` 任务等不可引导，后端仍作最终校验。
+- queued / consumed 直接使用 `task.input.queued`、`task.input.consumed` 事件；不添加补充输入轮询。没有 not_consumed 事件，因此任务结束、刷新与重连时通过现有 GET 查询确认；查询失败显示未知与重试，不从任务终态推断消费结果。
+- 补充输入以 input ID 合并。消费后消息表中的同 ID 消息由补充条目承载，避免双份显示；同文不同 ID 的合法输入不去重。较新事件不被旧 GET 或迟到 queued 回执覆盖。
+- 未采用的补充明确显示“本轮未采用”和“作为新回合发送”，必须用户点击，不自动重发。响应不明确时保留原幂等键；确认成功后关闭同一条补充的重发操作。已执行的动作不撤回。
+- Alt+Enter / 发送菜单的“稍后发送”保留前端下一回合列表。列表可编辑、移除或立即引导；成功结束原任务后才自动发送，失败、取消、断线时暂停，需显式继续。此列表仍为当前前端实例的本地状态，不宣称跨浏览器刷新持久化。
+- 草稿收到确认前保留；4xx 就地显示错误，20 条上限仅计算 queued。较新草稿不会被旧请求的成功响应清空。首次引导展示一次送达与副作用边界说明。
+- Esc / 独立停止按钮走原取消接口，不把普通补充当取消。发送菜单打开时 Esc 只关闭菜单。
+- 会话 snapshot 没有 inputs / plan。恢复用原事件历史、`GET /tasks/{id}/inputs` 和 `GET /tasks/{id}/inspection`，不增后端字段。初次刷新只补读最新任务和最近 20 个任务中尚未确认消费的输入；展开更早聊天时再按需确认，避免遍历全部历史发请求。
+
+### 计划和抽屉边界
+
+- `plan.updated` 只接受 `{content, status}` 的有效数组，按任务及真实序号整体替换；空数组明确清空。inspection 的 last_sequence 防止旧查询覆盖新计划，truncated 的缺失项不冒充空计划。
+- 显示名“任务”改为“运行”，保留既有 `jobs` 页签 ID 和 `JobsTab` 文件名。仅展示真实当前操作、等待原因、已派发子 Agent 和后端进程记录；历史运行默认折叠成一行摘要，用户完整输入留在聊天区。
+- “计划”展示当前最新任务的真实步骤、进度、加载、错误重试或空态，不沿用上一任务计划，也不伪造步骤。“等你处理”保留阶段 2 行为。
+- 只有运行页签打开且存在真实活跃进程时才刷新日志尾部；切换会话、关闭和卸载取消可取消的读取、清理计时器，迟到响应不覆盖新会话。API listTasks 沿用原签名，不能物理取消的请求只丢弃过期结果。
+- 本阶段补充输入显示在所属任务过程之后，作为独立状态条目；3b 才加入 Rail 节点与 Minimap，不提前扩展时间线视觉。
+
+### 改动文件
+
+| 文件（相对 web/src） | 本轮用途 |
+| --- | --- |
+| `api/client.ts` | inputs、inspection、进程列表的窄 DTO 与原 fetch API 接口 |
+| `api/events.ts` | 补充状态、计划水位、详情读取状态的 UI 类型 |
+| `api/event-adapter.ts` | 两类输入回执及 plan.updated 的公开协议映射 |
+| `stores/run.ts` | input ID 合并、防状态倒退、计划整体替换和恢复 |
+| `stores/session.ts` | 引导提交、幂等确认、显式待发操作、终态补读及恢复协调 |
+| `stores/session-projection.ts` | 按 input ID 合并消费后的可见消息 |
+| `views/Chat.vue` | 引导/稍后/发送入口与状态、未采用重发、可操作待发列表 |
+| `components/chat-area/InputBox.vue` | Enter / Alt+Enter / Esc、发送选项、保留草稿和就地错误 |
+| `components/chat-area/SupplementMessage.vue` | queued / consumed / not_consumed 与显式重发 |
+| `components/chat-area/QueuedMessages.vue` | 待发编辑、移除、立即引导、暂停后继续 |
+| `components/drawer/JobsTab.vue` | 真实运行状态、后台进程与折叠历史 |
+| `components/drawer/PlanTab.vue` | 真实计划及空/载/错态 |
+| `components/shell/Drawer.vue` | 页签显示名“运行”，不改内部 ID |
+| `styles/input-box.scss` | 发送菜单与提示的令牌化样式 |
+| `styles/chat.scss` | 补充重试与确认按钮的展示样式 |
+| `styles/jobs-tab.scss` | 运行面板局部样式，组件保持 250 行内 |
+| `styles/mixins.scss` | 小型文字操作按钮复用既有四态反馈 |
+| `i18n/locales/en.ts` | 所有新增界面文案的中英文来源目录 |
+
+本设计文档及 API 文档仅更新前端接线说明。新增 `src/tests/stage3a-{api,run,session,interactions}.test.ts` 和两个真实验收脚本都位于现有忽略规则下；未修改旧测试断言、夹具或装配，未修改 Git 索引。
+
+### 验收记录与截图
+
+- 构建：`npm run build` 通过（vue-tsc、Vite、既有 Electron 编译），仍有 Sass legacy API 警告。
+- 新增单测 33 / 33 通过。全量 89 项，61 通过、28 失败；与阶段 2 / 本轮基线逐项比较，新增失败 0。失败分类：session 8、model-settings 7、input-box 3、phase2-pages 3、agent-activity 2；api-client、markdown-content、runtime-status-settings、settings、workspace-explorer 各 1。不能称为全量测试通过。
+- 改动 TS / Vue 文件 ESLint 错误 0、格式警告 188，主要为模板属性/换行，不宣称警告清零。
+- 使用真实本地 `qwen/qwen3.5-9b` 与 Gateway/Core，不是 Mock：短任务完整链路的 10 项检查通过，任务 `succeeded`、停止任务 `cancelled`、页面错误 0；[真实记录](../../web/test-results/inkline-stage3a/short-live-results.json)。计划恢复、历史折叠、空态及 1100 / 719 抽屉的 6 项补充检查通过；[详情记录](../../web/test-results/inkline-stage3a/details-live-results.json)。
+- 长任务首次试跑：引导已消费，但任务触及既有 8 次模型调用预算而失败。此项单列，不算任务完成；未改变后端限制。首次本地截图脚本的 CSP 字符串求值问题已修复为函数形式，没有放宽 CSP。
+- 测试与截图都保留在本地已忽略目录，供审阅，不能依赖仓库分发这些文件。
+- 真实验收创建的 5 个“3a ·”会话已确认无活跃任务后归档，可从归档中恢复，没有删除记录。验收开发服务保留运行，便于本地审阅。
+
+| 真实后端步骤 | 截图 |
+| --- | --- |
+| 引导提交，等待纳入 | [查看](../../web/test-results/inkline-stage3a/01-guide-queued.png) |
+| 待发编辑完成 | [查看](../../web/test-results/inkline-stage3a/02-later-edited.png) |
+| 待发移除 | [查看](../../web/test-results/inkline-stage3a/03-later-removed.png) |
+| 引导已纳入，任务正常完成 | [查看](../../web/test-results/inkline-stage3a/04-guide-final.png) |
+| 刷新后按 input ID 还原 | [查看](../../web/test-results/inkline-stage3a/05-input-restored.png) |
+| 最后模型流期间补充 | [查看](../../web/test-results/inkline-stage3a/06-late-input-queued.png) |
+| 明确未采用与手动重发 | [查看](../../web/test-results/inkline-stage3a/07-not-consumed.png) |
+| 点击后新建任务 | [查看](../../web/test-results/inkline-stage3a/08-resend-new-turn.png) |
+| Esc 收到真实取消确认 | [查看](../../web/test-results/inkline-stage3a/09-esc-stop.png) |
+| 计划恢复 · 浅色 | [查看](../../web/test-results/inkline-stage3a/10-plan-restored-light.png) |
+| 计划恢复 · 深色 | [查看](../../web/test-results/inkline-stage3a/11-plan-restored-dark.png) |
+| 运行历史折叠 | [查看](../../web/test-results/inkline-stage3a/12-runtime-history-dark.png) |
+| 真实计划空态 | [查看](../../web/test-results/inkline-stage3a/13-plan-empty-dark.png) |
+| 1100 覆盖抽屉 | [查看](../../web/test-results/inkline-stage3a/14-plan-empty-1100-dark.png) |
+| 719 覆盖抽屉 | [查看](../../web/test-results/inkline-stage3a/14-plan-empty-719-dark.png) |
+
+尚未进行真实 20 条上限/等待审批的错误注入、进程与子 Agent 活跃态现场验收；相应路径有前端单测，不以单测冒充真实运行。跨进程恢复、其他 Provider、Electron 原生窗口与系统提醒不在本阶段验收范围。补充输入的已重发标记是当前前端实例的请求关联，不宣称服务端或跨设备 exactly-once。
+
+阶段 3a 已经用户确认，阶段 3b 的实施与验收记录如下。
+
+## 11. 阶段 3b · 对话主体展示
+
+实施日期：2026-10-11。本阶段不改 stores、api、composables、Electron、Go/Python 生产代码，不新增依赖，不操作 Git。保留 3a 的补充输入、排队、审批和取消语义，只调整展示组件、只读展示工具函数、样式与文案。
+
+### 逐项交付
+
+| 要求 | 实现与边界 |
+| --- | --- |
+| SVG Rail | `RailGlyph` 用 SVG 圆、菱形、叉、记忆笔形和补充箭头绘制；`RailInk` 用填充曲线与细线建立粗细笔触。只有正在执行节点的线段叠加强调色，以 scaleY / opacity 生长，静态透明度渐变提供墨尾，不动画模糊或阴影。 |
+| 节点状态 | 落笔使用既有 spring 令牌；等待为菱形，失败为朱砂 SVG 叉并自动展开。批准/驳回仍留下原有印记，不改审批版本提交。 |
+| 补充输入 | `PresentationNode` 仅存在于展示层，未新增 Gateway DTO。每条补充独立挂在 Rail 上，沿用等待纳入、已纳入、未采用和手动重发。以真实创建时间对齐带时间的工具节点；消费事件 seq 不冒充提交时间。没有可比较时间时使用可用 seq，缺少可比较顺序时放在过程末尾，不猜测。输入会隔开连续读节点，避免跨补充指令合并；正文不再重复绘制该输入。 |
+| 连续读取与审批 | 沿用已有只读聚合；带精确 toolCallId 的审批仍挂在对应操作后，不能被读取聚合吞掉。无顺序问题卡的末尾降级规则不变。 |
+| Minimap | 从实际 DOM 位置 / scrollHeight 计算墨量桶，密集位置更深。折叠节点映射到其真实摘要位置；未渲染的分页历史不伪造坐标。点击仍使用原有展开、滚动与焦点定位。ResizeObserver / MutationObserver 经 RAF 合并；文本 delta 不触发全节点 DOM 扫描，卸载时解除观察与待执行帧。 |
+| 消息 | 正文 15px / 1.7，过程与技术信息 12–13px；正文与页边过程保持分列。标题、列表、引用、链接、表格有独立层级，行数与小结数字使用 tabular-nums。 |
+| 小结 | 结束按钮显式清除默认边框。纯聊天只留紧凑收尾；真实工具、审批、变更或其他活动保留小票，展示文件、命令、待处理次数、用时和失败项。小票轻落，reduced-motion 只淡入。未添加后端不存在的撤销接口。 |
+| 代码 / 终端 / diff | 共用 `CodeBlock`：行号、无纸纹、20 行预览、展开最多最后 200 行、明确截断提示、完整原文复制及成功/失败反馈。diff 按实际 hunk 计算前后行号，保留增删行语义标记。工具参数仍折叠，不改变输出/错误提示来源。 |
+| 砚台 | 聚焦墨晕只过渡 opacity；提交获确认后出现短促墨滴，失败不制造发送成功反馈。运行、等审批、待发列表有不同边缘形态；问/谋/做使用滑动墨块与不同形态，权限/规划前缀语义不变。提交中的反馈使用脉点，不增加通用 spinner。 |
+| 键盘菜单 | / 和 @ 支持上下键、高亮滚动、Enter / Tab 确认、Alt+1–9 选择，Esc 先关菜单，IME 期间不提交。模型选择保留服务分组、搜索与原有 dialog 焦点恢复，增加 Home/End/PageUp/PageDown 和 Alt+数字；菜单选项不触发新的提交接口。 |
+| 响应式与无障碍 | 沿用共享断点和两侧覆盖面板规则。1440 / 1100 / 719 × 浅/深色均截图，无整页横向溢出；保留停止、定位和重发按钮的可访问名称。动态节点、小票和活动线在 reduced-motion 下短淡入，墨滴关闭。 |
+
+### 修改文件与目的
+
+路径均相对 `web/src/`。展示组件保持单文件不超过 250 行；`Chat.vue` 是原有大视图，本阶段未为缩短行数迁移其提交逻辑。
+
+| 文件 | 目的 |
+| --- | --- |
+| `components/rail/RailGlyph.vue`（新增） | 单一 SVG 节点语言与落笔/等待动效。 |
+| `components/rail/RailInk.vue`（新增） | 笔触与当前操作的活动线，避免整条历史墨线同时生长。 |
+| `components/rail/RailTrack.vue` | 组合笔触、折叠过程、就地审批、补充节点与回复，保留问题的原有顺序降级。 |
+| `components/rail/RailNode.vue` | SVG、失败展开、补充卡、既有审批/回答/记忆撤销入口。 |
+| `components/rail/RailNodeDetail.vue` | 工具参数与输出接入公共代码展示，不改工具执行。 |
+| `components/rail/RailMinimap.vue` | 真实位置测量、密度、跳转和观察器清理。 |
+| `components/rail/Receipt.vue` | 紧凑/小票分流、结束按钮、小结数字和变更入口。 |
+| `components/rail/SealMark.vue` | 仅模板格式整理，批准/驳回语义和颜色不变。 |
+| `components/chat-area/AgentMessage.vue`、`UserMessage.vue` | 正文与元信息排版令牌。 |
+| `components/chat-area/MarkdownContent.vue` | 缓存/节流继续保留，顶层围栏交给 Vue 代码组件，净化后的正文仍安全渲染。 |
+| `components/chat-area/SupplementMessage.vue` | 支持 Rail 内嵌，原有状态、错误与重发操作不变。 |
+| `components/chat-area/InputBox.vue` | 保留 3a 提交决策和草稿确认；状态样式、发送墨滴、连接展示片段。 |
+| `components/chat-area/TerminalOutput.vue`、`ChangeItem.vue` | 复用代码/终端/diff 展示，移除重复输出样式。 |
+| `components/inkwell/ComposerDraft.vue`（新增） | 输入自动高度和菜单键盘交互，仅展示状态。 |
+| `components/inkwell/ComposerToolbar.vue`（新增） | 原有模式、模型、速度、权限和发送/停止控件，事件原样转发。 |
+| `components/inkwell/ComposerFooter.vue`（新增） | 原有用量、上下文、子 Agent 设置和快捷键提示位置不变。 |
+| `components/inkwell/ModePill.vue` | 模式墨块与键盘切换。 |
+| `components/inkwell/ModelPicker.vue` | 现有选择器的键盘补全与令牌定位，不改模型数据/选择契约。 |
+| `components/inkwell/MentionMenu.vue`、`SlashMenu.vue` | 高亮跟随、选项关联 ID 与数字提示。 |
+| `components/common/CodeBlock.vue`（新增） | 统一有界输出、行号、复制、折叠和 diff 展示。 |
+| `components/common/IconSymbol.vue` | 增加复制和引用的明确 SVG 图形，避免落入通用星光 fallback。 |
+| `components/file-explorer/WorkspaceDiff.vue` | 仅替换 diff 展示；加载、选择、请求代次与错误重试保持原样。 |
+| `views/Chat.vue` | 补充卡移进 Rail，传入真实滚动容器和排队数量，自动跟随修订包含输入状态。 |
+| `utils/rail-presentation.ts` | 只读补充节点与顺序，继续精确绑定审批，未改运行投影 store。 |
+| `utils/rail-minimap.ts`（新增） | 纯位置密度计算，供组件和单测使用。 |
+| `utils/code-presentation.ts`（新增） | 纯行号 / diff gutter / 有界预览，不应用 patch。 |
+| `utils/composer-presentation.ts`（新增） | 展示片段的共享既有 props / emit 类型和菜单索引计算，不新增输入协议。 |
+| `utils/markdown.ts`、`types/markdown-it.d.ts` | 复用 MarkdownIt 公开 parser / renderer；共享 DOMPurify 净化规则，补齐既有库的类型声明，不自行解析 Markdown。 |
+| `i18n/locales/en.ts` | 新增文案进入现有双语词表。 |
+| `styles/tokens.scss` | 新增 Rail、消息行高、代码 gutter、菜单、墨滴与缩略图尺寸令牌，保留既有主题与强调色所有权。 |
+| `styles/chat.scss`、`input-box.scss` | 移除旧 deep 样式覆盖、代码纹理和整条线动画，采用已有断点。 |
+| `styles/code-block.scss`、`markdown-content.scss`、`receipt.scss`（新增） | 对话主体三个单一展示模块的样式。 |
+| `styles/composer-controls.scss`、`composer-menu.scss`（新增） | 从砚台分离控件与菜单样式，仍是自定义 SCSS 组件。 |
+| `styles/model-picker.scss`、`workspace-diff.scss` | 令牌化并清理被公共展示组件替代的样式。 |
+
+本地新增 `src/tests/stage3b-presentation.test.ts`、`stage3b-fixture.ts`、`stage3b-visual.py`；结果与截图在 `web/test-results/inkline-stage3b/`。目录沿用既有忽略规则，未修改 Git 追踪状态，也未改旧测试断言。
+
+### 截图与检查证据
+
+以下为隔离的 **视觉夹具**，不是真实 Provider/工具执行验收。复用现有 Vite，未再启动 Gateway/Core，未发送真实任务。diff 接口由截图脚本截获，截图没有触发 Git；复制反馈使用浏览器内夹具，不写系统剪贴板。真实输入/消费链路证据仍见 3a，不能用这些图片替代。
+
+| 主题 / 宽度 | Before | After |
+| --- | --- | --- |
+| 浅色 / 1440 | [查看](../../web/test-results/inkline-stage3b/before-light-1440.png) | [查看](../../web/test-results/inkline-stage3b/after-light-1440.png) |
+| 浅色 / 1100 | [查看](../../web/test-results/inkline-stage3b/before-light-1100.png) | [查看](../../web/test-results/inkline-stage3b/after-light-1100.png) |
+| 浅色 / 719 | [查看](../../web/test-results/inkline-stage3b/before-light-719.png) | [查看](../../web/test-results/inkline-stage3b/after-light-719.png) |
+| 深色 / 1440 | [查看](../../web/test-results/inkline-stage3b/before-dark-1440.png) | [查看](../../web/test-results/inkline-stage3b/after-dark-1440.png) |
+| 深色 / 1100 | [查看](../../web/test-results/inkline-stage3b/before-dark-1100.png) | [查看](../../web/test-results/inkline-stage3b/after-dark-1100.png) |
+| 深色 / 719 | [查看](../../web/test-results/inkline-stage3b/before-dark-719.png) | [查看](../../web/test-results/inkline-stage3b/after-dark-719.png) |
+
+| 专项 | 浅色 | 深色 |
+| --- | --- | --- |
+| 纯聊天紧凑收尾 | [查看](../../web/test-results/inkline-stage3b/pure-chat-light.png) | [查看](../../web/test-results/inkline-stage3b/pure-chat-dark.png) |
+| 代码与操作小票 | [查看](../../web/test-results/inkline-stage3b/receipt-code-light.png) | [查看](../../web/test-results/inkline-stage3b/receipt-code-dark.png) |
+| 失败与未采用输入 | [查看](../../web/test-results/inkline-stage3b/failure-unused-input-light.png) | [查看](../../web/test-results/inkline-stage3b/failure-unused-input-dark.png) |
+| 砚台运行 | [查看](../../web/test-results/inkline-stage3b/composer-running-light.png) | [查看](../../web/test-results/inkline-stage3b/composer-running-dark.png) |
+| 砚台等待审批 | [查看](../../web/test-results/inkline-stage3b/composer-waiting-light.png) | [查看](../../web/test-results/inkline-stage3b/composer-waiting-dark.png) |
+| 砚台有待发消息 | [查看](../../web/test-results/inkline-stage3b/composer-queued-light.png) | [查看](../../web/test-results/inkline-stage3b/composer-queued-dark.png) |
+| diff 两侧行号 | [查看](../../web/test-results/inkline-stage3b/diff-drawer-light.png) | [查看](../../web/test-results/inkline-stage3b/diff-drawer-dark.png) |
+
+另有 [长过程 / 200 行终端](../../web/test-results/inkline-stage3b/long-process-terminal.png)、[斜杠键盘](../../web/test-results/inkline-stage3b/slash-keyboard.png)、[模型键盘](../../web/test-results/inkline-stage3b/model-keyboard.png)、[@ 引用菜单](../../web/test-results/inkline-stage3b/mention-keyboard.png)、[复制反馈](../../web/test-results/inkline-stage3b/code-copy-feedback.png)、[reduced-motion](../../web/test-results/inkline-stage3b/reduced-motion-waiting.png)。
+
+### 验收与未完成项
+
+- `npm run build` 通过，包含 vue-tsc、Vite 和既有 Electron 编译。Sass legacy API 和 mock 模块混合导入的既有警告保留。
+- 全量测试 **108 项 / 80 通过 / 28 失败**。新增展示测试 **19 / 19** 通过；3a 的 33 项单测没有新增失败。与 [3b 基线](../../web/test-results/inkline-stage3b-baseline.json)逐项比较，新增失败 0，旧失败集合完全不变。[最终报告](../../web/test-results/inkline-stage3b-final.json)。`test:run` 因旧失败仍以非零状态退出，不能写成全量通过。
+- 改动 TS/Vue lint：错误 0、警告 1。警告为净化后的 Markdown `v-html`；保留 `html:false`、DOMPurify、危险标签/属性禁用、链接安全属性，不为警告放宽安全策略。[lint 报告](../../web/test-results/inkline-stage3b-lint.json)。
+- 本地浏览器 **26 张 After + 6 张 Before，31 项专项检查通过，页面错误 0**。[视觉检查记录](../../web/test-results/inkline-stage3b/after-visual.json)。包括响应式、15px / 1.7、结束按钮、纯聊天、失败展开、砚台状态、终端上限、缩略图跳转、模型焦点恢复、diff 和复制反馈。
+- 安全/资源审查：Markdown 与工具输出的信任边界不变；卸载释放定时器与观察器，异步测量不会在组件销毁后重建观察器；没有新增请求、运行时状态机或存储事实。
+
+剩余失败按原测试文件分类，不在视觉阶段修改断言：
+
+| 文件 | 失败数 |
+| --- | --- |
+| `session.test.ts` | 8 |
+| `model-settings.test.ts` | 7 |
+| `input-box.test.ts` | 3 |
+| `phase2-pages.test.ts` | 3 |
+| `agent-activity.test.ts` | 2 |
+| `api-client.test.ts`、`markdown-content.test.ts`、`runtime-status-settings.test.ts`、`settings.test.ts`、`workspace-explorer.test.ts` | 各 1 |
+
+未完成 / 限制：
+
+- **嵌套在列表或引用中的代码围栏**仍保留 Markdown 原生结构与安全 `<pre>` 排版，没有挂载独立行号/复制/折叠工具条。当前 Vue 代码组件只接入顶层围栏；HTML 分段不能切断列表/引用容器，此边界已有单测，但不算嵌套代码交互完成。
+- Clipboard API 不可用/被拒绝时明确提示手动选择复制，没有谎报成功；本轮未验收 Electron 原生剪贴板或非安全 LAN HTTP 下的系统复制。
+- 长会话沿用分页和按需详情，不宣称实现完整虚拟列表；隐藏历史不计入 Minimap 坐标。没有开展独立 FPS/内存压测或 Electron 原生窗口验收。
+- 阶段 4–6 的其他页面、系统能力和全站视觉审校未顺带展开。本阶段不新增后端配合接口，沿用现有服务运行状态。

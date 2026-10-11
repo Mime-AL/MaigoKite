@@ -18,6 +18,33 @@
   --session-title-size: var(--type-body);
   --control-row-height: 38px;
   --rail-node-height: 40px;
+  --rail-glyph-size: 24px;
+  --rail-glyph-stroke: 1.7;
+  --leading-message: 1.7;
+  --code-line-height: 1.7;
+  --code-max-height: 360px;
+  --code-gutter-width: 3.5em;
+  --code-diff-gutter: 2.6em;
+  --code-menu-height: 34px;
+  --code-selection: color-mix(in srgb, var(--accent) 22%, var(--paper));
+  --code-addition: color-mix(in srgb, var(--accent) 8%, var(--paper-2));
+  --code-deletion: var(--paper-3);
+  --composer-menu-height: 280px;
+  --composer-model-width: 210px;
+  --composer-select-width: 130px;
+  --composer-select-narrow: 100px;
+  --composer-mode-width: 32px;
+  --composer-mode-height: 28px;
+  --composer-drop-size: 20px;
+  --composer-drop-lift: -32px;
+  --composer-drop-scale: 0.35;
+  --motion-drop: 420ms;
+  --minimap-width: 12px;
+  --minimap-mark-height: 6px;
+  --minimap-low-opacity: 0.25;
+  --model-menu-width: 340px;
+  --model-menu-height: 360px;
+  --model-menu-reserve: 165px;
   --detail-max-height: 180px;
   --thinking-max-height: 220px;
   --session-actions-space: 60px;
@@ -131,9 +158,15 @@
   --highlight: rgb(255 255 255 / 0.8);
   --shadow-ink: 48 43 31;
   --elevation-inset: inset 0 1px 2px rgb(var(--shadow-ink) / 0.07), inset 0 -1px 0 var(--highlight);
-  --elevation-sheet: 0 1px 1px rgb(var(--shadow-ink) / 0.05), 0 3px 8px rgb(var(--shadow-ink) / 0.035), inset 0 1px 0 var(--highlight);
-  --elevation-raised: 0 1px 2px rgb(var(--shadow-ink) / 0.07), 0 6px 16px rgb(var(--shadow-ink) / 0.05), 0 16px 40px rgb(var(--shadow-ink) / 0.035), inset 0 1px 0 var(--highlight);
-  --elevation-float: 0 2px 4px rgb(var(--shadow-ink) / 0.08), 0 12px 32px rgb(var(--shadow-ink) / 0.12), 0 32px 72px rgb(var(--shadow-ink) / 0.07), inset 0 1px 0 var(--highlight);
+  --elevation-sheet:
+    0 1px 1px rgb(var(--shadow-ink) / 0.05), 0 3px 8px rgb(var(--shadow-ink) / 0.035),
+    inset 0 1px 0 var(--highlight);
+  --elevation-raised:
+    0 1px 2px rgb(var(--shadow-ink) / 0.07), 0 6px 16px rgb(var(--shadow-ink) / 0.05),
+    0 16px 40px rgb(var(--shadow-ink) / 0.035), inset 0 1px 0 var(--highlight);
+  --elevation-float:
+    0 2px 4px rgb(var(--shadow-ink) / 0.08), 0 12px 32px rgb(var(--shadow-ink) / 0.12),
+    0 32px 72px rgb(var(--shadow-ink) / 0.07), inset 0 1px 0 var(--highlight);
   --preview-paper: #f8f5ef;
   --preview-paper-2: #f0ece3;
   --preview-paper-3: #e7e1d6;
@@ -149,6 +182,7 @@
   --rail-path-width: 12px;
   --rail-soft-opacity: 0.3;
   --receipt-width: 520px;
+  --unfinished-width: 440px;
   --receipt-cut: 6px;
   --welcome-mark-width: 190px;
   --welcome-mark-height: 240px;
@@ -211,9 +245,15 @@
   --highlight: rgb(229 245 234 / 0.07);
   --shadow-ink: 0 0 0;
   --elevation-inset: inset 0 1px 3px rgb(var(--shadow-ink) / 0.3), inset 0 -1px 0 var(--highlight);
-  --elevation-sheet: 0 1px 2px rgb(var(--shadow-ink) / 0.22), 0 4px 12px rgb(var(--shadow-ink) / 0.12), inset 0 1px 0 var(--highlight);
-  --elevation-raised: 0 1px 2px rgb(var(--shadow-ink) / 0.32), 0 8px 24px rgb(var(--shadow-ink) / 0.22), inset 0 1px 0 var(--highlight);
-  --elevation-float: 0 2px 6px rgb(var(--shadow-ink) / 0.35), 0 16px 40px rgb(var(--shadow-ink) / 0.36), 0 36px 80px rgb(var(--shadow-ink) / 0.2), inset 0 1px 0 var(--highlight);
+  --elevation-sheet:
+    0 1px 2px rgb(var(--shadow-ink) / 0.22), 0 4px 12px rgb(var(--shadow-ink) / 0.12),
+    inset 0 1px 0 var(--highlight);
+  --elevation-raised:
+    0 1px 2px rgb(var(--shadow-ink) / 0.32), 0 8px 24px rgb(var(--shadow-ink) / 0.22),
+    inset 0 1px 0 var(--highlight);
+  --elevation-float:
+    0 2px 6px rgb(var(--shadow-ink) / 0.35), 0 16px 40px rgb(var(--shadow-ink) / 0.36),
+    0 36px 80px rgb(var(--shadow-ink) / 0.2), inset 0 1px 0 var(--highlight);
   --preview-paper: #141716;
   --preview-paper-2: #1c211f;
   --preview-paper-3: #272e2b;
@@ -253,8 +293,7 @@
   --seal-hover: color-mix(in srgb, var(--seal) 14%, var(--paper));
   --seal-pressed: color-mix(in srgb, var(--seal) 22%, var(--paper));
   --control-transition:
-    transform var(--motion-fast) var(--ease),
-    opacity var(--motion-fast) var(--ease);
+    transform var(--motion-fast) var(--ease), opacity var(--motion-fast) var(--ease);
   /* Existing settings and workspace components share the Inkline palette. */
   --canvas: var(--paper);
   --canvas-deep: var(--paper);
@@ -278,7 +317,8 @@
   --border-strong: var(--rule);
 }
 /* Only the two chat samples opt in. Existing theme/accent ownership is unchanged. */
-.inkline-preview, .inkline-shell {
+.inkline-preview,
+.inkline-shell {
   --paper: var(--preview-paper);
   --paper-2: var(--preview-paper-2);
   --paper-3: var(--preview-paper-3);
@@ -312,23 +352,68 @@
   --shadow-card: var(--elevation-sheet);
   --shadow-float: var(--elevation-float);
 }
-:root:not([data-accent]), :root[data-accent='stone'] {
-  .inkline-preview, .inkline-shell { --accent: var(--preview-stone); }
+:root:not([data-accent]),
+:root[data-accent='stone'] {
+  .inkline-preview,
+  .inkline-shell {
+    --accent: var(--preview-stone);
+  }
 }
 @supports (animation-timing-function: linear(0, 1)) {
-  :root { --ease-spring: linear(0, 0.4 20%, 0.85 40%, 1.04 65%, 1); }
+  :root {
+    --ease-spring: linear(0, 0.4 20%, 0.85 40%, 1.04 65%, 1);
+  }
 }
 @keyframes paper-arrive {
-  from { opacity: 0; transform: translateY(var(--enter-offset)); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(var(--enter-offset));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes paper-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ink-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(var(--composer-drop-scale));
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(var(--composer-drop-lift)) scale(1);
+  }
 }
 @keyframes ink-land {
-  from { opacity: 0; transform: scale(var(--node-land-scale)); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(var(--node-land-scale));
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 @keyframes ink-reveal {
-  from { transform: scaleY(0); opacity: var(--rail-soft-opacity); }
-  to { transform: scaleY(1); opacity: 1; }
+  from {
+    transform: scaleY(0);
+    opacity: var(--rail-soft-opacity);
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
 }
 @keyframes ink-grow {
   from {

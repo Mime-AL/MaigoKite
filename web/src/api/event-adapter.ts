@@ -1,5 +1,5 @@
 import type { AgentEvent } from './client'
-import type { GatewayEvent, ToolHintAction, TurnSummary } from './events'
+import type { GatewayEvent, PlanItem, ToolHintAction, TurnSummary } from './events'
 import { mapModelEvent } from './model-events'
 import { t } from '@/i18n'
 
@@ -50,30 +50,80 @@ export function mapGatewayEvent(event: AgentEvent): GatewayEvent[] {
   }
   const modelEvent = mapModelEvent(event, base)
   if (modelEvent) return [modelEvent]
+  if (event.type === 'plan.updated' && event.task_id && Array.isArray(p.items)) {
+    const items = p.items.flatMap((value): PlanItem[] => {
+      const item = object(value)
+      const status = item.status
+      return typeof item.content === 'string' &&
+        (status === 'pending' || status === 'in_progress' || status === 'completed')
+        ? [{ content: item.content, status }]
+        : []
+    })
+    // Invalid records are not an authoritative empty plan.
+    return items.length === p.items.length ? [{ ...base, type: 'plan_update', items }] : []
+  }
+  if (
+    ['task.input.queued', 'task.input.consumed'].includes(event.type) &&
+    event.task_id &&
+    typeof p.input_id === 'string' &&
+    typeof p.content === 'string'
+  )
+    return [
+      {
+        ...base,
+        type: 'input_update',
+        input: {
+          id: p.input_id,
+          task_id: event.task_id,
+          content: p.content,
+          status: event.type === 'task.input.consumed' ? 'consumed' : 'queued',
+          created_at: event.occurred_at || '',
+        },
+      },
+    ]
   const tool = String(p.tool_name || t('工具'))
   const stepId = String(p.tool_call_id || event.event_id)
   if (['subagent.queued', 'subagent.started', 'subagent.progress'].includes(event.type)) {
     const pending = event.type === 'subagent.queued'
     const model = [p.name || p.model, p.provider].filter(Boolean).join(' · ')
     const label = text(p.label) || t('子 Agent')
-    return [{ ...base, type: 'step_start', stepId: String(p.subagent_id), tool: 'delegate', kind: 'read',
-      title: pending ? t('{0} 等待中 · 已派发 {1}/{2}', [label, p.used, p.limit])
-        : `${label}${model ? ` · ${model}` : ''} · ${event.type === 'subagent.progress' ? tool : t('执行中')}`,
-      input: { ...object(p.arguments), task: p.task, model_id: p.model_id, model: p.model, provider: p.provider }, pending,
-    }]
+    return [
+      {
+        ...base,
+        type: 'step_start',
+        stepId: String(p.subagent_id),
+        tool: 'delegate',
+        kind: 'read',
+        title: pending
+          ? t('{0} 等待中 · 已派发 {1}/{2}', [label, p.used, p.limit])
+          : `${label}${model ? ` · ${model}` : ''} · ${event.type === 'subagent.progress' ? tool : t('执行中')}`,
+        input: {
+          ...object(p.arguments),
+          task: p.task,
+          model_id: p.model_id,
+          model: p.model,
+          provider: p.provider,
+        },
+        pending,
+      },
+    ]
   }
   if (['subagent.completed', 'subagent.failed', 'subagent.cancelled'].includes(event.type)) {
-    return [{ ...base, type: 'step_end', stepId: String(p.subagent_id),
-      ok: event.type === 'subagent.completed',
-      output: text(p.summary || p.message || t('子 Agent 已停止')),
-      durationMs: 0,
-    }]
+    return [
+      {
+        ...base,
+        type: 'step_end',
+        stepId: String(p.subagent_id),
+        ok: event.type === 'subagent.completed',
+        output: text(p.summary || p.message || t('子 Agent 已停止')),
+        durationMs: 0,
+      },
+    ]
   }
   if (event.type === 'task.resumed') return [{ ...base, type: 'turn_resumed' }]
   if (event.type === 'message.delta')
     return [{ ...base, type: 'text_delta', text: text(p.content) }]
-  if (event.type === 'reasoning.started')
-    return [{ ...base, type: 'thinking_started' }]
+  if (event.type === 'reasoning.started') return [{ ...base, type: 'thinking_started' }]
   if (event.type === 'reasoning.delta')
     return [{ ...base, type: 'thinking_delta', text: text(p.content || p.summary) }]
   if (event.type === 'reasoning.completed')
@@ -86,10 +136,10 @@ export function mapGatewayEvent(event: AgentEvent): GatewayEvent[] {
       tool === 'delegate'
         ? t('委派只读子 Agent')
         : tool === 'file_read'
-        ? t('读取 {0}', [String(args.path || t('文件'))])
-        : ['bash', 'exec_command', 'shell'].includes(tool)
-          ? String(args.command || t('执行命令'))
-          : String(p.title || tool)
+          ? t('读取 {0}', [String(args.path || t('文件'))])
+          : ['bash', 'exec_command', 'shell'].includes(tool)
+            ? String(args.command || t('执行命令'))
+            : String(p.title || tool)
     return [
       {
         ...base,
@@ -167,18 +217,35 @@ export function mapGatewayEvent(event: AgentEvent): GatewayEvent[] {
       },
     ]
   if (event.type === 'question.requested')
-    return [{
-      ...base, type: 'await', awaitId: String(p.question_id || ''), mode: 'question',
-      title: text(p.title), detail: '', version: Number(p.version || 1),
-      toolCallId: typeof p.tool_call_id === 'string' ? p.tool_call_id : undefined,
-      options: Array.isArray(p.options) ? p.options.flatMap((option) => {
-        const value = object(option)
-        return typeof value.label === 'string'
-          ? [{ label: value.label, recommended: value.recommended === true }] : []
-      }) : [],
-    }]
+    return [
+      {
+        ...base,
+        type: 'await',
+        awaitId: String(p.question_id || ''),
+        mode: 'question',
+        title: text(p.title),
+        detail: '',
+        version: Number(p.version || 1),
+        toolCallId: typeof p.tool_call_id === 'string' ? p.tool_call_id : undefined,
+        options: Array.isArray(p.options)
+          ? p.options.flatMap((option) => {
+              const value = object(option)
+              return typeof value.label === 'string'
+                ? [{ label: value.label, recommended: value.recommended === true }]
+                : []
+            })
+          : [],
+      },
+    ]
   if (event.type === 'question.answered')
-    return [{ ...base, type: 'question_answered', awaitId: String(p.question_id || ''), answer: text(p.answer) }]
+    return [
+      {
+        ...base,
+        type: 'question_answered',
+        awaitId: String(p.question_id || ''),
+        answer: text(p.answer),
+      },
+    ]
   if (
     [
       'task.succeeded',

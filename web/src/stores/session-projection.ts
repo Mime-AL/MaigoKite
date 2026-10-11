@@ -3,6 +3,9 @@ import type { Turn } from '@/api/events'
 
 export function remainingMessages(messages: ChatMessage[], turns: Turn[]) {
   const knownIds = new Set(turns.flatMap((t) => [t.messageId, `stream-${t.id}`]).filter(Boolean))
+  const supplementIds = new Set(
+    turns.flatMap((turn) => (turn.inputs || []).map((input) => input.id)),
+  )
   const counts = new Map<string, number>()
   for (const turn of turns)
     for (const [role, content] of [
@@ -16,6 +19,8 @@ export function remainingMessages(messages: ChatMessage[], turns: Turn[]) {
     }
   return messages.filter((message) => {
     if (!['user', 'assistant'].includes(message.role)) return false
+    // Supplements are represented by stable input IDs, never text matching.
+    if (supplementIds.has(message.id)) return false
     const key = `${message.role}:${message.content}`,
       count = counts.get(key) || 0
     if (count || knownIds.has(message.id)) {
@@ -47,7 +52,9 @@ export function projectMessage(list: ChatMessage[], event: AgentEvent, replay: b
   const messageId = String(event.payload.message_id || streamId)
   const persisted =
     list.find((m) => m.id === messageId) ||
-    (replay && content ? list.find((m) => m.role === 'assistant' && m.content === content) : undefined)
+    (replay && content
+      ? list.find((m) => m.role === 'assistant' && m.content === content)
+      : undefined)
   if (streamed && persisted && streamed !== persisted) list.splice(list.indexOf(streamed), 1)
   else if (streamed) {
     streamed.id = messageId
@@ -87,6 +94,10 @@ export function activityGroups(turns: Turn[]): AgentActivityGroup[] {
         sequence: -1,
         created_at: new Date(turn.startedAt).toISOString(),
       })
-    return { task_id: turn.id, status: turn.status === 'waiting' ? 'waiting_approval' : turn.status, items }
+    return {
+      task_id: turn.id,
+      status: turn.status === 'waiting' ? 'waiting_approval' : turn.status,
+      items,
+    }
   })
 }

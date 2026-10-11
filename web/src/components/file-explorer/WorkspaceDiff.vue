@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { api, type WorkspaceChange } from '@/api/client'
 import { useWorkspaceStore } from '@/stores/workspace'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import CodeBlock from '@/components/common/CodeBlock.vue'
 
 const changes = ref<WorkspaceChange[]>([])
 const workspace = useWorkspaceStore()
@@ -16,14 +17,6 @@ const diffError = ref('')
 let listRequest = 0,
   diffRequest = 0
 const selected = computed(() => changes.value.find((item) => item.path === selectedPath.value))
-
-function lineClass(line: string) {
-  if (line.startsWith('+++') || line.startsWith('---')) return 'header'
-  if (line.startsWith('+')) return 'addition'
-  if (line.startsWith('-')) return 'deletion'
-  if (line.startsWith('@@')) return 'hunk'
-  return ''
-}
 
 async function load() {
   const request = ++listRequest
@@ -68,13 +61,17 @@ async function selectChange(path: string) {
   }
 }
 
-watch(() => workspace.selectedId, () => {
-  changes.value = []
-  selectedPath.value = ''
-  gitAvailable.value = true
-  changesTruncated.value = false
-  void load()
-}, { immediate: true, flush: 'sync' })
+watch(
+  () => workspace.selectedId,
+  () => {
+    changes.value = []
+    selectedPath.value = ''
+    gitAvailable.value = true
+    changesTruncated.value = false
+    void load()
+  },
+  { immediate: true, flush: 'sync' },
+)
 onUnmounted(() => {
   listRequest++
   diffRequest++
@@ -85,15 +82,46 @@ defineExpose({ load })
 <template>
   <section class="workspace-diff">
     <header>
-      <span>{{ changes.length }}<template v-if="changesTruncated">+</template>{{ $t('个变更') }}</span
-      ><button class="icon-button" type="button" :disabled="loading" :aria-busy="loading || undefined" :aria-label="$t('刷新变更')" :title="$t('刷新变更')" @click="load">
-        <IconSymbol name="refresh" :size="14" />
+      <span>{{ changes.length }}<template v-if="changesTruncated">+</template>{{ $t('个变更') }}</span><button
+        class="icon-button"
+        type="button"
+        :disabled="loading"
+        :aria-busy="loading || undefined"
+        :aria-label="$t('刷新变更')"
+        :title="$t('刷新变更')"
+        @click="load"
+      >
+        <IconSymbol
+          name="refresh"
+          :size="14"
+        />
       </button>
     </header>
-    <p v-if="loading && !changes.length" class="state">{{ $t('正在读取 Git 变更…') }}</p>
-    <p v-else-if="error" class="state error" role="alert">{{ error }}</p>
-    <p v-else-if="!gitAvailable" class="state">{{ $t('当前工作区不是 Git 仓库。') }}</p>
-    <p v-else-if="!changes.length" class="state">{{ $t('工作区没有未提交变更。') }}</p>
+    <p
+      v-if="loading && !changes.length"
+      class="state"
+    >
+      {{ $t('正在读取 Git 变更…') }}
+    </p>
+    <p
+      v-else-if="error"
+      class="state error"
+      role="alert"
+    >
+      {{ error }}
+    </p>
+    <p
+      v-else-if="!gitAvailable"
+      class="state"
+    >
+      {{ $t('当前工作区不是 Git 仓库。') }}
+    </p>
+    <p
+      v-else-if="!changes.length"
+      class="state"
+    >
+      {{ $t('工作区没有未提交变更。') }}
+    </p>
     <template v-else>
       <div class="change-list">
         <button
@@ -103,30 +131,41 @@ defineExpose({ load })
           :class="{ active: item.path === selectedPath }"
           @click="selectChange(item.path)"
         >
-          <i :class="item.status">{{ item.status.slice(0, 1).toUpperCase() }}</i
-          ><span>{{ item.path }}</span
-          ><b v-if="item.additions">+{{ item.additions }}</b
-          ><em v-if="item.deletions">−{{ item.deletions }}</em>
+          <i :class="item.status">{{ item.status.slice(0, 1).toUpperCase() }}</i><span>{{ item.path }}</span><b v-if="item.additions">+{{ item.additions }}</b><em v-if="item.deletions">−{{ item.deletions }}</em>
         </button>
       </div>
-      <article v-if="selected" class="diff-preview">
+      <article
+        v-if="selected"
+        class="diff-preview"
+      >
         <header>
-          <strong>{{ selected.path }}</strong
-          ><small
-            >{{ selected.status
-            }}<template v-if="selected.diff_truncated">{{ $t('· 预览已截断') }}</template></small
-          >
+          <strong>{{ selected.path }}</strong><small>{{ selected.status
+          }}<template v-if="selected.diff_truncated">{{ $t('· 预览已截断') }}</template></small>
         </header>
-        <p v-if="diffLoading">{{ $t('正在生成差异…') }}</p>
-        <p v-else-if="diffError" role="alert">
-          {{ diffError }}
-          <button class="secondary-button" @click="selectChange(selectedPath)">{{ $t('重试') }}</button>
+        <p v-if="diffLoading">
+          {{ $t('正在生成差异…') }}
         </p>
-        <pre
+        <p
+          v-else-if="diffError"
+          role="alert"
+        >
+          {{ diffError }}
+          <button
+            class="secondary-button"
+            @click="selectChange(selectedPath)"
+          >
+            {{ $t('重试') }}
+          </button>
+        </p>
+        <CodeBlock
           v-else-if="selected.diff"
-        ><code v-for="(line, index) in selected.diff.split('\n')" :key="index" :class="lineClass(line)">{{ line || ' ' }}
-</code></pre>
-        <p v-else>{{ $t('该变更没有可显示的文本差异。') }}</p>
+          :content="selected.diff"
+          kind="diff"
+          :title="selected.path"
+        />
+        <p v-else>
+          {{ $t('该变更没有可显示的文本差异。') }}
+        </p>
       </article>
     </template>
   </section>

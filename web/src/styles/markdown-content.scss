@@ -1,0 +1,125 @@
+.markdown-content {
+  color: var(--ink);
+  font-size: var(--type-body);
+  line-height: var(--leading-message);
+  overflow-wrap: anywhere;
+}
+.markdown-prose :deep(> :first-child) {
+  margin-top: 0;
+}
+.markdown-prose :deep(> :last-child) {
+  margin-bottom: 0;
+}
+.markdown-prose + .markdown-prose {
+  margin-top: var(--space-5);
+}
+.markdown-prose :deep(p) {
+  margin: 0 0 var(--space-5);
+}
+.markdown-prose :deep(h1),
+.markdown-prose :deep(h2),
+.markdown-prose :deep(h3),
+.markdown-prose :deep(h4) {
+  margin: var(--space-8) 0 var(--space-4);
+  color: var(--ink);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-display);
+}
+.markdown-prose :deep(h1),
+.markdown-prose :deep(h2) {
+  font-size: var(--type-heading);
+}
+.markdown-prose :deep(h3) {
+  font-size: var(--type-subheading);
+}
+.markdown-prose :deep(h4) {
+  font-size: var(--type-body);
+}
+.markdown-prose :deep(ul),
+.markdown-prose :deep(ol) {
+  margin: var(--space-4) 0 var(--space-6);
+  padding-inline-start: var(--space-7);
+}
+.markdown-prose :deep(li) {
+  margin-block: var(--space-2);
+  padding-inline-start: var(--space-1);
+}
+.markdown-prose :deep(li::marker) {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.markdown-prose :deep(li > p) {
+  margin: 0;
+}
+.markdown-prose :deep(blockquote) {
+  margin: var(--space-5) 0;
+  padding: var(--space-3) var(--space-5);
+  border-inline-start: var(--focus-width) solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink-2);
+}
+.markdown-prose :deep(blockquote p) {
+  margin: 0;
+}
+.markdown-prose :deep(a) {
+  color: var(--accent);
+  text-underline-offset: var(--space-2);
+  text-decoration-thickness: var(--hairline);
+}
+.markdown-prose :deep(a:hover) {
+  color: var(--accent-hover);
+}
+.markdown-prose :deep(code) {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--paper-3);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-code-inline);
+}
+// Nested fences keep Markdown list/quote semantics, with restrained fallback styling.
+.markdown-prose :deep(pre) {
+  max-width: 100%;
+  margin-block: var(--space-4);
+  padding: var(--space-4);
+  overflow: auto;
+  background: var(--paper-2);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius-sm);
+}
+.markdown-prose :deep(pre code) {
+  padding: 0;
+  background: var(--transparent);
+  font-size: var(--text-xs);
+  line-height: var(--code-line-height);
+  white-space: pre;
+}
+.markdown-prose :deep(table) {
+  display: block;
+  max-width: 100%;
+  margin-block: var(--space-5);
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.markdown-prose :deep(th),
+.markdown-prose :deep(td) {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--hairline) solid var(--rule);
+  text-align: start;
+}
+.markdown-prose :deep(th) {
+  color: var(--ink-2);
+  background: var(--paper-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.markdown-prose :deep(hr) {
+  margin-block: var(--space-7);
+  border: 0;
+  border-top: var(--hairline) solid var(--rule);
+}
+.markdown-prose :deep(::selection) {
+  background: var(--code-selection);
+}
