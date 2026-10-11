@@ -1,5 +1,6 @@
 import type { AgentEvent, AgentTask, Approval, ChatMessage, Conversation, UserMemory, WorkspaceFolder } from './client'
 import { mockEnvelope, playTask } from './mock-playback'
+import { t } from '@/i18n'
 
 const now = () => new Date().toISOString()
 const folders: WorkspaceFolder[] = [{ id: '', name: '默认工作区', root_path: '/demo/workspace' }]
@@ -25,6 +26,7 @@ const tasks: AgentTask[] = [],
 const resumes = new Map<string, () => void>(),
   timers = new Map<string, Set<ReturnType<typeof setTimeout>>>()
 const submissions = new Map<string, { content: string; taskId: string }>()
+const forks = new Map<string, { messageId: string; conversation: Conversation }>()
 const model = {
   id: 'demo',
   name: '本地预览',
@@ -177,7 +179,7 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
   if (url === '/health') result = { status: 'ok', version: 'demo' }
   else if (parsed.pathname.endsWith('/capabilities'))
     // The demo does not implement durable recovery; never advertise a fake resume action.
-    result = { capabilities: { task_resume: false } }
+    result = { capabilities: { task_resume: false, conversation_fork: true } }
   else if (parsed.pathname.endsWith('/preferences')) {
     if (method === 'PATCH') assistantName = String(body.assistant_name)
     result = { assistant_name: assistantName }
@@ -204,6 +206,8 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
   else if (parsed.pathname.includes('/models/actions/validate'))
     result = { ok: true, message: '本地预览', model: 'demo' }
   else if (parsed.pathname.includes('/models/actions/discover')) result = { models: [{ id: 'demo' }] }
+  else if (parsed.pathname.endsWith('/thinking'))
+    result = { kind: 'effort', options: ['low', 'medium', 'high'], default: 'medium', source: 'mock', reason: '' }
   else if (parsed.pathname.endsWith('/models') || parsed.pathname.endsWith('/default'))
     result = { models: [model], default_model_id: 'demo' }
   else if (parsed.pathname.includes('/models/')) result = { ...model, ...body }
@@ -216,7 +220,7 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
     applied_revision: 0, reload_required: false, reloading: false, runtime_ready: true,
     servers: [], skills: [], skill_errors: [], management_available: false,
   }
-  else if (parsed.pathname.includes('/extension-settings')) throw new Error('演示模式不启动进程或安装扩展，请连接实际服务。')
+  else if (parsed.pathname.includes('/extension-settings')) throw new Error(t('扩展管理不可用，请检查服务连接。'))
   else if (parsed.pathname.endsWith('/skills')) result = { skills: [] }
   else if (parsed.pathname.endsWith('/audit-events')) result = { events: [] }
   else if (parsed.pathname.endsWith('/data-summary'))
@@ -321,6 +325,39 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       tasks: tasks.filter((item) => item.conversation_id === sessionId),
       approvals: approvals.filter((item) => item.conversation_id === sessionId && item.status === 'pending'),
       questions: [], last_sequence: history[history.length - 1]?.sequence || 0, truncated: false,
+    }
+  } else if (parsed.pathname.endsWith('/fork') && method === 'POST') {
+    const sourceId = decodeURIComponent(parts[parts.length - 2])
+    const key = new Headers(init?.headers).get('Idempotency-Key')
+    if (!key) throw new Error('分岔请求缺少请求标识。')
+    const identity = `${sourceId}:${key}`
+    const messageId = String(body.message_id || '')
+    const saved = forks.get(identity)
+    if (saved) {
+      if (saved.messageId !== messageId) throw new Error('同一请求标识不能用于不同消息。')
+      result = saved.conversation
+    } else {
+      const source = conversations.find((item) => item.id === sourceId)
+      if (!source) throw new Error('对话不存在。')
+      if (tasks.some((task) => task.conversation_id === sourceId && ['running', 'waiting_approval'].includes(task.status)))
+        throw new Error('任务尚未结束，暂时无法分岔。')
+      const history = messages.get(sourceId) || []
+      const index = messageId ? history.findIndex((message) => message.id === messageId) : history.length - 1
+      const pivot = history[index]
+      if (!pivot || pivot.role !== 'assistant') throw new Error('请从已保存的助手回复创建分岔。')
+      const copied = history.slice(0, index + 1).filter((message) => ['user', 'assistant'].includes(message.role))
+      if (copied.length > 500 || new TextEncoder().encode(copied.map((message) => message.content).join('')).length > 2 * 1024 * 1024)
+        throw new Error('此位置的对话历史过长，请选择较早的回复。')
+      const branch: Conversation = {
+        ...source, id: crypto.randomUUID(), title: source.title.slice(0, 190) + ' · 分岔',
+        permission_mode: source.permission_mode === 'read_only' ? 'read_only' : 'workspace',
+        archived: false, created_at: now(), updated_at: now(), message_count: copied.length,
+        forked_from_conversation_id: sourceId, forked_from_message_id: pivot.id,
+      }
+      messages.set(branch.id, copied.map((message) => ({ ...message, id: crypto.randomUUID(), conversation_id: branch.id })))
+      conversations.unshift(branch)
+      forks.set(identity, { messageId, conversation: branch })
+      result = branch
     }
   } else if (parsed.pathname.endsWith('/messages')) {
     const sessionId = decodeURIComponent(parts[parts.length - 2])

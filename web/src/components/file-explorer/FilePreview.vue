@@ -114,8 +114,10 @@ async function openFile() {
       </p>
       <CodeBlock
         v-else-if="content"
+        :key="node.path"
         :content="content.content"
         :title="node.name"
+        layout="document"
       />
       <small v-if="content?.truncated">{{ $t('文件较大，仅显示前 512 KiB。') }}</small>
     </div>
@@ -124,14 +126,19 @@ async function openFile() {
 
 <style scoped lang="scss">
 .file-preview {
-  max-height: 52%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   padding: var(--size-14);
   overflow: auto;
-  border-top: var(--hairline) solid var(--rule);
+  overscroll-behavior: contain;
   background: var(--paper-2);
 }
 header {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--measure-9px);
 }
@@ -168,6 +175,7 @@ header small {
 }
 dl {
   display: grid;
+  flex: none;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--measure-5px) var(--measure-9px);
   margin: var(--space-4) 0 0;
@@ -184,7 +192,22 @@ dd {
   white-space: nowrap;
 }
 .content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--space-3);
   margin-top: var(--space-4);
+}
+.file-preview > button {
+  flex: none;
+  align-self: flex-start;
+  margin-top: var(--space-3);
+}
+.content > p,
+.content > small {
+  flex: none;
+  margin-block: 0;
 }
 .content p,
 .content small {

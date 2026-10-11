@@ -20,6 +20,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from agent.models.context_capacity import ContextCapacity
 from agent.runtime.context import ContextBudgetMiddleware
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
@@ -45,6 +46,7 @@ class ChildContext:
     execution_metadata: dict[str, Any]
     model_info: dict[str, Any]
     scope: asyncio.TaskGroup | None = None
+    context_capacity: ContextCapacity | None = None
 
     @property
     def adapter(self) -> Any:
@@ -207,7 +209,7 @@ class DelegateTool(BaseTool):
                         raise DelegationError("指定的模型配置已不存在，请重新配置；未替换模型。")
                     # Same Core-owned SDK/client factory as chat. No child owns
                     # or closes shared transports, and no fallback route is tried.
-                    key, model = await adapter.model_resolver(parent.request.workspace_id, model_id, "balanced")
+                    key, model = await adapter.model_resolver(parent.request.workspace_id, model_id, "")
                     graph = adapter.readonly_graph(key, model)
                     selected = {**selected, "model": getattr(model, "model_name", None) or getattr(model, "model", selected["model"])}
                 child = ChildContext(

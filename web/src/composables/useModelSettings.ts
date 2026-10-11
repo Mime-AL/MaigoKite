@@ -103,6 +103,10 @@ export function useModelSettings() {
       (!endpointChanged.value || apiKey.value.trim()),
     ),
   )
+  function catalogCapacity(model: string): number | undefined {
+    const capacity = discoveredModels.value.find(item => item.id === model)?.context_window
+    return capacity !== undefined && Number.isSafeInteger(capacity) && capacity > 0 ? capacity : undefined
+  }
   const isDirty = computed(
     () =>
       !original.value ||
@@ -110,6 +114,8 @@ export function useModelSettings() {
       draft.name !== original.value.name ||
       selectedModels.value.length !== new Set(originalModels.value.map(item => item.model)).size ||
       originalModels.value.some(item => !selectedModels.value.includes(item.model)) ||
+      originalModels.value.some(item => discoveredModels.value.some(found => found.id === item.model) &&
+        catalogCapacity(item.model) !== item.contextWindow) ||
       Boolean(manualModelId.value.trim()) ||
       Boolean(apiKey.value.trim()),
   )
@@ -289,9 +295,14 @@ export function useModelSettings() {
     if (removed.length && !window.confirm(t("保存后将移除 {0} 个模型：{1}。继续？", [removed.length, removed.map(item => item.model).join('、')]))) return
     const targets = selectedModels.value.flatMap((model): ChatModelProfile[] => {
       const existing = originalModels.value.filter(item => item.model === model)
+      const discovered = discoveredModels.value.find(item => item.id === model)
+      const capacity = catalogCapacity(model)
       // Keep IDs, defaults and per-model generation settings; order is not identity.
       if (existing.length) return existing.map(item => ({
         ...item, name: snapshot.name, provider: snapshot.provider, baseUrl: snapshot.baseUrl,
+        contextWindow: discovered ? capacity : (item.provider === snapshot.provider &&
+          normalizeEndpoint(item.baseUrl) === normalizeEndpoint(snapshot.baseUrl)
+          ? item.contextWindow : undefined),
       }))
       // Stable IDs let retries update the same profile after a partial/network failure.
       let id = pendingProfileIds.get(model)
@@ -302,6 +313,7 @@ export function useModelSettings() {
       }
       return [{
         ...snapshot, id, model,
+        contextWindow: capacity,
         name: snapshot.name,
         credentialConfigured: false,
         isDefault: false,

@@ -313,6 +313,7 @@ export const useRunStore = defineStore('run', () => {
         case 'model_end':
         case 'model_failed':
         case 'context_update':
+        case 'context_compaction':
           projectModelEvent(turn, event)
           dirtyMetrics.add(event.sessionId)
           break

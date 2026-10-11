@@ -9,6 +9,7 @@ import RailNode from './RailNode.vue'
 import Receipt from './Receipt.vue'
 import RailInk from './RailInk.vue'
 import ThinkingPanel from './ThinkingPanel.vue'
+import CompactionStatus from '@/components/inkwell/CompactionStatus.vue'
 const props = defineProps<{
   turn: Turn
   canResend?: boolean
@@ -42,6 +43,7 @@ const heading = computed(() => {
   if (props.turn.status === 'failed') return t('执行遇到问题')
   if (props.turn.status === 'cancelled') return t('已停止')
   if (props.turn.status === 'completed') return t('已完成')
+  if (props.turn.compaction?.status === 'running') return t('正在压缩上下文')
   const step = [...props.turn.steps].reverse().find((item) => item.status === 'running')
   return step?.title || t(props.turn.text ? '正在回复' : '正在思考')
 })
@@ -61,6 +63,11 @@ function toggleProcess(event: Event) {
     :class="{ growing: turn.status === 'running' }"
   >
     <RailInk />
+    <CompactionStatus
+      v-if="turn.compaction"
+      :compaction="turn.compaction"
+      :turn-status="turn.status"
+    />
     <ThinkingPanel
       v-if="hasThinking"
       :text="turn.thinking"

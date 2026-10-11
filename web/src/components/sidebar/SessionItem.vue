@@ -11,6 +11,7 @@ import { useDialog } from '@/composables/useDialog'
 import Pulse from '@/components/shell/Pulse.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import { pendingOrder } from '@/utils/rail-presentation'
+import ConversationAuthorizations from './ConversationAuthorizations.vue'
 const props = defineProps<{ item: Conversation; collapsed: boolean }>()
 const emit = defineEmits<{ select: [] }>()
 const session = useSessionStore(),
@@ -82,7 +83,11 @@ async function act(action: 'save' | 'archive' | 'delete') {
 }
 </script>
 <template>
-  <div class="session-row" :class="{ collapsed }" @contextmenu.prevent="manage">
+  <div
+    class="session-row"
+    :class="{ collapsed }"
+    @contextmenu.prevent="manage"
+  >
     <router-link
       :to="destination"
       class="session-link"
@@ -90,11 +95,21 @@ async function act(action: 'save' | 'archive' | 'delete') {
       @click="emit('select')"
       @dblclick.prevent="manage"
     >
-      <Pulse v-if="running && !pending.length" :state="run.pulse(item.id)" /><span v-if="!collapsed">{{
+      <Pulse
+        v-if="running && !pending.length"
+        :state="run.pulse(item.id)"
+      /><span v-if="!collapsed">{{
         item.title || $t('未命名对话')
       }}</span>
-      <small v-if="pending.length" class="session-pending" :title="$t('{0} 项等你处理', [pending.length])">
-        <Pulse state="waiting" :size="10" /><span v-if="!collapsed">{{ $t('等你处理') }}</span>
+      <small
+        v-if="pending.length"
+        class="session-pending"
+        :title="$t('{0} 项等你处理', [pending.length])"
+      >
+        <Pulse
+          state="waiting"
+          :size="10"
+        /><span v-if="!collapsed">{{ $t('等你处理') }}</span>
       </small>
     </router-link>
     <template v-if="!collapsed">
@@ -102,8 +117,7 @@ async function act(action: 'save' | 'archive' | 'delete') {
         class="session-time"
         :datetime="item.updated_at"
         :title="new Date(item.updated_at).toLocaleString($i18n.locale)"
-        >{{ updatedTime }}</time
-      >
+      >{{ updatedTime }}</time>
       <div class="session-actions">
         <button
           class="icon-button"
@@ -113,7 +127,10 @@ async function act(action: 'save' | 'archive' | 'delete') {
           :title="running ? $t('任务尚未结束') : item.archived ? $t('恢复对话') : $t('归档对话')"
           @click="act('archive')"
         >
-          <IconSymbol name="archive" :size="15" />
+          <IconSymbol
+            name="archive"
+            :size="15"
+          />
         </button>
         <button
           class="icon-button"
@@ -121,7 +138,10 @@ async function act(action: 'save' | 'archive' | 'delete') {
           :title="$t('管理对话')"
           @click="manage"
         >
-          <IconSymbol name="more" :size="16" />
+          <IconSymbol
+            name="more"
+            :size="16"
+          />
         </button>
       </div>
     </template>
@@ -134,15 +154,24 @@ async function act(action: 'save' | 'archive' | 'delete') {
         @click.self="open = false"
       >
         <header>
-          <strong>{{ confirming ? $t('删除对话？') : $t('管理对话') }}</strong
-          ><button class="icon-button" :aria-label="$t('关闭')" @click="open = false">×</button>
+          <strong>{{ confirming ? $t('删除对话？') : $t('管理对话') }}</strong><button
+            class="icon-button"
+            :aria-label="$t('关闭')"
+            @click="open = false"
+          >
+            ×
+          </button>
         </header>
         <template v-if="confirming">
           <p>
             {{ $t('将删除「{0}」的消息和执行记录，无法恢复。工作区文件不会删除。', [item.title]) }}
           </p>
           <footer>
-            <button class="secondary-button" :disabled="!!busy" @click="confirming = false">
+            <button
+              class="secondary-button"
+              :disabled="!!busy"
+              @click="confirming = false"
+            >
               {{ $t('取消') }}
             </button>
             <button
@@ -157,19 +186,30 @@ async function act(action: 'save' | 'archive' | 'delete') {
         </template>
         <template v-else>
           <form @submit.prevent="act('save')">
-            <label
-              >{{ $t('对话名称')
-              }}<input v-model="title" maxlength="200" required :disabled="!!busy"
-            /></label>
-            <label
-              >{{ $t('所属工作区')
-              }}<select v-model="folder" :disabled="!!busy || running">
-                <option v-for="entry in workspace.folders" :key="entry.id" :value="entry.id">
-                  {{ entry.name }}
-                </option>
-              </select></label
+            <label>{{ $t('对话名称')
+            }}<input
+              v-model="title"
+              maxlength="200"
+              required
+              :disabled="!!busy"
+            ></label>
+            <label>{{ $t('所属工作区')
+            }}<select
+              v-model="folder"
+              :disabled="!!busy || running"
             >
-            <p v-if="running" class="empty-copy">
+              <option
+                v-for="entry in workspace.folders"
+                :key="entry.id"
+                :value="entry.id"
+              >
+                {{ entry.name }}
+              </option>
+            </select></label>
+            <p
+              v-if="running"
+              class="empty-copy"
+            >
               {{ $t('任务尚未结束，暂时无法移动、归档或删除对话。') }}
             </p>
             <footer>
@@ -191,12 +231,26 @@ async function act(action: 'save' | 'archive' | 'delete') {
             >
               {{ item.archived ? $t('恢复对话') : $t('归档对话') }}
             </button>
-            <button class="danger-button" :disabled="!!busy || running" @click="confirming = true">
+            <button
+              class="danger-button"
+              :disabled="!!busy || running"
+              @click="confirming = true"
+            >
               {{ $t('删除对话') }}
             </button>
           </div>
+          <ConversationAuthorizations
+            v-if="open && session.capabilities.approval_authorization_revocation"
+            :conversation-id="item.id"
+          />
         </template>
-        <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
+        <p
+          v-if="error"
+          class="error-banner"
+          role="alert"
+        >
+          {{ error }}
+        </p>
       </dialog>
     </Teleport>
   </div>

@@ -24,12 +24,26 @@
 .state.error {
   color: var(--ink-2);
 }
+.changes-split {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.changes-split.dragging {
+  cursor: row-resize;
+  user-select: none;
+}
 .change-list {
-  max-height: 42%;
-  flex: none;
+  flex: 1;
+  min-height: 0;
   padding: var(--size-6);
   overflow: auto;
-  border-bottom: var(--hairline) solid var(--rule);
+  overscroll-behavior: contain;
+}
+.change-list.with-preview {
+  flex: none;
 }
 .change-list button {
   display: flex;
@@ -58,10 +72,10 @@
 }
 .change-list i.added,
 .change-list i.untracked {
-  color: var(--ink-2);
+  color: var(--code-addition-ink);
 }
 .change-list i.deleted {
-  color: var(--ink-2);
+  color: var(--code-deletion-ink);
 }
 .change-list span {
   min-width: 0;
@@ -77,18 +91,22 @@
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
 }
 .change-list b {
-  color: var(--ink-2);
+  color: var(--code-addition-ink);
 }
 .change-list em {
-  color: var(--ink-2);
+  color: var(--code-deletion-ink);
 }
 .diff-preview {
   min-height: 0;
   display: flex;
   flex: 1;
   flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3);
   overflow: hidden;
 }
 .diff-preview > header {
@@ -112,7 +130,10 @@
   font-size: var(--text-xs);
 }
 .diff-preview > p {
+  min-height: 0;
+  margin-block: 0;
   padding: var(--space-6);
+  overflow: auto;
   color: var(--ink-2);
   font-size: var(--text-xs);
 }

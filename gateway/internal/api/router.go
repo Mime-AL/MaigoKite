@@ -72,11 +72,12 @@ func (r *Router) routes() {
 	folders := &WorkspaceFolderHandler{client: r.client}
 	workspaces.GET("/folders", folders.List)
 	workspaces.POST("/folders", r.requireWorkspaceOwner(), folders.Create)
-	s := &SessionHandler{client: r.client}
 	credentialManager := credentialstore.NewManager(credentialstore.NewOSStore())
+	s := &SessionHandler{client: r.client, mgr: credentialManager}
 	m := &MessageHandler{client: r.client, hub: r.hub, mgr: credentialManager}
 	workspaces.GET("/conversations", s.List)
 	workspaces.POST("/conversations", s.Create)
+	workspaces.POST("/conversations/:conversationID/fork", s.Fork)
 	workspaces.GET("/conversations/:conversationID", s.Get)
 	workspaces.GET("/conversations/:conversationID/snapshot", s.Snapshot)
 	workspaces.PATCH("/conversations/:conversationID", s.Update)
@@ -115,6 +116,7 @@ func (r *Router) routes() {
 	workspaces.GET("/settings", r.requireWorkspaceOwner(), models.GetSettings)
 	workspaces.PATCH("/settings", r.requireWorkspaceOwner(), models.UpdateSettings)
 	workspaces.GET("/models", models.List)
+	workspaces.GET("/models/:modelID/thinking", models.Thinking)
 	workspaces.POST("/models", r.requireWorkspaceOwner(), models.Upsert)
 	workspaces.PUT("/models/:modelID", r.requireWorkspaceOwner(), models.Upsert)
 	workspaces.DELETE("/models/:modelID", r.requireWorkspaceOwner(), models.Delete)

@@ -42,6 +42,7 @@ type modelCatalogEntry struct {
 	ContextLength      int64  `json:"context_length"`
 	ContextWindow      int64  `json:"context_window"`
 	ContextWindowCamel int64  `json:"contextWindow"`
+	MaxModelLength     int64  `json:"max_model_len"`
 	Details            struct {
 		Family            string `json:"family"`
 		ParameterSize     string `json:"parameter_size"`
@@ -316,12 +317,12 @@ func catalogCandidates(payload modelCatalogPayload) ([]discoveredModel, error) {
 		if name == "" {
 			name = id
 		}
-		contextWindow := item.ContextWindow
-		if contextWindow == 0 {
-			contextWindow = item.ContextLength
-		}
-		if contextWindow == 0 {
-			contextWindow = item.ContextWindowCamel
+		var contextWindow int64
+		for _, capacity := range []int64{item.ContextWindow, item.ContextLength, item.ContextWindowCamel, item.MaxModelLength} {
+			if capacity > 0 && capacity <= 9007199254740991 {
+				contextWindow = capacity
+				break
+			}
 		}
 		detailParts := make([]string, 0, 3)
 		for _, part := range []string{item.Details.Family, item.Details.ParameterSize, item.Details.QuantizationLevel} {

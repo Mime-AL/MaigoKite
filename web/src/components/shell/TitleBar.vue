@@ -98,6 +98,12 @@ function toggleDrawer() {
       :session-id="currentId && session.activeSession?.id === currentId ? currentId : undefined"
     />
     <div class="title-actions">
+      <!-- Chat owns session settings; this stable target only places its controls. -->
+      <div
+        id="chat-session-actions"
+        v-show="route.name === 'Chat'"
+        class="chat-session-actions"
+      />
       <button
         class="title-button"
         type="button"
@@ -197,6 +203,15 @@ function toggleDrawer() {
   gap: var(--space-2);
   height: 100%;
   padding-right: var(--space-2);
+}
+.chat-session-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+  -webkit-app-region: no-drag;
+}
+.chat-session-actions:empty {
+  display: none;
 }
 button {
   -webkit-app-region: no-drag;

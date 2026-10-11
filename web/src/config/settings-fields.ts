@@ -15,6 +15,12 @@ export const settingsFields: SettingsField[] = [
   { id: 'text-size', tab: 'general', label: '字号', keywords: 'font text size' },
   { id: 'texture', tab: 'general', label: '纸纹', keywords: 'texture paper' },
   {
+    id: 'enter-behavior',
+    tab: 'general',
+    label: 'Enter 键行为',
+    keywords: 'enter keyboard input send newline 回车 发送消息 换行',
+  },
+  {
     id: 'context-usage',
     tab: 'general',
     label: '显示模型上下文窗口用量',

@@ -10,7 +10,6 @@ import {
   type Conversation,
   type MessageReceipt,
   type PermissionMode,
-  type ResponseMode,
   type TaskInput,
 } from '@/api/client'
 import { GatewayError } from '@/api/http'
@@ -276,6 +275,12 @@ export const useSessionStore = defineStore('session', () => {
       error.value = String(reason)
       throw reason
     }
+  }
+  async function forkSession(id: string, key: string, messageId = '') {
+    const item = await api.forkConversation(id, key, messageId)
+    if (!sessions.value.some((entry) => entry.id === item.id)) sessions.value.unshift(item)
+    showArchived.value = false
+    return item
   }
   async function switchSession(id: string, force = false) {
     if (!force && activeSessionId.value === id && messages.value[id] && streams.has(id)) return
@@ -760,19 +765,31 @@ export const useSessionStore = defineStore('session', () => {
   }
   async function setPermissionMode(permissionMode: PermissionMode, id = activeSessionId.value) {
     if (!id) return
-    const updated = await api.updateConversationPermission(id, permissionMode)
+    let updated: Conversation
+    try {
+      updated = await api.updateConversationPermission(id, permissionMode)
+    } catch (reason) {
+      // A timeout may follow a committed permission change. Read it back rather
+      // than automatically retrying or displaying an optimistic downgrade.
+      try {
+        const current = await api.getConversation(id)
+        const index = sessions.value.findIndex((item) => item.id === id)
+        if (index >= 0) sessions.value[index] = current
+      } catch { /* Keep the original error and block new submissions. */ }
+      throw reason
+    }
     const i = sessions.value.findIndex((s) => s.id === updated.id)
     if (i >= 0) sessions.value[i] = updated
   }
   async function setConversationRuntime(
     modelId: string,
-    responseMode: ResponseMode,
+    thinking: string,
     id = activeSessionId.value,
   ) {
     if (!id) return
     const updated = await api.updateConversationSettings(id, {
       model_id: modelId,
-      response_mode: responseMode,
+      thinking,
     })
     const i = sessions.value.findIndex((s) => s.id === updated.id)
     if (i >= 0) sessions.value[i] = updated
@@ -965,6 +982,7 @@ export const useSessionStore = defineStore('session', () => {
     activeActivityGroups,
     loadSessions,
     createSession,
+    forkSession,
     manageSession,
     deleteSession,
     switchSession,

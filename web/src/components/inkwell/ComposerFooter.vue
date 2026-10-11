@@ -1,42 +1,23 @@
 <script setup lang="ts">
 import { composerDefaults, type ComposerProps } from '@/utils/composer-presentation'
 import ComposerStats from './ComposerStats.vue'
-import SubagentSettings from '@/components/chat-area/SubagentSettings.vue'
 defineOptions({ inheritAttrs: false })
 withDefaults(defineProps<ComposerProps & { busy: boolean }>(), composerDefaults)
-const emit = defineEmits<{
-  (
-    event: 'subagents-change',
-    value: { calls: number; concurrent: number; modelIds?: string[] },
-  ): void
-}>()
 </script>
 <template>
   <ComposerStats
     :session-id="sessionId"
-    :model-name="modelOptions.find((item) => item.id === modelId)?.model || ''"
+    :model="modelOptions.find((item) => item.id === modelId)"
   />
-  <SubagentSettings
-    v-if="subagentsSupported"
-    :key="sessionId"
-    :calls="maxSubagentCalls"
-    :concurrent="maxConcurrentSubagents"
-    :model-options="modelOptions"
-    :model-ids="subagentModelIds"
-    :model-selection-supported="subagentModelsSupported"
-    :saving="savingSubagents"
-    :disabled="isSubmitting"
-    @change="emit('subagents-change', $event)"
-  />
-  <p class="composer-help">
+  <p
+    v-if="isStopping || busy"
+    class="composer-help"
+    role="status"
+  >
     {{
       isStopping
         ? $t('正在请求停止，等待服务确认…')
-        : busy
-          ? $t('正在发送，草稿会保留…')
-          : isSending
-            ? $t('Enter 立即发送 · Alt + Enter 加入队列 · Esc 停止')
-            : $t('Enter 发送 · Shift + Enter 换行')
+        : $t('正在发送，草稿会保留…')
     }}
   </p>
   <router-link

@@ -219,6 +219,10 @@ class SQLiteRepository:
         if "response_mode" not in conversation_columns:
             connection.execute("ALTER TABLE conversations ADD COLUMN response_mode TEXT NOT NULL DEFAULT 'balanced'")
         for column, definition in (
+            ("thinking", "TEXT NOT NULL DEFAULT ''"),
+            ("forked_from_conversation_id", "TEXT NOT NULL DEFAULT ''"),
+            ("forked_from_message_id", "TEXT NOT NULL DEFAULT ''"),
+            ("fork_request_hash", "TEXT NOT NULL DEFAULT ''"),
             ("folder_id", "TEXT NOT NULL DEFAULT ''"), ("archived", "INTEGER NOT NULL DEFAULT 0"),
             ("max_subagent_calls", "INTEGER NOT NULL DEFAULT 0"),
             ("max_concurrent_subagents", "INTEGER NOT NULL DEFAULT 1"),
@@ -309,6 +313,7 @@ class SQLiteRepository:
         max_subagent_calls: int = 0,
         max_concurrent_subagents: int = 1,
         subagent_model_ids: list[str] | None = None,
+        thinking: str = "",
     ) -> dict[str, Any]:
         validate_subagent_limits(max_subagent_calls, max_concurrent_subagents)
         model_ids = validate_subagent_model_ids([] if subagent_model_ids is None else subagent_model_ids)
@@ -320,10 +325,10 @@ class SQLiteRepository:
             self._db().execute(
                 """INSERT INTO conversations(
                      id,workspace_id,title,model_id,permission_mode,response_mode,created_at,updated_at,folder_id,
-                     max_subagent_calls,max_concurrent_subagents,subagent_model_ids_json
-                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     max_subagent_calls,max_concurrent_subagents,subagent_model_ids_json,thinking
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (conversation_id, workspace_id, title, model_id, permission_mode, response_mode, now, now, folder_id,
-                 max_subagent_calls, max_concurrent_subagents, json.dumps(model_ids)),
+                 max_subagent_calls, max_concurrent_subagents, json.dumps(model_ids), thinking),
             )
             self._db().commit()
         return await self.get_conversation(workspace_id, conversation_id)
@@ -339,6 +344,80 @@ class SQLiteRepository:
                 .fetchone()
             )
         return None if row is None else str(row[0])
+
+    async def fork_conversation(
+        self, workspace_id: str, conversation_id: str, message_id: str, request_key: str,
+    ) -> dict[str, Any]:
+        """Copy a bounded, immutable transcript, never an execution continuation.
+
+        Creation and messages commit together. The same submission key returns
+        the same branch after an ambiguous network response, even if the source
+        later changes. Source deletion does not delete its independent branches.
+        """
+        if (not request_key or len(request_key) > 128 or not request_key.isascii()
+                or any(ord(char) < 33 or ord(char) > 126 for char in request_key)):
+            raise ValueError("分岔请求需要 1–128 位可打印 ASCII Idempotency-Key。")
+        branch_id = "conv_" + uuid.uuid5(uuid.NAMESPACE_URL, json.dumps(
+            ["conversation-fork", workspace_id, conversation_id, request_key],
+        )).hex
+        request_hash = hashlib.sha256(json.dumps([conversation_id, message_id]).encode()).hexdigest()
+        now = _now()
+        async with self._lock:
+            db = self._db()
+            with db:
+                existing = db.execute("SELECT * FROM conversations WHERE id=?", (branch_id,)).fetchone()
+                if existing is not None:
+                    if not hmac.compare_digest(existing["fork_request_hash"], request_hash):
+                        raise MessageConflictError("此分岔请求键已用于另一个消息位置。")
+                else:
+                    source = db.execute(
+                        "SELECT * FROM conversations WHERE workspace_id=? AND id=?", (workspace_id, conversation_id),
+                    ).fetchone()
+                    if source is None:
+                        raise KeyError(conversation_id)
+                    self._require_idle_conversation(workspace_id, conversation_id)
+                    if message_id:
+                        pivot = db.execute(
+                            "SELECT rowid,role,id FROM messages WHERE conversation_id=? AND id=?",
+                            (conversation_id, message_id),
+                        ).fetchone()
+                    else:
+                        pivot = db.execute(
+                            "SELECT rowid,role,id FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT 1",
+                            (conversation_id,),
+                        ).fetchone()
+                    if pivot is None or pivot["role"] != "assistant":
+                        raise ValueError("请从已保存的助手回复创建分岔；空对话或未完成的用户回合不能分岔。")
+                    # Bound copies and reject instead of silently truncating the
+                    # user's history. Runtime imports this same 500-message bound.
+                    history = db.execute(
+                        """SELECT role,content,created_at FROM messages WHERE conversation_id=? AND rowid<=?
+                           AND role IN ('user','assistant') ORDER BY rowid LIMIT 501""",
+                        (conversation_id, pivot["rowid"]),
+                    ).fetchall()
+                    if len(history) > 500 or sum(len(row["content"].encode()) for row in history) > 2 * 1024 * 1024:
+                        raise ValueError("此位置的对话历史过长，请选择较早的回复，或在新对话中提供摘要。")
+                    # No credentials, task state, approvals or reusable grants.
+                    # Full host access must be explicitly opted into per branch.
+                    mode = source["permission_mode"]
+                    if mode not in {"read_only", "workspace"}:
+                        mode = "workspace"
+                    db.execute(
+                        """INSERT INTO conversations(id,workspace_id,title,model_id,permission_mode,response_mode,
+                           created_at,updated_at,folder_id,thinking,max_subagent_calls,max_concurrent_subagents,
+                           subagent_model_ids_json,forked_from_conversation_id,forked_from_message_id,fork_request_hash)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (branch_id, workspace_id, source["title"][:190] + " · 分岔", source["model_id"], mode,
+                         source["response_mode"], now, now, source["folder_id"], source["thinking"],
+                         source["max_subagent_calls"], source["max_concurrent_subagents"], source["subagent_model_ids_json"],
+                         conversation_id, pivot["id"], request_hash),
+                    )
+                    db.executemany(
+                        "INSERT INTO messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?)",
+                        [(f"msg_{uuid.uuid4().hex}", branch_id, row["role"], row["content"], row["created_at"])
+                         for row in history],
+                    )
+        return await self.get_conversation(workspace_id, branch_id)
 
     async def list_conversations(self, workspace_id: str) -> list[dict[str, Any]]:
         async with self._lock:
@@ -457,6 +536,7 @@ class SQLiteRepository:
         *,
         model_id: str | None = None,
         response_mode: str | None = None,
+        thinking: str | None = None,
         permission_mode: str | None = None,
         title: str | None = None,
         folder_id: str | None = None,
@@ -470,6 +550,7 @@ class SQLiteRepository:
         for column, value in (
             ("model_id", model_id),
             ("response_mode", response_mode),
+            ("thinking", thinking),
             ("permission_mode", permission_mode),
             ("title", title),
             ("folder_id", folder_id),
@@ -498,7 +579,7 @@ class SQLiteRepository:
             )
             if folder_id is not None:
                 self._require_folder(workspace_id, folder_id)
-            if folder_id is not None or archived is not None:
+            if folder_id is not None or archived is not None or model_id is not None or thinking is not None:
                 self._require_idle_conversation(workspace_id, conversation_id)
             if any(value is not None for value in (permission_mode, folder_id, archived)):
                 self._revoke_authorizations(workspace_id, conversation_id)
@@ -553,7 +634,7 @@ class SQLiteRepository:
             rows = (
                 self._db()
                 .execute(
-                    "SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT ?",
+                    "SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT ?",
                     (conversation_id, limit),
                 )
                 .fetchall()

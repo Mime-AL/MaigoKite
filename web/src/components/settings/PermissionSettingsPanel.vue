@@ -1,13 +1,24 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
-import type { PermissionMode } from '@/api/client'
+import { api, type PermissionMode } from '@/api/client'
 import RailGlyph from '@/components/rail/RailGlyph.vue'
 import { t } from '@/i18n'
 const settings = useSettingsStore()
 const draft = reactive({ default_mode: 'workspace' as PermissionMode })
 const feedback = ref(''),
   error = ref('')
+const supportsBoundary = ref(false), acknowledged = ref(false)
+let disposed = false
+onMounted(async () => {
+  try {
+    const capabilities = await api.getCapabilities()
+    if (!disposed) supportsBoundary.value = Boolean(capabilities.permission_boundary_v2)
+  } catch (reason) {
+    if (!disposed) error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+})
+onUnmounted(() => { disposed = true })
 const modes = [
   {
     id: 'read_only',
@@ -19,13 +30,13 @@ const modes = [
     id: 'workspace',
     label: '工作区',
     kind: 'act',
-    behavior: '读取、编辑和安全命令自动执行；联网与高风险命令会请求批准。',
+    behavior: '工作区内常规操作自动执行；命令在沙箱中运行，联网、工作区外文件与敏感操作可能需要批准。',
   },
   {
-    id: 'full_access',
+    id: 'danger_full_access',
     label: '完全访问',
     kind: 'await',
-    behavior: '普通工具与联网操作自动执行；重大影响操作仍会请求批准。',
+    behavior: '在本机执行命令，可访问工作区外文件和网络；不再逐项审批。',
   },
 ] as const
 watch(
@@ -40,10 +51,16 @@ watch(
   () => {
     feedback.value = ''
     error.value = ''
+    acknowledged.value = false
   },
 )
 async function save() {
   if (settings.saving) return
+  if (draft.default_mode === 'danger_full_access' && settings.permissions.default_mode !== 'danger_full_access'
+      && (!supportsBoundary.value || !acknowledged.value)) {
+    error.value = t('请先确认完全访问的风险。')
+    return
+  }
   error.value = ''
   feedback.value = ''
   if (await settings.savePermissionSettings({ default_mode: draft.default_mode }))
@@ -72,10 +89,10 @@ async function save() {
           type="button"
           :class="{
             active: draft.default_mode === mode.id,
-            'high-risk': mode.id === 'full_access',
+            'high-risk': mode.id === 'danger_full_access',
           }"
           :aria-pressed="draft.default_mode === mode.id"
-          :disabled="settings.saving"
+          :disabled="settings.saving || (mode.id === 'danger_full_access' && !supportsBoundary)"
           @click="draft.default_mode = mode.id"
         >
           <RailGlyph :kind="mode.kind" /><span><strong>{{ $t(mode.label) }}</strong><small v-if="mode.id === 'workspace'">{{ $t('推荐') }}</small>
@@ -84,8 +101,25 @@ async function save() {
       </div>
     </section>
     <p class="panel-copy">
-      {{ $t('即使选择“完全访问”，越界访问和危险的系统命令仍会受到限制。') }}
+      {{ $t('完全访问不会启用被停用的工具，也不会扩大只读子 Agent 的权限。') }}
     </p>
+    <p
+      v-if="draft.default_mode === 'workspace_auto' || draft.default_mode === 'full_access'"
+      class="panel-copy"
+    >
+      {{ $t('当前使用受限自动模式，可在上方选择新对话的默认权限。') }}
+    </p>
+    <label
+      v-if="draft.default_mode === 'danger_full_access' && settings.permissions.default_mode !== 'danger_full_access'"
+      class="panel-copy"
+    >
+      <input
+        v-model="acknowledged"
+        type="checkbox"
+        :disabled="settings.saving"
+      >
+      {{ $t('我理解风险，同意新对话默认使用完全访问。') }}
+    </label>
     <footer class="permission-actions">
       <button
         class="primary-button"

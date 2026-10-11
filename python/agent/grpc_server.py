@@ -60,6 +60,9 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             model_id=item["model_id"],
             permission_mode=item["permission_mode"],
             response_mode=item.get("response_mode", "balanced"),
+            thinking=item.get("thinking", ""),
+            forked_from_conversation_id=item.get("forked_from_conversation_id", ""),
+            forked_from_message_id=item.get("forked_from_message_id", ""),
             created_at=item["created_at"],
             updated_at=item["updated_at"],
             message_count=int(item.get("message_count", 0)),
@@ -209,6 +212,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 request.permission_mode or None,
                 request.response_mode or "balanced",
                 request.folder_id,
+                thinking=request.thinking,
                 max_subagent_calls=request.max_subagent_calls if request.HasField("max_subagent_calls") else 0,
                 subagent_model_ids=list(request.subagent_model_ids),
                 max_concurrent_subagents=(request.max_concurrent_subagents
@@ -225,6 +229,20 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             )
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "conversation not found")
+
+    async def ForkConversation(self, request, context):
+        try:
+            item = await self._core.fork_conversation(
+                request.workspace_id or "personal", request.conversation_id,
+                request.message_id, request.idempotency_key,
+            )
+            return self._conversation(item)
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "source conversation not found")
+        except (ConversationBusyError, MessageConflictError) as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
     async def ListConversations(self, request, context):
         return agent_pb2.ConversationList(
@@ -277,6 +295,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 request.conversation_id,
                 model_id=request.model_id if request.HasField("model_id") else None,
                 response_mode=request.response_mode if request.HasField("response_mode") else None,
+                thinking=request.thinking if request.HasField("thinking") else None,
                 permission_mode=request.permission_mode if request.HasField("permission_mode") else None,
                 title=request.title if request.HasField("title") else None,
                 folder_id=request.folder_id if request.HasField("folder_id") else None,
@@ -591,6 +610,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             "task_resume": native,
             "subagents": native,
             "subagent_model_selection": native,
+            "conversation_fork": native,
             "file_change_events": True, "context_estimate": native,
             "model_context_percentage": False, "session_approval": native, "task_approval": native,
             "approval_authorization_revocation": native,
@@ -625,6 +645,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             max_tokens=item.max_tokens,
             timeout_seconds=item.timeout_seconds,
             is_default=item.is_default,
+            context_window=item.context_window or 0,
         )
 
     @staticmethod
@@ -639,10 +660,20 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             max_tokens=item.max_tokens,
             timeout_seconds=item.timeout_seconds,
             is_default=item.is_default,
+            context_window=item.context_window or None,
         )
 
     async def GetChatModelSettings(self, request, context):
         return self._chat_model_settings(await self._core.get_chat_model_settings(request.workspace_id or "personal"))
+
+    async def GetChatModelThinking(self, request, context):
+        try:
+            control = await self._core.models.thinking_control(request.workspace_id or "personal", request.model_id)
+            return agent_pb2.ThinkingControl(**control.public())
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "model profile not found")
+        except (ValueError, RuntimeError) as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
     async def UpdateChatModelSettings(self, request, context):
         try:

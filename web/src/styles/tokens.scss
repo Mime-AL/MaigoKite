@@ -66,6 +66,12 @@
   --tracking-file-label: 0.07em;
   --tracking-file-title: -0.025em;
   --tree-indent: 14px;
+  --explorer-tree-share: 0.42;
+  --explorer-tree-min-height: 96px;
+  --explorer-preview-min-height: 144px;
+  --explorer-split-handle-height: 12px;
+  --resize-step: 8px;
+  --resize-step-fast: 32px;
   --font-scale: 1;
   --breakpoint-drawer: #{breakpoints.$drawer-overlay};
   --breakpoint-sidebar: #{breakpoints.$sidebar-overlay};
@@ -126,8 +132,7 @@
   --code-diff-gutter: 2.6em;
   --code-menu-height: 34px;
   --code-selection: color-mix(in srgb, var(--accent) 22%, var(--paper));
-  --code-addition: color-mix(in srgb, var(--accent) 8%, var(--paper-2));
-  --code-deletion: var(--paper-3);
+  --code-change-marker-width: 3px;
   --composer-menu-height: 280px;
   --composer-model-width: 210px;
   --composer-select-width: 130px;
@@ -166,6 +171,9 @@
   --on-accent: #fff;
   --accent: #2f6f6a;
   --stone: #2f6f6a;
+  /* Diff semantics stay distinct from the configurable accent and danger actions. */
+  --code-addition-ink: #246243;
+  --code-deletion-ink: #993f35;
   --seal: #ac3e2b;
   --wait: #b07a1f;
   --accent-blue: #405f88;
@@ -235,6 +243,7 @@
   --motion-panel: 240ms;
   --motion-arrive: 480ms;
   --motion-stagger: 60ms;
+  --composer-hint-duration: 5000ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-spring: cubic-bezier(0.2, 1.3, 0.4, 1);
@@ -312,6 +321,8 @@
   --on-accent: #121314;
   --accent: #5fa59d;
   --stone: #5fa59d;
+  --code-addition-ink: #97c8a1;
+  --code-deletion-ink: #e2a18f;
   --seal: #e17a62;
   --wait: #d7a548;
   --accent-blue: #89a6c6;
@@ -377,6 +388,13 @@
   --control-transition:
     transform var(--motion-fast) var(--ease), opacity var(--motion-fast) var(--ease);
   /* Existing settings and workspace components share the Inkline palette. */
+}
+/* Recompute on each paper surface rather than inheriting a root-resolved wash. */
+:root,
+.inkline-preview,
+.inkline-shell {
+  --code-addition: color-mix(in srgb, var(--code-addition-ink) 22%, var(--paper-2));
+  --code-deletion: color-mix(in srgb, var(--code-deletion-ink) 22%, var(--paper-2));
 }
 /* A single Inkline paper palette covers the shell, pages and portalled surfaces. */
 .inkline-preview,

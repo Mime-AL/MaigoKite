@@ -11,6 +11,8 @@ import re
 import socket
 import tempfile
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -45,6 +47,8 @@ class BrowserRuntime:
         headless: bool = True,
         executable_path: str | None = None,
         profile_directory: str | Path | None = None,
+        max_sessions: int = 4,
+        idle_timeout_seconds: float = 1800,
     ) -> None:
         self.workspace_root = Path(workspace_root).expanduser().resolve()
         self.headless = headless
@@ -53,9 +57,61 @@ class BrowserRuntime:
         self._playwright: Any | None = None
         self._browser: Any | None = None
         self._pages: dict[str, Any] = {}
+        self._contexts: dict[str, Any] = {}
         self._owners: dict[str, tuple[str, str, str]] = {}
         self._profiles: dict[str, str] = {}
         self._lock = asyncio.Lock()
+        if not 1 <= max_sessions <= 16 or not 60 <= idle_timeout_seconds <= 86400:
+            raise ValueError("browser limits require 1–16 sessions and 60–86400 idle seconds")
+        self.max_sessions = max_sessions
+        self.idle_timeout_seconds = idle_timeout_seconds
+        self._opening: set[str] = set()
+        self._operations: dict[str, asyncio.Lock] = {}
+        self._last_used: dict[str, float] = {}
+        self._reaper: asyncio.Task[None] | None = None
+        self._closing = False
+
+    @asynccontextmanager
+    async def operation(self, session_id: str, owner: tuple[str, str, str]) -> AsyncIterator[None]:
+        """Serialize one page; cancelling a queued caller never closes its owner."""
+        if self._closing:
+            raise BrowserRuntimeUnavailable("Browser runtime is shutting down")
+        self.require_owner(session_id, owner)
+        lock = self._operations[session_id]
+        async with lock:
+            self.require_owner(session_id, owner)
+            try:
+                async with asyncio.timeout(90):
+                    yield
+            except (asyncio.CancelledError, TimeoutError):
+                # Cancellation of the Python waiter alone does not stop Chromium.
+                # Only the caller holding this page's lock may close the context.
+                if session_id in self._pages:
+                    await self.close_session(session_id)
+                raise
+            finally:
+                if session_id in self._pages:
+                    self._last_used[session_id] = asyncio.get_running_loop().time()
+
+    async def _reap_idle(self) -> None:
+        now = asyncio.get_running_loop().time()
+        for session_id, used in list(self._last_used.items()):
+            lock = self._operations.get(session_id)
+            if (lock is None or lock.locked() or session_id in self._opening
+                    or now - used < self.idle_timeout_seconds):
+                continue
+            async with lock:
+                # Keep ownership if close fails; Core shutdown will retry it.
+                if session_id in self._contexts:
+                    try:
+                        await self.close_session(session_id)
+                    except Exception as exc:
+                        logging.getLogger(__name__).warning("Idle browser cleanup: %s", type(exc).__name__)
+
+    async def _reap_loop(self) -> None:
+        while True:
+            await asyncio.sleep(min(60, self.idle_timeout_seconds))
+            await self._reap_idle()
 
     async def _ensure_playwright(self) -> Any:
         async with self._lock:
@@ -93,7 +149,12 @@ class BrowserRuntime:
         self, url: str, *, owner: tuple[str, str, str] = ("personal", "", ""),
         profile: str = "", visible: bool = False,
     ) -> dict[str, Any]:
+        if self._closing:
+            raise BrowserRuntimeUnavailable("Browser runtime is shutting down")
         await _require_public_http_url(url)
+        await self._reap_idle()
+        if self._closing:
+            raise BrowserRuntimeUnavailable("Browser runtime is shutting down")
         session_id = f"browser_{uuid.uuid4().hex}"
         context = None
         profile_key = ""
@@ -108,6 +169,11 @@ class BrowserRuntime:
             if profile_key in self._profiles:
                 raise ValueError("browser profile is already open; close its current session first")
             self._profiles[profile_key] = session_id
+        # Reserve before the first launch await, including in-flight openings.
+        if len(self._contexts.keys() | self._opening) >= self.max_sessions:
+            self._forget(session_id)
+            raise ValueError("浏览器会话已达上限，请先关闭不再使用的页面。")
+        self._opening.add(session_id)
         try:
             if profile_key:
                 driver = await self._ensure_playwright()
@@ -132,19 +198,29 @@ class BrowserRuntime:
             else:
                 browser = await self._ensure_browser()
                 context = await browser.new_context(accept_downloads=True, service_workers="block")
+            # Own the context before navigation; a failed/cancelled opening must
+            # remain reclaimable even if Playwright's first close attempt fails.
+            self._contexts[session_id] = context
+            self._owners[session_id] = owner
+            self._operations[session_id] = asyncio.Lock()
+            self._last_used[session_id] = asyncio.get_running_loop().time()
+            context.on("close", lambda: self._forget(session_id))
             await context.route("**/*", self._guard_request)
             page = context.pages[0] if context.pages else await context.new_page()
             await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             self._pages[session_id] = page
-            self._owners[session_id] = owner
-            context.on("close", lambda: self._forget(session_id))
+            self._last_used[session_id] = asyncio.get_running_loop().time()
+            if self._reaper is None or self._reaper.done():
+                self._reaper = asyncio.create_task(self._reap_loop(), name="browser-idle-cleanup")
             return {**await self.snapshot(session_id), "profile": profile, "visible": visible,
                     "login_hint": "Complete login in the browser window, then ask the agent to continue." if visible else ""}
         except BaseException:
-            self._forget(session_id)
             if context is not None:
                 await context.close()
+            self._forget(session_id)
             raise
+        finally:
+            self._opening.discard(session_id)
 
     def require_owner(self, session_id: str, owner: tuple[str, str, str]) -> None:
         self._require_page(session_id)
@@ -153,7 +229,10 @@ class BrowserRuntime:
 
     def _forget(self, session_id: str) -> None:
         self._pages.pop(session_id, None)
+        self._contexts.pop(session_id, None)
         self._owners.pop(session_id, None)
+        self._operations.pop(session_id, None)
+        self._last_used.pop(session_id, None)
         for key, value in list(self._profiles.items()):
             if value == session_id:
                 self._profiles.pop(key, None)
@@ -196,7 +275,7 @@ class BrowserRuntime:
                     if temporary.stat().st_size > 50 * 1024 * 1024:
                         raise ValueError("download exceeds 50 MiB")
                     # Publish atomically without overwriting an existing file.
-                    if self._workspace_path(str(target), workspace_root) != target:
+                    if self._workspace_path(str(target), workspace_root, unrestricted=unrestricted) != target:
                         raise ValueError("download destination changed during execution")
                     os.link(temporary, target)
             return {"session_id": session_id, "url": page.url, "path": str(target), "downloaded": True}
@@ -248,21 +327,23 @@ class BrowserRuntime:
         return {"session_id": session_id, "url": page.url, "path": str(target)}
 
     async def close_session(self, session_id: str) -> dict[str, Any]:
-        page = self._pages.get(session_id)
-        if page is None:
+        context = self._contexts.get(session_id)
+        if context is None:
             raise KeyError(f"browser session not found: {session_id}")
-        await page.context.close()
+        await context.close()
         self._forget(session_id)
         return {"session_id": session_id, "closed": True}
 
     async def close(self) -> None:
-        pages, self._pages = list(self._pages.values()), {}
-        self._owners.clear()
-        self._profiles.clear()
+        self._closing = True
+        if self._reaper is not None:
+            self._reaper.cancel()
+            await asyncio.gather(self._reaper, return_exceptions=True)
+            self._reaper = None
         errors: list[Exception] = []
-        for page in pages:
+        for session_id in list(self._contexts):
             try:
-                await page.context.close()
+                await self.close_session(session_id)
             except Exception as exc:
                 errors.append(exc)
         if self._browser is not None:
@@ -270,17 +351,23 @@ class BrowserRuntime:
                 await self._browser.close()
             except Exception as exc:
                 errors.append(exc)
-            finally:
+            else:
                 self._browser = None
         if self._playwright is not None:
             try:
                 await self._playwright.stop()
             except Exception as exc:
                 errors.append(exc)
-            finally:
+            else:
                 self._playwright = None
+                self._browser = None
+                for session_id in list(self._contexts):
+                    self._forget(session_id)
         if errors:
             raise ExceptionGroup("Browser cleanup failed", errors)
+        # Core controls admission; allow an explicit Core initialize after a
+        # successful shutdown to lazily acquire a fresh Playwright lifecycle.
+        self._closing = False
 
     async def _guard_request(self, route: Any) -> None:
         """Apply the public-network boundary to redirects and page subresources too."""

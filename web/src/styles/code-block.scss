@@ -12,6 +12,7 @@
 }
 .code-heading {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--space-3);
   min-height: var(--code-menu-height);
@@ -21,6 +22,7 @@
   font-family: var(--font-mono);
 }
 .code-heading > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -49,6 +51,7 @@ small {
   overscroll-behavior: contain;
 }
 .code-body {
+  min-width: max-content;
   margin: 0;
   padding-block: var(--space-3);
   background: var(--transparent);
@@ -72,9 +75,11 @@ code {
   background: var(--paper-2);
   font-variant-numeric: tabular-nums;
   user-select: none;
+  white-space: pre;
 }
 .code-text {
   display: block;
+  flex: 1;
   padding-inline: var(--space-4);
   white-space: pre;
 }
@@ -86,6 +91,20 @@ code {
 }
 .deletion {
   background: var(--code-deletion);
+}
+.addition .code-number {
+  color: var(--code-addition-ink);
+  background: var(--code-addition);
+}
+.deletion .code-number {
+  color: var(--code-deletion-ink);
+  background: var(--code-deletion);
+}
+.addition .code-number:first-child {
+  box-shadow: inset var(--code-change-marker-width) 0 0 var(--code-addition-ink);
+}
+.deletion .code-number:first-child {
+  box-shadow: inset var(--code-change-marker-width) 0 0 var(--code-deletion-ink);
 }
 .hunk {
   color: var(--accent);
@@ -101,14 +120,39 @@ code {
 }
 .code-footer {
   display: flex;
+  flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   border-top: var(--hairline) solid var(--rule);
-  padding: var(--space-2) var(--space-4);
+  min-height: var(--control-row-height);
+  padding: var(--space-3) var(--space-4);
 }
 .code-footer button {
   @include mixins.text-action;
+  flex: none;
+  min-height: var(--space-7);
   font-size: var(--text-xs);
+}
+.code-footer small {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.document-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin-block: 0;
+}
+.document-view .code-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.document-view .copy-error {
+  flex: none;
 }
 .copy-error {
   margin: var(--space-3) var(--space-4);

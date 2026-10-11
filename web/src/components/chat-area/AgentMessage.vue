@@ -29,6 +29,7 @@ withDefaults(
       :content="content"
       :is-streaming="isStreaming"
     />
+    <slot name="actions" />
   </article>
 </template>
 <style scoped lang="scss">

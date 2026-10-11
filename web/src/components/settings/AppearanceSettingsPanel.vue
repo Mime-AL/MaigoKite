@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { desktopEffects } from '@/composables/useElectron'
 import { t, type Language } from '@/i18n'
 import AppearancePreview from './AppearancePreview.vue'
+import EnterBehaviorField from './EnterBehaviorField.vue'
 const ui = useUIStore(),
   settings = useSettingsStore()
 const name = ref(settings.profile.assistantName),
@@ -61,7 +62,6 @@ async function saveShortcut() {
     </header>
     <section class="setting-group">
       <h3>{{ $t('称呼与语言') }}</h3>
-      <p>{{ $t('名字用于界面显示，不改变助手的权限。') }}</p>
       <label
         class="setting-row"
         data-settings-field="language"
@@ -141,7 +141,6 @@ async function saveShortcut() {
     </section>
     <section class="setting-group">
       <h3>{{ $t('纸面与文字') }}</h3>
-      <p>{{ $t('修改后立即应用，预览与当前界面一致。') }}</p>
       <label
         class="setting-row"
         data-settings-field="theme"
@@ -198,6 +197,7 @@ async function saveShortcut() {
     </section>
     <section class="setting-group">
       <h3>{{ $t('输入与状态') }}</h3>
+      <EnterBehaviorField />
       <label
         class="setting-row"
         data-settings-field="context-usage"

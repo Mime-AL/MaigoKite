@@ -3,7 +3,15 @@ import { nextTick, onMounted, onScopeDispose, ref } from 'vue'
 import { useDialog } from '@/composables/useDialog'
 import { layoutPixels } from '@/utils/layout-media'
 import IconSymbol from '@/components/common/IconSymbol.vue'
-defineProps<{ label: string; title?: string }>()
+const props = withDefaults(
+  defineProps<{
+    label: string
+    title?: string
+    placement?: 'above' | 'below'
+    toolbar?: boolean
+  }>(),
+  { placement: 'above', toolbar: false },
+)
 const trigger = ref<HTMLButtonElement | null>(null),
   panel = ref<HTMLDialogElement | null>(null)
 const open = ref(false),
@@ -27,7 +35,13 @@ async function toggle() {
           anchor.left + anchor.width / 2 - bounds.width / 2,
         ),
       ) + 'px',
-    top: Math.max(top, anchor.top - bounds.height - gap) + 'px',
+    top:
+      Math.max(
+        top,
+        props.placement === 'below'
+          ? Math.min(innerHeight - bounds.height - gap, anchor.bottom + gap)
+          : anchor.top - bounds.height - gap,
+      ) + 'px',
   }
 }
 function backdrop(event: PointerEvent) {
@@ -51,7 +65,9 @@ onScopeDispose(() => window.removeEventListener('resize', close))
 <template>
   <button
     ref="trigger"
+    type="button"
     class="stat-pill"
+    :class="{ 'stat-pill--toolbar': toolbar }"
     :title="title || label"
     :aria-label="label"
     :aria-expanded="open"
@@ -103,10 +119,27 @@ onScopeDispose(() => window.removeEventListener('resize', close))
   line-height: var(--leading-small);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  -webkit-app-region: no-drag;
 }
 .stat-pill[aria-expanded='true'] {
   background: var(--paper-2);
   color: var(--ink);
+}
+.stat-pill--toolbar {
+  justify-content: center;
+  flex: none;
+  width: var(--titlebar-button-size);
+  height: var(--titlebar-button-size);
+  padding: 0;
+  border: var(--hairline) solid var(--transparent);
+  border-radius: var(--radius-sm);
+}
+.stat-pill--toolbar[aria-expanded='true'] {
+  background: var(--accent-selected);
+  color: var(--accent);
+}
+.stat-pill--toolbar:active {
+  transform: scale(var(--press-scale));
 }
 .stat-panel {
   position: fixed;
@@ -124,6 +157,7 @@ onScopeDispose(() => window.removeEventListener('resize', close))
   font-size: var(--text-xs);
   line-height: var(--leading-small);
   animation: paper-arrive var(--motion-fast) var(--ease-out) both;
+  -webkit-app-region: no-drag;
 }
 .stat-panel::backdrop {
   background: var(--transparent);

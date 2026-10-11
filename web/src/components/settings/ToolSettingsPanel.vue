@@ -131,14 +131,6 @@ onMounted(() => {
               :disabled="saving || !tool.configurable"
               :aria-label="labels[tool.name] ? $t(labels[tool.name][0]) : tool.name"
             ></label>
-            <details
-              v-if="tool.description"
-              class="model-description"
-            >
-              <summary>{{ $t('查看模型说明') }}</summary>
-              <p>{{ $t('这是提供给模型的说明') }}</p>
-              <pre>{{ tool.description }}</pre>
-            </details>
           </article>
         </section>
         <footer class="settings-actions">
@@ -206,8 +198,7 @@ onMounted(() => {
 .tool-row strong {
   font-size: var(--text-sm);
 }
-.tool-row small,
-.model-description {
+.tool-row small {
   color: var(--ink-2);
   font-size: var(--text-xs);
 }
@@ -215,22 +206,6 @@ onMounted(() => {
   width: var(--size-18);
   height: var(--size-18);
   accent-color: var(--accent);
-}
-.model-description {
-  margin-top: var(--space-3);
-}
-.model-description summary {
-  cursor: pointer;
-}
-.model-description pre {
-  font-family: var(--font-mono);
-  padding: var(--space-4);
-  background: var(--paper-2);
-  border: var(--hairline) solid var(--rule);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: var(--detail-max-height);
-  overflow: auto;
 }
 .settings-actions,
 .settings-actions > div {

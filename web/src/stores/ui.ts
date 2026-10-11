@@ -7,8 +7,10 @@ import { i18n, resolveLanguage, t, type Language } from '@/i18n'
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type Accent = 'stone' | 'blue' | 'green' | 'earth' | 'lotus' | 'ink'
 export type TextSize = 'small' | 'default' | 'large'
+export type EnterBehavior = 'send' | 'newline'
 export interface Appearance {
   textSize?: TextSize
+  enterBehavior?: EnterBehavior
   language?: Language
   theme: ThemeMode
   accent: Accent
@@ -34,6 +36,7 @@ export function validAppearance(value: unknown): value is Appearance {
     accents.some((a) => a.id === p.accent) &&
     typeof p.texture === 'boolean' &&
     (p.textSize === undefined || ['small', 'default', 'large'].includes(String(p.textSize))) &&
+    (p.enterBehavior === undefined || p.enterBehavior === 'send' || p.enterBehavior === 'newline') &&
     (p.language === undefined || ['zh-CN', 'en', 'system'].includes(String(p.language))) &&
     (p.showContextUsage === undefined || typeof p.showContextUsage === 'boolean') &&
     typeof p.greetingName === 'string' &&
@@ -55,6 +58,7 @@ export const useUIStore = defineStore('ui', () => {
     capsuleShortcut: 'Alt+Space',
     showContextUsage: true,
     textSize: 'default',
+    enterBehavior: 'send',
   }
   const storageKey = import.meta.env.VITE_MOCK === '1' ? 'maigokite_inkline_demo' : 'maigokite_inkline'
   let stored: unknown

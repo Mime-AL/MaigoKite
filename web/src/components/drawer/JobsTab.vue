@@ -115,6 +115,8 @@ function operation(task: AgentTask) {
       ? pending.title || t('Agent 在等你回答')
       : t('等你确认后继续…')
   }
+  if (turn?.status === 'running' && turn.compaction?.status === 'running')
+    return t('正在压缩上下文')
   return (
     turn?.steps
       .slice()
@@ -294,7 +296,7 @@ onUnmounted(cleanup)
         >
           {{ $t('关闭输入') }}
         </button>
-        <p>{{ $t('输入不会写入对话；进程自身仍可能将它回显到输出。执行超时继续生效。') }}</p>
+        <p>{{ $t('此输入仅发给正在运行的命令，可能出现在命令输出中。') }}</p>
       </form>
       <button
         v-if="job.live && session.capabilities.process_stop"

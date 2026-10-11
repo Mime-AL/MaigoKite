@@ -2,10 +2,17 @@ import type { ContextUsage, GatewayEvent, ModelCall, TokenUsage, Turn } from '@/
 
 type MetricEvent = Extract<
   GatewayEvent,
-  { type: 'model_start' | 'model_end' | 'model_failed' | 'context_update' }
+  { type: 'model_start' | 'model_end' | 'model_failed' | 'context_update' | 'context_compaction' }
 >
 export function projectModelEvent(turn: Turn, event: MetricEvent) {
+  if (event.type === 'context_compaction') {
+    if (!turn.compaction || event.seq > turn.compaction.seq)
+      turn.compaction = { ...event.compaction }
+    return
+  }
   if (event.type === 'context_update') {
+    // A summary request's prompt is not the ongoing conversation's context.
+    if (event.context.purpose && event.context.purpose !== 'response') return
     if (!turn.context || event.seq > turn.context.seq) turn.context = { ...event.context }
     return
   }

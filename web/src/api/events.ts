@@ -49,9 +49,26 @@ export interface ContextUsage {
   seq: number
   callId: string
   modelName: string
+  modelId?: string
+  modelKey?: string
   usedTokens: number | null
   windowTokens: number | null
-  measurement: 'estimate' | 'provider'
+  measurement: 'estimate' | 'provider' | null
+  purpose?: string
+  capacitySource?: string | null
+  capacityStatus?: string
+  capacityCheckedAt?: string | null
+}
+export interface ContextCompaction {
+  seq: number
+  status: 'running' | 'completed' | 'failed' | 'skipped'
+  measurement: ContextUsage['measurement']
+  beforeTokens: number | null
+  afterTokens: number | null
+  windowTokens: number | null
+  message?: string
+  errorType?: string
+  reason?: string
 }
 export type GatewayEvent = {
   seq: number
@@ -63,6 +80,7 @@ export type GatewayEvent = {
   | { type: 'model_start' | 'model_failed'; callId: string; purpose: string }
   | ({ type: 'model_end'; callId: string; purpose: string; usage?: TokenUsage } & ModelTiming)
   | { type: 'context_update'; context: ContextUsage }
+  | { type: 'context_compaction'; compaction: ContextCompaction }
   | { type: 'thinking_started' }
   | { type: 'text_delta' | 'thinking_delta' | 'thinking_completed'; text: string }
   | {
@@ -184,4 +202,5 @@ export interface Turn {
   summary?: TurnSummary
   modelCalls?: Record<string, ModelCall>
   context?: ContextUsage
+  compaction?: ContextCompaction
 }

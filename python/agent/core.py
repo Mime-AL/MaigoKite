@@ -88,6 +88,8 @@ class AgentCore:
                 workspace_root,
                 headless=bool(config.get("browser.headless", True)),
                 executable_path=executable_path or None,
+                max_sessions=int(config.get("browser.max_sessions", 4)),
+                idle_timeout_seconds=float(config.get("browser.idle_timeout_seconds", 1800)),
             )
         allowlist_config = config.get("permissions.allowlist", {})
         if not isinstance(allowlist_config, dict):
@@ -513,11 +515,11 @@ class AgentCore:
         return [item["name"] for item in (await self.get_tool_settings(workspace_id))["tools"] if item["enabled"]]
 
     async def _resolve_langgraph_model(
-        self, workspace_id: str, model_id: str, response_mode: str
+        self, workspace_id: str, model_id: str, thinking: str
     ) -> tuple[str, BaseChatModel]:
         if self._model is not None:
             return f"injected:{id(self._model)}", self._model
-        return await self.models.get_langchain_model(workspace_id, model_id, response_mode)
+        return await self.models.get_langchain_model(workspace_id, model_id, thinking=thinking)
 
     async def get_permission_settings(self, workspace_id: str) -> dict[str, Any]:
         stored = await self.repository.get_workspace_setting(workspace_id, "permissions.policy")
@@ -551,6 +553,7 @@ class AgentCore:
         max_subagent_calls: int = 0,
         max_concurrent_subagents: int = 1,
         subagent_model_ids: list[str] | None = None,
+        thinking: str = "",
     ) -> dict[str, Any]:
         mode = permission_mode or (await self.get_permission_settings(workspace_id))["default_mode"]
         try:
@@ -563,11 +566,13 @@ class AgentCore:
             await self.models.get_profile(workspace_id, model_id)
         else:
             _, model_id = await self.models.list_settings(workspace_id)
+        await self.models.validate_thinking(workspace_id, model_id, thinking)
         for child_model_id in validate_subagent_model_ids([] if subagent_model_ids is None else subagent_model_ids):
             await self.models.get_profile(workspace_id, child_model_id)
         return await self.repository.create_conversation(
             workspace_id, title, model_id, mode, response_mode, folder_id,
             max_subagent_calls, max_concurrent_subagents, subagent_model_ids,
+            thinking=thinking,
         )
 
     async def update_conversation_permission(
@@ -586,6 +591,7 @@ class AgentCore:
         *,
         model_id: str | None = None,
         response_mode: str | None = None,
+        thinking: str | None = None,
         permission_mode: str | None = None,
         title: str | None = None,
         folder_id: str | None = None,
@@ -611,6 +617,15 @@ class AgentCore:
             raise ValueError("invalid response mode")
         if model_id is not None and model_id:
             await self.models.get_profile(workspace_id, model_id)
+        if model_id is not None or thinking is not None:
+            self._require_inactive_conversation(conversation_id)
+            current = await self.repository.get_conversation(workspace_id, conversation_id)
+            if thinking is None and model_id != current.get("model_id"):
+                thinking = ""  # Never carry a provider-specific level across models.
+            await self.models.validate_thinking(
+                workspace_id, model_id if model_id is not None else str(current.get("model_id") or ""),
+                thinking if thinking is not None else str(current.get("thinking") or ""),
+            )
         if subagent_model_ids is not None:
             for child_model_id in validate_subagent_model_ids(subagent_model_ids):
                 await self.models.get_profile(workspace_id, child_model_id)
@@ -619,6 +634,7 @@ class AgentCore:
             conversation_id,
             model_id=model_id,
             response_mode=response_mode,
+            thinking=thinking,
             permission_mode=permission_mode,
             title=title,
             folder_id=folder_id,
@@ -643,6 +659,14 @@ class AgentCore:
         task_ids = await self.repository.delete_conversation(workspace_id, conversation_id)
         if self._langgraph_runtime is not None:
             await self._langgraph_runtime.delete_threads(task_ids)
+
+    async def fork_conversation(
+        self, workspace_id: str, conversation_id: str, message_id: str, request_key: str,
+    ) -> dict[str, Any]:
+        self._require_inactive_conversation(conversation_id)
+        if len(message_id) > 200:
+            raise ValueError("Invalid source message ID")
+        return await self.repository.fork_conversation(workspace_id, conversation_id, message_id, request_key)
 
     async def get_workspace_folder(self, workspace_id: str, folder_id: str) -> dict[str, Any]:
         if not folder_id:

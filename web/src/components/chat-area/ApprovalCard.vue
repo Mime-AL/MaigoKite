@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { t } from '@/i18n'
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { AwaitItem } from '@/api/events'
-import type { Approval } from '@/api/client'
+import type { Approval, ApprovalScope } from '@/api/client'
 import { useInboxStore } from '@/stores/inbox'
 import InkButton from '@/components/common/InkButton.vue'
 import { useSessionStore } from '@/stores/session'
-import { approvalDescription } from '@/utils/tool-presentation'
+import { approvalDescription, approvalScopeDescription } from '@/utils/tool-presentation'
 import { awaitFocus } from '@/utils/await-focus'
 const card = ref<HTMLElement | null>(null)
 const props = defineProps<{ item?: AwaitItem; approval?: Approval }>()
@@ -32,6 +32,17 @@ const inbox = useInboxStore(),
   failure = ref('')
 const pendingDecision = ref<'allow' | 'deny' | null>(null)
 const session = useSessionStore()
+const scope = ref<ApprovalScope>('once')
+const record = computed(() => {
+  const entry = props.approval || session.approvals[item.value?.sessionId || '']?.find(
+    (value) => value.id === item.value?.id,
+  )
+  return entry?.id === item.value?.id && entry?.version === item.value?.version ? entry : undefined
+})
+const scopes = computed(() => (record.value?.allowed_scopes || []).filter((value) =>
+  value === 'task' || value === 'session',
+))
+watch(() => [item.value?.id, item.value?.version, scopes.value.join(',')], () => { scope.value = 'once' })
 const description = computed(() =>
   item.value
     ? approvalDescription(
@@ -47,7 +58,8 @@ async function decide(decision: 'allow' | 'deny') {
   failure.value = ''
   const restoreFocus = awaitFocus(card.value)
   try {
-    await inbox.decide(item.value, decision, note.value.trim() || undefined)
+    if (scope.value !== 'once' && !scopes.value.includes(scope.value)) scope.value = 'once'
+    await inbox.decide(item.value, decision, note.value.trim() || undefined, scope.value)
   } catch (reason) {
     failure.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
@@ -88,6 +100,36 @@ async function decide(decision: 'allow' | 'deny') {
         <dd>{{ item.risk }}</dd>
       </dl>
       <pre>{{ item.detail }}</pre>
+    </details>
+    <label v-if="scopes.length && !rejecting">
+      {{ $t('批准范围') }}
+      <select
+        v-model="scope"
+        :disabled="pendingDecision !== null || inbox.busy.includes(item.id)"
+      >
+        <option value="once">{{ $t('仅这一次') }}</option>
+        <option
+          v-for="value in scopes"
+          :key="value"
+          :value="value"
+        >
+          {{ $t(value === 'task' ? '本任务内同范围操作' : '本会话内同范围操作') }}
+        </option>
+      </select>
+    </label>
+    <details
+      v-if="scope !== 'once' && !rejecting"
+      class="approval-details"
+      open
+    >
+      <summary>{{ $t('仅复用以下范围，不是放行整个工具') }}</summary>
+      <p
+        v-for="line in approvalScopeDescription(record?.reuse_scope)"
+        :key="line"
+      >
+        {{ line }}
+      </p>
+      <p>{{ $t('授权最长 8 小时，可在对话管理中撤销；权限或工作区变更后失效。') }}</p>
     </details>
     <div v-if="rejecting">
       <label>{{ $t('驳回理由（可选）') }}<textarea

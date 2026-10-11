@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { t } from '@/i18n'
 import { computed } from 'vue'
+import type { ContextUsage } from '@/api/events'
+import { normalizeEndpoint, type ModelOption } from '@/config/model-groups'
 import { useRunStore } from '@/stores/run'
 import { useUIStore } from '@/stores/ui'
 import { sessionUsage } from '@/stores/run-usage'
@@ -8,15 +10,35 @@ import { formatDuration } from '@/utils/format'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import StatPopover from './StatPopover.vue'
 import InkMeter from './InkMeter.vue'
-const props = defineProps<{ sessionId: string; modelName: string }>()
+import CompactionStatus from './CompactionStatus.vue'
+const props = defineProps<{ sessionId: string; model?: ModelOption }>()
 const run = useRunStore(),
   ui = useUIStore()
 const empty = sessionUsage([])
 const stats = computed(() => run.metrics[props.sessionId]?.usage || empty)
-const context = computed(() => {
+const context = computed<ContextUsage | undefined>(() => {
+  const selected = props.model
+  if (!selected) return undefined
+  const key = JSON.stringify([
+    selected.provider, normalizeEndpoint(selected.baseUrl || ''), selected.model, selected.contextWindow ?? null,
+  ])
   const value = run.metrics[props.sessionId]?.context
-  return value?.modelName === props.modelName ? value : undefined
+  // Old receipts without profile identity cannot prove which same-named service
+  // produced the count. Do not reuse their capacity after a model switch.
+  if (value?.modelId === selected.id && value.modelKey === key && value.modelName === selected.model)
+    return value
+  const capacity = selected.contextWindow
+  const known = capacity !== undefined && Number.isSafeInteger(capacity) && capacity > 0
+  return {
+    seq: 0, callId: '', modelName: selected.model, modelId: selected.id, modelKey: key,
+    usedTokens: null, windowTokens: known ? capacity ?? null : null, measurement: null,
+    capacitySource: known ? 'model_profile' : null, capacityStatus: known ? 'known' : 'unknown',
+  }
 })
+const turn = computed(() => (run.turns[props.sessionId] || []).slice(-1)[0])
+const footerCompaction = computed(() =>
+  turn.value?.compaction?.status !== 'failed' ? turn.value?.compaction : undefined,
+)
 const active = computed(() => stats.value.calls + stats.value.summaryCalls + stats.value.subagentCalls > 0)
 const compact = (value: number) =>
   Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
@@ -37,7 +59,7 @@ const tokenLabel = computed(() =>
 </script>
 <template>
   <div
-    v-if="active || (ui.appearance.showContextUsage !== false && context?.windowTokens)"
+    v-if="active || footerCompaction || (ui.appearance.showContextUsage !== false && context)"
     class="composer-dock"
     :aria-label="$t('对话统计')"
   >
@@ -132,6 +154,13 @@ const tokenLabel = computed(() =>
       </StatPopover>
     </template>
     <InkMeter v-if="ui.appearance.showContextUsage !== false && context" :context="context" />
+    <CompactionStatus
+      v-if="turn && footerCompaction"
+      :compaction="footerCompaction"
+      :turn-status="turn.status"
+      compact
+      announce
+    />
   </div>
 </template>
 <style scoped lang="scss">

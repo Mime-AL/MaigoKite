@@ -17,6 +17,7 @@ const emit = defineEmits<{
   (event: 'keydown', value: KeyboardEvent): void
   (event: 'mention', value: Mention): void
   (event: 'command', value: SlashCommand): void
+  (event: 'focus'): void
 }>()
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const selected = ref(0),
@@ -37,7 +38,7 @@ function select(index: number) {
     emit('command', props.commands[index])
 }
 function keydown(event: KeyboardEvent) {
-  if (event.isComposing) return
+  if (event.isComposing || event.keyCode === 229) return
   if (
     event.key === 'Escape' &&
     !dismissed.value &&
@@ -59,7 +60,10 @@ function keydown(event: KeyboardEvent) {
     select(Number(event.key) - 1)
     return
   }
-  if (menu() && !event.shiftKey && !event.altKey && ['Enter', 'Tab'].includes(event.key)) {
+  if (
+    menu() && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey &&
+    ['Enter', 'Tab'].includes(event.key)
+  ) {
     event.preventDefault()
     select(selected.value)
     return
@@ -126,6 +130,7 @@ defineExpose({
     :aria-label="$t('消息内容')"
     @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     @keydown="keydown"
+    @focus="emit('focus')"
   />
 </template>
 <style scoped lang="scss">

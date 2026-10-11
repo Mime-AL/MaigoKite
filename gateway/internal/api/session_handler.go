@@ -4,12 +4,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"maigokite/gateway/internal/credentialstore"
 	agentgrpc "maigokite/gateway/internal/grpc"
 	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 	"net/http"
 )
 
-type SessionHandler struct{ client *agentgrpc.AgentClient }
+type SessionHandler struct {
+	client *agentgrpc.AgentClient
+	mgr    *credentialstore.Manager
+}
 
 func (h *SessionHandler) Snapshot(c *gin.Context) {
 	item, err := h.client.GetConversationSnapshot(c.Request.Context(), &agentv1.ConversationRequest{
@@ -46,6 +50,7 @@ type CreateRequest struct {
 	ModelID                string   `json:"model_id" binding:"max=200"`
 	PermissionMode         string   `json:"permission_mode" binding:"omitempty,oneof=read_only workspace workspace_auto full_access danger_full_access"`
 	ResponseMode           string   `json:"response_mode" binding:"omitempty,oneof=fast balanced thorough"`
+	Thinking               string   `json:"thinking" binding:"max=32"`
 }
 type UpdateConversationRequest struct {
 	SubagentModelIDs       *[]string `json:"subagent_model_ids" binding:"omitempty,max=32,dive,required,max=100"`
@@ -57,6 +62,7 @@ type UpdateConversationRequest struct {
 	PermissionMode         *string   `json:"permission_mode" binding:"omitempty,oneof=read_only workspace workspace_auto full_access danger_full_access"`
 	ModelID                *string   `json:"model_id" binding:"omitempty,max=200"`
 	ResponseMode           *string   `json:"response_mode" binding:"omitempty,oneof=fast balanced thorough"`
+	Thinking               *string   `json:"thinking" binding:"omitempty,max=32"`
 }
 
 func grpcError(c *gin.Context, err error) {
@@ -80,9 +86,16 @@ func (h *SessionHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "VALIDATION", "message": err.Error()}})
 		return
 	}
+	if req.Thinking != "" {
+		if err := prepareChatModelCredential(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), req.ModelID); err != nil {
+			grpcError(c, err)
+			return
+		}
+	}
 	item, err := h.client.CreateConversation(c.Request.Context(), &agentv1.ConversationRequest{
 		WorkspaceId: c.Param("workspaceID"), Title: req.Title, ModelId: req.ModelID,
 		PermissionMode: req.PermissionMode, ResponseMode: req.ResponseMode, FolderId: req.FolderID,
+		Thinking:         req.Thinking,
 		MaxSubagentCalls: req.MaxSubagentCalls, MaxConcurrentSubagents: req.MaxConcurrentSubagents,
 		SubagentModelIds: req.SubagentModelIDs,
 	})
@@ -100,6 +113,24 @@ func (h *SessionHandler) List(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, items)
 }
+func (h *SessionHandler) Fork(c *gin.Context) {
+	var req struct {
+		MessageID string `json:"message_id" binding:"max=200"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "VALIDATION", "message": err.Error()}})
+		return
+	}
+	item, err := h.client.ForkConversation(c.Request.Context(), &agentv1.ForkConversationRequest{
+		WorkspaceId: c.Param("workspaceID"), ConversationId: c.Param("conversationID"),
+		MessageId: req.MessageID, IdempotencyKey: c.GetHeader("Idempotency-Key"),
+	})
+	if err != nil {
+		grpcError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, item)
+}
 func (h *SessionHandler) Get(c *gin.Context) {
 	item, err := h.client.GetConversation(c.Request.Context(), &agentv1.ConversationRequest{WorkspaceId: c.Param("workspaceID"), ConversationId: c.Param("conversationID")})
 	if err != nil {
@@ -114,18 +145,38 @@ func (h *SessionHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "VALIDATION", "message": err.Error()}})
 		return
 	}
-	if req.PermissionMode == nil && req.ModelID == nil && req.ResponseMode == nil && req.Title == nil && req.FolderID == nil && req.Archived == nil && req.MaxSubagentCalls == nil && req.MaxConcurrentSubagents == nil && req.SubagentModelIDs == nil {
+	if req.PermissionMode == nil && req.ModelID == nil && req.ResponseMode == nil && req.Thinking == nil && req.Title == nil && req.FolderID == nil && req.Archived == nil && req.MaxSubagentCalls == nil && req.MaxConcurrentSubagents == nil && req.SubagentModelIDs == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "VALIDATION", "message": "at least one conversation setting is required"}})
 		return
 	}
 	var selectedModels *agentv1.ModelIdList
+	if req.Thinking != nil && *req.Thinking != "" {
+		modelID := ""
+		if req.ModelID != nil {
+			modelID = *req.ModelID
+		} else {
+			conversation, err := h.client.GetConversation(c.Request.Context(), &agentv1.ConversationRequest{
+				WorkspaceId: c.Param("workspaceID"), ConversationId: c.Param("conversationID"),
+			})
+			if err != nil {
+				grpcError(c, err)
+				return
+			}
+			modelID = conversation.ModelId
+		}
+		if err := prepareChatModelCredential(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), modelID); err != nil {
+			grpcError(c, err)
+			return
+		}
+	}
 	if req.SubagentModelIDs != nil {
 		selectedModels = &agentv1.ModelIdList{ModelIds: *req.SubagentModelIDs}
 	}
 	item, err := h.client.UpdateConversationSettings(c.Request.Context(), &agentv1.ConversationSettingsRequest{
 		WorkspaceId: c.Param("workspaceID"), ConversationId: c.Param("conversationID"),
 		PermissionMode: req.PermissionMode, ModelId: req.ModelID, ResponseMode: req.ResponseMode,
-		Title: req.Title, FolderId: req.FolderID, Archived: req.Archived,
+		Thinking: req.Thinking,
+		Title:    req.Title, FolderId: req.FolderID, Archived: req.Archived,
 		SubagentModels:   selectedModels,
 		MaxSubagentCalls: req.MaxSubagentCalls, MaxConcurrentSubagents: req.MaxConcurrentSubagents,
 	})

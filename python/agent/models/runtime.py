@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import uuid
@@ -9,11 +10,13 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+import httpx
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
 from agent.config_manager import ConfigManager
 from agent.models.native_model import build_chat_model, close_chat_models, normalize_openai_compatible_base_url
+from agent.models.thinking import ThinkingControl, cloud_thinking, serving_thinking
 from agent.repository import SQLiteRepository
 
 
@@ -38,6 +41,7 @@ class ChatModelSettings:
     max_tokens: int = 4096
     timeout_seconds: int = 60
     is_default: bool = False
+    context_window: int | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any] | None) -> "ChatModelSettings":
@@ -56,6 +60,7 @@ class ChatModelSettings:
             max_tokens=int(value.get("max_tokens", 4096)),
             timeout_seconds=int(value.get("timeout_seconds", value.get("timeout", 60))),
             is_default=bool(value.get("is_default", False)),
+            context_window=value.get("context_window") or None,
         )
 
     def validate(self) -> None:
@@ -76,6 +81,10 @@ class ChatModelSettings:
             raise ValueError("max_tokens must be between 1 and 65536")
         if not 1 <= self.timeout_seconds <= 600:
             raise ValueError("timeout_seconds must be between 1 and 600")
+        if self.context_window is not None and (
+            type(self.context_window) is not int or not 1 <= self.context_window <= 9007199254740991
+        ):
+            raise ValueError("context_window must be a positive safe integer or omitted")
         if self.base_url:
             parsed = urlparse(self.base_url)
             if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -114,6 +123,7 @@ class ChatModelRuntime:
         self._credentials: dict[tuple[str, str], str] = {}
         self._native_models: dict[tuple[str, str, str], tuple[ChatModelSettings, BaseChatModel]] = {}
         self._retired_models: list[BaseChatModel] = []
+        self._metadata_client: httpx.AsyncClient | None = None
 
     def _defaults(self) -> ChatModelSettings:
         raw = self._config.get("models.chat", {})
@@ -256,6 +266,9 @@ class ChatModelRuntime:
             await close_chat_models(models)
         finally:
             self._credentials.clear()
+            if self._metadata_client is not None:
+                await self._metadata_client.aclose()
+                self._metadata_client = None
 
     def _model_options(self, settings: ChatModelSettings, api_key: str = "") -> dict[str, Any]:
         settings.validate()
@@ -292,30 +305,57 @@ class ChatModelRuntime:
         return key
 
     async def get_langchain_model(
-        self, workspace_id: str, model_id: str = "", response_mode: str = "balanced"
+        self, workspace_id: str, model_id: str = "", response_mode: str = "balanced",
+        *, thinking: str = "",
     ) -> tuple[str, BaseChatModel]:
         """Return the Core-owned native model used by the LangGraph runtime."""
         settings = await self.get_profile(workspace_id, model_id)
-        # Preserve the existing product output budgets, not a provider speed or
-        # context-window claim. The native factory maps this to the SDK option.
-        caps = {"fast": 2048, "balanced": 8192, "thorough": settings.max_tokens}
-        if response_mode not in caps:
+        # Deprecated response_mode is accepted for old clients but has no effect.
+        # Thinking effort must never be emulated by truncating the output budget.
+        if response_mode not in {"fast", "balanced", "thorough"}:
             raise ValueError("invalid response mode")
-        settings = replace(settings, max_tokens=min(settings.max_tokens, caps[response_mode]))
-        cache_key = (workspace_id, settings.id, response_mode)
+        thinking_options = {}
+        if thinking:
+            thinking_options = (await self.thinking_control(workspace_id, settings.id)).model_options(thinking)
+        cache_key = (workspace_id, settings.id, thinking)
         cached = self._native_models.get(cache_key)
         if cached and cached[0] == settings:
             model = cached[1]
         else:
-            model = (self._model_factory or build_chat_model)(
-                **self._model_options(settings, self._profile_key(workspace_id, settings)),
-            )
+            options = self._model_options(settings, self._profile_key(workspace_id, settings))
+            options.update(thinking_options)
+            model = (self._model_factory or build_chat_model)(**options)
+            # Public Runnable metadata stays out of provider request parameters.
+            # Bind catalog capacity to this profile, never to its display name.
+            model.metadata = {
+                **(getattr(model, "metadata", None) or {}),
+                "maigokite_model_id": settings.id,
+                "maigokite_model_key": json.dumps(
+                    [settings.provider, settings.base_url, settings.model, settings.context_window],
+                    ensure_ascii=False, separators=(",", ":"),
+                ),
+                "maigokite_context_window": settings.context_window,
+            }
             if cached:
                 self._retired_models.append(cached[1])
             self._native_models[cache_key] = (settings, model)
         # Credential replacement retires the old provider even when settings are
         # identical. Do not reuse a compiled graph holding that obsolete client.
         return f"{workspace_id}:{settings.id}:{hash(settings)}:{id(model)}", model
+
+    async def thinking_control(self, workspace_id: str, model_id: str = "") -> ThinkingControl:
+        settings = await self.get_profile(workspace_id, model_id)
+        if settings.provider in {"openai", "anthropic"}:
+            _, model = await self.get_langchain_model(workspace_id, settings.id)
+            return cloud_thinking(settings.provider, settings.model, model)
+        if self._metadata_client is None:
+            self._metadata_client = httpx.AsyncClient(timeout=3, trust_env=False, follow_redirects=False)
+        return await serving_thinking(self._metadata_client, settings.provider, settings.base_url,
+                                      settings.model, self._profile_key(workspace_id, settings))
+
+    async def validate_thinking(self, workspace_id: str, model_id: str, thinking: str) -> None:
+        if thinking:
+            (await self.thinking_control(workspace_id, model_id)).model_options(thinking)
 
     async def subagent_catalog(self, workspace_id: str) -> list[dict[str, Any]]:
         """Configured identities only: never send endpoints or credentials to a model."""

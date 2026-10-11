@@ -5,6 +5,7 @@ option go_package = "maigokite/gateway/pkg/proto/agent/v1;agentv1";
 service AgentService {
   rpc ProcessMessage(ProcessMessageRequest) returns (stream AgentEvent);
   rpc CreateConversation(ConversationRequest) returns (Conversation);
+  rpc ForkConversation(ForkConversationRequest) returns (Conversation);
   rpc GetConversation(ConversationRequest) returns (Conversation);
   rpc GetConversationSnapshot(ConversationRequest) returns (ConversationSnapshot);
   rpc ListConversations(ListConversationsRequest) returns (ConversationList);
@@ -36,6 +37,7 @@ service AgentService {
   rpc ListAuditEvents(ListConversationsRequest) returns (AuditEventList);
   rpc RecordAuditEvent(AuditWriteRequest) returns (Empty);
   rpc GetChatModelSettings(WorkspaceRequest) returns (ChatModelSettings);
+  rpc GetChatModelThinking(ChatModelRequest) returns (ThinkingControl);
   rpc UpdateChatModelSettings(UpdateChatModelSettingsRequest) returns (ChatModelSettings);
   rpc ListChatModels(WorkspaceRequest) returns (ChatModelList);
   rpc UpsertChatModel(UpsertChatModelRequest) returns (ChatModelSettings);
@@ -109,8 +111,16 @@ message ConversationRequest {
   optional int32 max_subagent_calls = 8;
   optional int32 max_concurrent_subagents = 9;
   repeated string subagent_model_ids = 10;
+  string thinking = 11;
 }
 message ListConversationsRequest { string workspace_id = 1; }
+message ForkConversationRequest {
+  string workspace_id = 1;
+  string conversation_id = 2;
+  // Empty selects the latest persisted message, which must be an assistant reply.
+  string message_id = 3;
+  string idempotency_key = 4;
+}
 message Conversation {
   string id = 1;
   string workspace_id = 2;
@@ -126,6 +136,9 @@ message Conversation {
   int32 max_subagent_calls = 12;
   int32 max_concurrent_subagents = 13;
   repeated string subagent_model_ids = 14;
+  string thinking = 15;
+  string forked_from_conversation_id = 16;
+  string forked_from_message_id = 17;
 }
 message ConversationList { repeated Conversation conversations = 1; }
 message ConversationSnapshot {
@@ -154,6 +167,15 @@ message ConversationSettingsRequest {
   optional int32 max_concurrent_subagents = 10;
   // Message presence distinguishes an unchanged policy from an explicit empty list.
   ModelIdList subagent_models = 11;
+  optional string thinking = 12;
+}
+// Product-level capability DTO; empty conversation thinking preserves server defaults.
+message ThinkingControl {
+  string kind = 1;
+  repeated string options = 2;
+  string default = 3;
+  string source = 4;
+  string reason = 5;
 }
 message ModelIdList { repeated string model_ids = 1; }
 message WorkspaceFolderRequest {
@@ -281,6 +303,9 @@ message ChatModelSettings {
   string id = 7;
   string name = 8;
   bool is_default = 9;
+  // Per-model catalog capacity, not max_tokens or the product input budget.
+  // Zero means the configured service supplied no capacity metadata.
+  int64 context_window = 10;
 }
 message UpdateChatModelSettingsRequest {
   string workspace_id = 1;

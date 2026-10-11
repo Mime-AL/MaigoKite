@@ -25,6 +25,7 @@ type ChatModelInput struct {
 	BaseURL            string  `json:"base_url" binding:"omitempty,max=2048"`
 	Temperature        float64 `json:"temperature" binding:"min=0,max=2"`
 	MaxTokens          int32   `json:"max_tokens" binding:"required,min=1,max=65536"`
+	ContextWindow      int64   `json:"context_window" binding:"min=0,max=9007199254740991"`
 	TimeoutSeconds     int32   `json:"timeout_seconds" binding:"required,min=1,max=600"`
 	IsDefault          bool    `json:"is_default"`
 	APIKey             string  `json:"api_key" binding:"omitempty,max=8192"`
@@ -50,6 +51,7 @@ type chatModelResponse struct {
 	BaseURL              string  `json:"base_url"`
 	Temperature          float64 `json:"temperature"`
 	MaxTokens            int32   `json:"max_tokens"`
+	ContextWindow        int64   `json:"context_window,omitempty"`
 	TimeoutSeconds       int32   `json:"timeout_seconds"`
 	CredentialConfigured bool    `json:"credential_configured"`
 	IsDefault            bool    `json:"is_default"`
@@ -60,7 +62,8 @@ func chatModelProto(input ChatModelInput) *agentv1.ChatModelSettings {
 		Id: input.ID, Name: input.Name,
 		Provider: input.Provider, Model: input.Model, BaseUrl: input.BaseURL,
 		Temperature: input.Temperature, MaxTokens: input.MaxTokens, TimeoutSeconds: input.TimeoutSeconds,
-		IsDefault: input.IsDefault,
+		ContextWindow: input.ContextWindow,
+		IsDefault:     input.IsDefault,
 	}
 }
 
@@ -79,6 +82,7 @@ func (h *ModelHandler) responseModel(workspaceID string, settings *agentv1.ChatM
 		ID: settings.Id, Name: settings.Name,
 		Provider: settings.Provider, Model: settings.Model, BaseURL: settings.BaseUrl,
 		Temperature: settings.Temperature, MaxTokens: settings.MaxTokens,
+		ContextWindow:  settings.ContextWindow,
 		TimeoutSeconds: settings.TimeoutSeconds, CredentialConfigured: configured, IsDefault: settings.IsDefault,
 	}
 }
@@ -147,6 +151,24 @@ func (h *ModelHandler) List(c *gin.Context) {
 		models = append(models, h.responseModel(c.Param("workspaceID"), item))
 	}
 	c.JSON(http.StatusOK, gin.H{"models": models, "default_model_id": settings.DefaultModelId})
+}
+
+func (h *ModelHandler) Thinking(c *gin.Context) {
+	if err := prepareChatModelCredential(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), c.Param("modelID")); err != nil {
+		grpcError(c, err)
+		return
+	}
+	control, err := h.client.GetChatModelThinking(c.Request.Context(), c.Param("workspaceID"), c.Param("modelID"))
+	if err != nil {
+		grpcError(c, err)
+		return
+	}
+	options := control.Options
+	if options == nil {
+		options = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"kind": control.Kind, "options": options,
+		"default": control.Default, "source": control.Source, "reason": control.Reason})
 }
 
 func (h *ModelHandler) Upsert(c *gin.Context) {

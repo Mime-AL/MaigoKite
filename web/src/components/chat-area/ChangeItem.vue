@@ -50,11 +50,13 @@ code {
 header span {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
 }
 .add {
-  color: var(--ink-2);
+  color: var(--code-addition-ink);
 }
 .del {
-  color: var(--ink-2);
+  color: var(--code-deletion-ink);
 }
 </style>

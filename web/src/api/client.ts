@@ -1,8 +1,24 @@
 import { request, workspacePath } from './http'
 import { mockConnect } from './mock'
 import type { PlanItem } from './events'
-export type PermissionMode = 'read_only' | 'workspace' | 'full_access'
+export type PermissionMode = 'read_only' | 'workspace' | 'workspace_auto' | 'danger_full_access' | 'full_access'
+export type ApprovalScope = 'once' | 'task' | 'session'
+export interface ApprovalAuthorization {
+  approval_id: string
+  conversation_id: string
+  task_id: string
+  scope: 'task' | 'session'
+  expires_at: string
+  resource: Record<string, unknown>
+}
 export type ResponseMode = 'fast' | 'balanced' | 'thorough'
+export interface ThinkingControl {
+  kind: 'effort' | 'toggle' | 'unavailable'
+  options: string[]
+  default: string
+  source: string
+  reason: string
+}
 
 export interface ToolSetting {
   name: string
@@ -29,6 +45,9 @@ export interface Conversation {
   model_id: string
   permission_mode: PermissionMode
   response_mode: ResponseMode
+  thinking?: string
+  forked_from_conversation_id?: string
+  forked_from_message_id?: string
   created_at: string
   updated_at: string
   message_count: number
@@ -74,6 +93,11 @@ export interface Approval {
   expires_at: string
   note?: string
   decided_at?: string
+  allowed_scopes?: ApprovalScope[]
+  reuse_scope?: Record<string, unknown>
+  authorization_scope?: ApprovalScope
+  authorization_expires_at?: string
+  authorization_revoked_at?: string
 }
 
 export interface AgentQuestion {
@@ -140,6 +164,7 @@ export interface ChatModelSettings {
   baseUrl: string
   temperature: number
   maxTokens: number
+  contextWindow?: number
   timeoutSeconds: number
   credentialConfigured: boolean
 }
@@ -158,6 +183,7 @@ interface ChatModelWire {
   base_url: string
   temperature: number
   max_tokens: number
+  context_window?: number
   timeout_seconds: number
   credential_configured?: boolean
   is_default?: boolean
@@ -387,6 +413,8 @@ function chatModelFromWire(value: ChatModelWire): ChatModelSettings {
     baseUrl: value.base_url,
     temperature: value.temperature,
     maxTokens: value.max_tokens,
+    contextWindow: Number.isSafeInteger(value.context_window) && (value.context_window ?? 0) > 0
+      ? value.context_window : undefined,
     timeoutSeconds: value.timeout_seconds,
     credentialConfigured: value.credential_configured ?? false,
   }
@@ -399,6 +427,7 @@ function chatModelToWire(value: ChatModelSettings): Omit<ChatModelWire, 'credent
     base_url: value.baseUrl,
     temperature: value.temperature,
     max_tokens: value.maxTokens,
+    context_window: value.contextWindow,
     timeout_seconds: value.timeoutSeconds,
   }
 }
@@ -495,6 +524,9 @@ export const api = {
       models: (body.models || []).map(chatModelProfileFromWire),
       defaultModelId: body.default_model_id || '',
     }
+  },
+  getModelThinking(modelId: string, signal?: AbortSignal): Promise<ThinkingControl> {
+    return request(`${path}/models/${encodeURIComponent(modelId)}/thinking`, { signal })
   },
   async saveChatModel(
     profile: ChatModelProfile,
@@ -705,6 +737,13 @@ export const api = {
   deleteConversation(id: string): Promise<void> {
     return request(`${path}/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
+  forkConversation(id: string, key: string, messageId = ''): Promise<Conversation> {
+    return request(`${path}/conversations/${encodeURIComponent(id)}/fork`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': key },
+      body: JSON.stringify({ message_id: messageId }),
+    })
+  },
   createConversation(data: {
     subagent_model_ids?: string[]
     max_subagent_calls?: number
@@ -713,6 +752,7 @@ export const api = {
     permission_mode?: PermissionMode
     model_id?: string
     response_mode?: ResponseMode
+    thinking?: string
     folder_id?: string
   }): Promise<Conversation> {
     return request(`${path}/conversations`, { method: 'POST', body: JSON.stringify(data) })
@@ -729,6 +769,7 @@ export const api = {
       permission_mode?: PermissionMode
       model_id?: string
       response_mode?: ResponseMode
+      thinking?: string
       title?: string
       folder_id?: string
       archived?: boolean
@@ -750,7 +791,7 @@ export const api = {
     // Snapshot approvals currently use the protobuf JSON shape; keep it out of stores.
     const body = await request<
       Omit<ConversationSnapshot, 'approvals' | 'questions'> & {
-        approvals: (Approval & { arguments_json?: string })[]
+        approvals: (Approval & { arguments_json?: string; reuse_scope_json?: string })[]
         questions: (AgentQuestion & { options_json?: string })[]
       }
     >(`${path}/conversations/${encodeURIComponent(id)}/snapshot`)
@@ -761,9 +802,10 @@ export const api = {
         ...question,
         options: options_json ? JSON.parse(options_json) : question.options || [],
       })),
-      approvals: (body.approvals || []).map(({ arguments_json, ...approval }) => ({
+      approvals: (body.approvals || []).map(({ arguments_json, reuse_scope_json, ...approval }) => ({
         ...approval,
         arguments: arguments_json ? JSON.parse(arguments_json) : approval.arguments || {},
+        reuse_scope: reuse_scope_json ? JSON.parse(reuse_scope_json) : approval.reuse_scope || {},
       })),
       last_sequence: Number(body.last_sequence || 0),
       truncated: Boolean(body.truncated),
@@ -797,11 +839,21 @@ export const api = {
     decision: 'allow' | 'deny',
     version: number,
     note?: string,
+    scope: ApprovalScope = 'once',
   ): Promise<{ task_id: string }> {
     return request(`${path}/approvals/${encodeURIComponent(id)}/decision`, {
       method: 'POST',
-      body: JSON.stringify({ decision, version, note }),
+      body: JSON.stringify({ decision, version, note, scope: decision === 'deny' ? 'once' : scope }),
     })
+  },
+  async listApprovalAuthorizations(id: string, signal?: AbortSignal): Promise<ApprovalAuthorization[]> {
+    const body = await request<{ authorizations: ApprovalAuthorization[] }>(
+      `${path}/approval-authorizations?conversation_id=${encodeURIComponent(id)}`, { signal },
+    )
+    return body.authorizations || []
+  },
+  revokeApprovalAuthorization(id: string): Promise<void> {
+    return request(`${path}/approvals/${encodeURIComponent(id)}/authorization`, { method: 'DELETE' })
   },
   getPermissionSettings(): Promise<PermissionSettings> {
     return request(`${path}/permissions`)

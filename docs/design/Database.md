@@ -27,6 +27,8 @@
 
 ## 2. 当前归属模型
 
+会话分岔增量：`conversations` 增加 `forked_from_conversation_id / forked_from_message_id / fork_request_hash`，默认空值，保留原数据。前两项为来源标记而非级联外键，源删除不影响分岔；请求指纹只用于创建幂等，不是执行续接状态。分岔与新 ID 的可见消息在同一 SQLite 事务中写入，不复制任务、审批或 checkpoint。未运行本次迁移验收。
+
 - `workspaces.kind` 保留 `personal / team` 兼容值，当前产品只推进个人使用，不继续建设团队管理。
 - 启动时创建 `personal` 工作区和 `local-user` 所有者成员关系。
 - 会话、偏好、设置、审计、Todo 和用户记忆都显式带工作区归属。

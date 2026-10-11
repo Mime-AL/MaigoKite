@@ -14,6 +14,32 @@ import (
 	agentv1 "maigokite/gateway/pkg/proto/agent/v1"
 )
 
+// Thinking discovery and settings validation also work immediately after Core
+// restart. Restore only this model, without starting extensions or generation.
+func prepareChatModelCredential(ctx context.Context, client *agentgrpc.AgentClient, mgr *credentialstore.Manager, workspaceID, modelID string) error {
+	catalog, err := client.ListChatModels(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	if modelID == "" {
+		modelID = catalog.DefaultModelId
+	}
+	for _, settings := range catalog.Models {
+		if settings.Id != modelID {
+			continue
+		}
+		if mgr == nil {
+			return fmt.Errorf("credential store is unavailable")
+		}
+		key, keyErr := mgr.GetModelProfileKeyForWorkspace(workspaceID, settings.Id)
+		if keyErr != nil && settings.Id == "model_default" {
+			key, _ = mgr.GetModelKeyForWorkspace(workspaceID, settings.Provider)
+		}
+		return client.SetChatModelProfileCredential(ctx, workspaceID, settings.Id, settings.Provider, key)
+	}
+	return status.Error(codes.NotFound, "model profile not found")
+}
+
 // prepareExecutionCredentials is shared by new messages, approvals and task recovery.
 // Core credentials are process-local; no entry may assume a previous run
 // populated them. Secrets stay out of task state and approval/checkpoint data.

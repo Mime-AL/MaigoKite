@@ -1,5 +1,5 @@
 import type { AgentEvent } from './client'
-import type { ContextUsage, GatewayEvent, TokenUsage } from './events'
+import type { ContextCompaction, ContextUsage, GatewayEvent, TokenUsage } from './events'
 
 type EventBase = Pick<GatewayEvent, 'seq' | 'eventId' | 'sessionId' | 'turnId' | 'time'>
 const counters = [
@@ -26,6 +26,15 @@ function usage(value: unknown): TokenUsage | undefined {
   }
   return Object.keys(result).length ? result : undefined
 }
+function measurement(value: unknown): ContextUsage['measurement'] {
+  return value === 'estimate' || value === 'provider' ? value : null
+}
+const compactionStates: Record<string, ContextCompaction['status']> = {
+  'context.compaction.started': 'running',
+  'context.compaction.failed': 'failed',
+  'context.compaction.skipped': 'skipped',
+  'context.compacted': 'completed',
+}
 
 /** Additive product telemetry, not LangGraph/SDK types in the public protocol. */
 export function mapModelEvent(event: AgentEvent, base: EventBase): GatewayEvent | undefined {
@@ -36,11 +45,38 @@ export function mapModelEvent(event: AgentEvent, base: EventBase): GatewayEvent 
       seq: base.seq,
       callId: typeof p.call_id === 'string' ? p.call_id : '',
       modelName: typeof p.model_name === 'string' ? p.model_name : '',
+      modelId: typeof p.model_id === 'string' ? p.model_id : undefined,
+      modelKey: typeof p.model_key === 'string' ? p.model_key : undefined,
       usedTokens: number(p.estimated_input_tokens) ?? null,
       windowTokens: capacity && Number.isSafeInteger(capacity) ? capacity : null,
-      measurement: 'estimate',
+      measurement: measurement(p.measurement),
+      purpose: typeof p.purpose === 'string' ? p.purpose : 'response',
+      capacitySource: typeof p.capacity_source === 'string' ? p.capacity_source : null,
+      capacityStatus: typeof p.capacity_status === 'string' ? p.capacity_status : undefined,
+      capacityCheckedAt: typeof p.capacity_checked_at === 'string' ? p.capacity_checked_at : null,
     }
     return { ...base, type: 'context_update', context }
+  }
+  const status = Object.prototype.hasOwnProperty.call(compactionStates, event.type)
+    ? compactionStates[event.type]
+    : undefined
+  if (status && event.task_id) {
+    const capacity = number(p.model_context_window)
+    return {
+      ...base,
+      type: 'context_compaction',
+      compaction: {
+        seq: base.seq,
+        status,
+        measurement: measurement(p.measurement),
+        beforeTokens: number(p.before_tokens) ?? null,
+        afterTokens: number(p.after_tokens) ?? null,
+        windowTokens: capacity && Number.isSafeInteger(capacity) ? capacity : null,
+        message: typeof p.message === 'string' ? p.message : undefined,
+        errorType: typeof p.error_type === 'string' ? p.error_type : undefined,
+        reason: typeof p.reason === 'string' ? p.reason : undefined,
+      },
+    }
   }
   if (
     !['model.call.started', 'model.call.completed', 'model.call.failed', 'model.usage'].includes(

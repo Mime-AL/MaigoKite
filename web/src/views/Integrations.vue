@@ -318,7 +318,7 @@ watch([server, skill, credentialServer], async () => {
         v-if="snapshot.management_available === false"
         class="page-copy"
       >
-        {{ $t('连接实际服务后可管理扩展。') }}
+        {{ $t('扩展管理不可用，请检查服务连接。') }}
       </p>
       <p
         v-if="snapshot.reload_required"
@@ -384,7 +384,7 @@ watch([server, skill, credentialServer], async () => {
         <p class="page-copy">
           {{
             $t(
-              '目前支持本地 stdio 服务。添加服务意味着允许运行该程序，请只使用可信来源；不要在启动参数中填写密钥。',
+              '添加的程序将在本机运行，请只使用可信来源。密钥请通过“配置凭证”保存。',
             )
           }}
         </p>
@@ -882,7 +882,7 @@ watch([server, skill, credentialServer], async () => {
         </h2>
         <p>
           {{
-            $t('移除扩展 {0}？应用后停止加载；不会删除源目录或系统密钥链中的凭证。', [removed.name])
+            $t('移除扩展 {0}？应用更改后停用，原文件和已保存的凭证会保留。', [removed.name])
           }}
         </p>
         <div class="page-actions">

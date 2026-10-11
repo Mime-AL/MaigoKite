@@ -1,7 +1,7 @@
 import { t } from '@/i18n'
 import { computed, onScopeDispose, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { api } from '@/api/client'
+import { api, type ApprovalScope } from '@/api/client'
 import type { AwaitItem, Verdict } from '@/api/events'
 import { useRunStore } from './run'
 import { useSessionStore } from './session'
@@ -42,7 +42,7 @@ export const useInboxStore = defineStore('inbox', () => {
       if (epoch === generation) error.value = reason instanceof Error ? reason.message : String(reason)
     }
   }
-  async function decide(item: AwaitItem, verdict: Verdict, note?: string) {
+  async function decide(item: AwaitItem, verdict: Verdict, note?: string, scope: ApprovalScope = 'once') {
     if (item.mode !== 'approval') return
     if (verdict === 'allow_session') {
       error.value = t("请逐次确认本次操作。")
@@ -50,7 +50,7 @@ export const useInboxStore = defineStore('inbox', () => {
     }
     // Submit the version the user actually reviewed, never a newer cached one.
     const version = item.version
-    await submit(item, () => api.decideApproval(item.id, verdict, version, note))
+    await submit(item, () => api.decideApproval(item.id, verdict, version, note, scope))
   }
   async function answer(item: AwaitItem, text: string) {
     if (item.mode !== 'question' || !text.trim()) return

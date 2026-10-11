@@ -266,6 +266,7 @@ export function modelSettingsFingerprint(settings: ChatModelSettings): string {
     baseUrl: settings.baseUrl.trim().replace(/\/$/, ''),
     temperature: settings.temperature,
     maxTokens: settings.maxTokens,
+    contextWindow: settings.contextWindow,
     timeoutSeconds: settings.timeoutSeconds,
   })
 }

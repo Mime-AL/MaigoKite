@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { t } from '@/i18n'
-import { codeLines, visibleCodeLines } from '@/utils/code-presentation'
+import { codeLines, visibleCodeLines, type CodeLine } from '@/utils/code-presentation'
 import IconSymbol from './IconSymbol.vue'
 const props = withDefaults(
   defineProps<{
@@ -10,8 +10,9 @@ const props = withDefaults(
     language?: string
     kind?: 'code' | 'terminal' | 'diff'
     previewLines?: number
+    layout?: 'snippet' | 'document'
   }>(),
-  { kind: 'code', previewLines: 20, title: '', language: '' },
+  { kind: 'code', previewLines: 20, title: '', language: '', layout: 'snippet' },
 )
 const expanded = ref(false),
   copied = ref(false),
@@ -19,7 +20,29 @@ const expanded = ref(false),
 let timer: ReturnType<typeof setTimeout> | undefined
 let alive = true
 const lines = computed(() => codeLines(props.content, props.kind === 'diff'))
-const visible = computed(() => visibleCodeLines(lines.value, expanded.value, props.previewLines))
+const visible = computed(() =>
+  props.layout === 'document'
+    ? lines.value
+    : visibleCodeLines(lines.value, expanded.value, props.previewLines),
+)
+const rows = computed(() => {
+  const groups: CodeLine[][] = []
+  for (const line of visible.value) {
+    const last = groups[groups.length - 1]
+    // Document views keep every line; batch adjacent lines to avoid a DOM node per line.
+    if (props.layout === 'document' && last?.[0]?.kind === line.kind && last.length < 200)
+      last.push(line)
+    else groups.push([line])
+  }
+  return groups.map((group) => ({
+    key: group[0]!.index,
+    kind: group[0]!.kind,
+    before: group.map((line) => line.before ?? '').join('\n'),
+    after: group.map((line) => line.after ?? '').join('\n'),
+    index: group.map((line) => line.index).join('\n'),
+    text: group.map((line) => line.text || ' ').join('\n'),
+  }))
+})
 const caption = computed(
   () =>
     props.title ||
@@ -50,7 +73,7 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="code-block"
-    :class="kind"
+    :class="[kind, { 'document-view': layout === 'document' }]"
   >
     <header class="code-heading">
       <span>{{ caption }}</span><small>{{ $t('{0} 行', [lines.length]) }}</small>
@@ -75,8 +98,8 @@ onBeforeUnmount(() => {
     >
       <div class="code-body">
         <code
-          v-for="line in visible"
-          :key="line.index"
+          v-for="line in rows"
+          :key="line.key"
           class="code-line"
           :class="line.kind"
         >
@@ -98,7 +121,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <footer
-      v-if="lines.length > previewLines"
+      v-if="layout === 'snippet' && lines.length > previewLines"
       class="code-footer"
     >
       <button

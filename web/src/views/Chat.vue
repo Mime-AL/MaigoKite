@@ -15,12 +15,14 @@ import { remainingMessages } from '@/stores/session-projection'
 import { revealRailNode } from '@/utils/rail-navigation'
 import { pickMygoQuote } from '@/config/mygo-quotes'
 import { paperLight, takeWelcomeIntroduction } from '@/utils/welcome-presentation'
-import { api, type PermissionMode, type ResponseMode } from '@/api/client'
+import { api, type PermissionMode } from '@/api/client'
 import UserMessage from '@/components/chat-area/UserMessage.vue'
 import AgentMessage from '@/components/chat-area/AgentMessage.vue'
+import MessageForkAction from '@/components/chat-area/MessageForkAction.vue'
 import RailTrack from '@/components/rail/RailTrack.vue'
 import RailMinimap from '@/components/rail/RailMinimap.vue'
 import InputBox from '@/components/chat-area/InputBox.vue'
+import SubagentSettings from '@/components/chat-area/SubagentSettings.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
 import WelcomeSheet from '@/components/chat-area/WelcomeSheet.vue'
 import PendingReminder from '@/components/chat-area/PendingReminder.vue'
@@ -46,13 +48,21 @@ const scroll = ref<HTMLElement | null>(null),
   sending = ref(false),
   restoring = ref(false)
 const mode = ref<PermissionMode>('workspace')
+let draftPermissionChosen = false
+watch(() => settings.permissions.default_mode, (value) => {
+  if (!sessionId.value && !draftPermissionChosen) mode.value = value
+})
 const draftModel = ref(''),
-  draftResponse = ref<ResponseMode>('balanced')
+  draftThinking = ref(''),
+  savingThinking = ref(false)
 const draftSubagents = ref(0),
   draftConcurrent = ref(1),
   savingSubagents = ref(false)
 const draftSubagentModels = ref<string[]>([])
 const turns = computed(() => run.turns[sessionId.value] || [])
+const forkDisabled = computed(() => sending.value || restoring.value ||
+  Boolean(session.runningTaskIds[sessionId.value]?.length) ||
+  turns.value.some((turn) => ['running', 'waiting'].includes(turn.status)))
 const nodes = computed(() =>
   turns.value.flatMap((t) => [
     ...presentationNodes(t).map((n) => ({ id: n.id, turnId: t.id })),
@@ -161,7 +171,11 @@ watch(
     controls = Promise.resolve()
     visibleCount.value = 20
     if (id) void session.switchSession(id)
-    else session.activeSessionId = null
+    else {
+      session.activeSessionId = null
+      draftPermissionChosen = false
+      mode.value = settings.permissions.default_mode
+    }
     resume()
     void nextTick(() => {
       if (
@@ -175,6 +189,7 @@ watch(
 )
 onMounted(() => {
   if (!settings.loaded) void settings.loadSettings()
+  void settings.loadPermissionSettings()
   void api
     .getCapabilities()
     .then((available) => {
@@ -205,7 +220,7 @@ async function send(content: string, intent: 'send' | 'guide' | 'later' = 'send'
       await session.setPermissionMode(mode.value, id)
       await session.setConversationRuntime(
         draftModel.value || settings.defaultModelId,
-        draftResponse.value,
+        draftThinking.value,
         id,
       )
       if (draftSubagents.value || draftSubagentModels.value.length)
@@ -246,9 +261,15 @@ function configure(action: () => Promise<unknown>) {
     })
 }
 function permission(value: PermissionMode) {
-  mode.value = value
   const id = sessionId.value
-  if (id) configure(() => session.setPermissionMode(value, id))
+  if (!id) {
+    draftPermissionChosen = true
+    mode.value = value
+  }
+  else configure(async () => {
+    await session.setPermissionMode(value, id)
+    if (sessionId.value === id) mode.value = session.activeSession?.permission_mode || 'workspace'
+  })
 }
 function subagents(value: { calls: number; concurrent: number; modelIds?: string[] }) {
   const id = sessionId.value
@@ -269,27 +290,33 @@ function subagents(value: { calls: number; concurrent: number; modelIds?: string
 }
 function model(value: string) {
   draftModel.value = value
+  draftThinking.value = ''
   const id = sessionId.value
-  if (id)
-    configure(() =>
-      session.setConversationRuntime(
-        value,
-        session.sessions.find((item) => item.id === id)?.response_mode || 'balanced',
-        id,
-      ),
-    )
+  if (!id) return
+  savingThinking.value = true
+  configure(async () => {
+    try {
+      await session.setConversationRuntime(value, '', id)
+    } finally {
+      savingThinking.value = false
+    }
+  })
 }
-function response(value: ResponseMode) {
-  draftResponse.value = value
+function thinking(value: string) {
+  draftThinking.value = value
   const id = sessionId.value
-  if (id)
-    configure(() =>
-      session.setConversationRuntime(
+  if (!id) return
+  savingThinking.value = true
+  configure(async () => {
+    try {
+      await session.setConversationRuntime(
         session.sessions.find((item) => item.id === id)?.model_id || settings.defaultModelId,
-        value,
-        id,
-      ),
-    )
+        value, id,
+      )
+    } finally {
+      savingThinking.value = false
+    }
+  })
 }
 async function confirmInput(taskId: string) {
   try {
@@ -341,6 +368,26 @@ watch(
     class="chat-page inkline-preview"
     :class="{ empty: !timeline.length }"
   >
+    <Teleport
+      v-if="session.capabilities.subagents === true && !session.activeSession?.archived"
+      to="#chat-session-actions"
+    >
+      <SubagentSettings
+        :key="sessionId"
+        :calls="sessionId ? (session.activeSession?.max_subagent_calls ?? 0) : draftSubagents"
+        :concurrent="
+          sessionId ? (session.activeSession?.max_concurrent_subagents ?? 1) : draftConcurrent
+        "
+        :model-options="settings.modelProfiles"
+        :model-ids="
+          sessionId ? (session.activeSession?.subagent_model_ids ?? []) : draftSubagentModels
+        "
+        :model-selection-supported="session.capabilities.subagent_model_selection === true"
+        :saving="savingSubagents"
+        :disabled="sending"
+        @change="subagents"
+      />
+    </Teleport>
     <!-- Stable wrapper and one InputBox: a paper composition, not a second composer. -->
     <div
       class="chat-body"
@@ -384,6 +431,13 @@ watch(
             class="messages-inner"
           >
             <p
+              v-if="session.activeSession?.forked_from_conversation_id"
+              class="empty-copy"
+              role="status"
+            >
+              {{ $t('这是独立分岔，工作区文件仍与原对话共享。') }}
+            </p>
+            <p
               v-if="session.historyTruncated[sessionId]"
               class="chat-error"
               role="status"
@@ -410,7 +464,17 @@ watch(
                   v-else
                   :content="item.message.content"
                   :assistant-name="settings.profile.assistantName"
-                />
+                >
+                  <template #actions>
+                    <MessageForkAction
+                      v-if="!item.message.streaming"
+                      :key="item.message.id"
+                      :conversation-id="sessionId"
+                      :message-id="item.message.id"
+                      :disabled="forkDisabled"
+                    />
+                  </template>
+                </AgentMessage>
               </template>
               <template v-else-if="item.turn">
                 <UserMessage
@@ -427,7 +491,16 @@ watch(
                     :content="item.turn.text"
                     :assistant-name="settings.profile.assistantName"
                     :is-streaming="item.turn.status === 'running'"
-                  /><InkLoader v-else-if="item.turn.status === 'running'" />
+                  >
+                    <template #actions>
+                      <MessageForkAction
+                        :key="item.turn.messageId"
+                        :conversation-id="sessionId"
+                        :message-id="item.turn.messageId"
+                        :disabled="forkDisabled"
+                      />
+                    </template>
+                  </AgentMessage><InkLoader v-else-if="item.turn.status === 'running'" />
                 </RailTrack>
                 <p
                   v-if="item.turn.inputsError"
@@ -567,29 +640,17 @@ watch(
             : draftModel || settings.defaultModelId
         "
         :model-options="settings.modelProfiles"
-        :response-mode="
-          sessionId ? session.activeSession?.response_mode || 'balanced' : draftResponse
+        :thinking="
+          sessionId ? session.activeSession?.thinking || '' : draftThinking
         "
+        :saving-thinking="savingThinking"
         :permission-mode="session.activeSession?.permission_mode || mode"
         :last-message="lastMessage"
-        :subagents-supported="session.capabilities.subagents === true"
-        :subagent-models-supported="session.capabilities.subagent_model_selection === true"
-        :subagent-model-ids="
-          sessionId ? (session.activeSession?.subagent_model_ids ?? []) : draftSubagentModels
-        "
-        :max-subagent-calls="
-          sessionId ? (session.activeSession?.max_subagent_calls ?? 0) : draftSubagents
-        "
-        :max-concurrent-subagents="
-          sessionId ? (session.activeSession?.max_concurrent_subagents ?? 1) : draftConcurrent
-        "
-        :saving-subagents="savingSubagents"
-        @subagents-change="subagents"
         @send="send"
         @cancel="session.cancelActiveTask"
         @permission-mode-change="permission"
         @model-change="model"
-        @response-mode-change="response"
+        @thinking-change="thinking"
       />
       <footer
         v-if="!timeline.length"

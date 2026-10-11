@@ -1,4 +1,4 @@
-import type { PermissionMode, ResponseMode } from '@/api/client'
+import type { PermissionMode } from '@/api/client'
 import type { ModelOption } from '@/config/model-groups'
 export function menuSelectionIndex(key: string, current: number, count: number): number | null {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'PageDown', 'PageUp'].includes(key)) return null
@@ -18,15 +18,10 @@ export interface ComposerProps {
   isStopping?: boolean
   modelId?: string
   modelOptions?: ModelOption[]
-  responseMode?: ResponseMode
+  thinking?: string
+  savingThinking?: boolean
   permissionMode?: PermissionMode
   lastMessage?: string
-  subagentsSupported?: boolean
-  subagentModelsSupported?: boolean
-  subagentModelIds?: string[]
-  maxSubagentCalls?: number
-  maxConcurrentSubagents?: number
-  savingSubagents?: boolean
   waiting?: boolean
   queuedCount?: number
   guideReason?: string
@@ -39,25 +34,16 @@ export const composerDefaults = {
   isStopping: false,
   modelId: '',
   modelOptions: (): ModelOption[] => [],
-  responseMode: 'balanced' as const,
+  thinking: '',
+  savingThinking: false,
   permissionMode: 'workspace' as const,
   lastMessage: '',
-  subagentsSupported: false,
-  subagentModelsSupported: false,
-  subagentModelIds: (): string[] => [],
-  maxSubagentCalls: 0,
-  maxConcurrentSubagents: 1,
-  savingSubagents: false,
   queuedCount: 0,
 }
 export interface ComposerEmits {
   (event: 'send', content: string): void
   (event: 'cancel'): void
   (event: 'model-change', value: string): void
-  (event: 'response-mode-change', value: ResponseMode): void
+  (event: 'thinking-change', value: string): void
   (event: 'permission-mode-change', value: PermissionMode): void
-  (
-    event: 'subagents-change',
-    value: { calls: number; concurrent: number; modelIds?: string[] },
-  ): void
 }

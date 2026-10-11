@@ -35,6 +35,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphInterrupt
 from langgraph.types import Command, interrupt
 
+from agent.models.context_capacity import ContextCapacity
 from agent.models.reasoning import visible_reasoning
 from agent.repository import ConversationBusyError, SQLiteRepository
 from agent.runtime.context import ContextBudgetMiddleware, SafeSummarizationMiddleware
@@ -152,6 +153,7 @@ class _RunContext:
     subagent_model_ids: list[str] = field(default_factory=list)
     child_slots: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
     child_scope: asyncio.TaskGroup | None = None
+    context_capacity: ContextCapacity | None = None
 
 
 class _ProductToolMiddleware(AgentMiddleware):
@@ -453,7 +455,7 @@ class LangGraphRuntime:
         )
         key, model = await self.model_resolver(
             request.workspace_id, str(conversation.get("model_id") or ""),
-            str(conversation.get("response_mode") or "balanced"),
+            str(conversation.get("thinking") or ""),
         )
         self._require_open()
         graph = self._graphs.get(key)
@@ -608,11 +610,21 @@ class LangGraphRuntime:
         if not messages:
             # First migration/legacy or interrupted history: no invented tool
             # results or continuation. Import only the visible product history.
-            history = await self.repository.list_messages(actual.conversation_id)
+            branch = await self.repository.get_conversation(actual.workspace_id, actual.conversation_id)
+            history = await self.repository.list_messages(
+                actual.conversation_id, limit=500 if branch.get("forked_from_conversation_id") else 100,
+            )
             messages = [
                 {"role": str(item["role"]), "content": str(item["content"])}
                 for item in history if str(item.get("role")) in {"user", "assistant", "system"}
             ]
+            if branch.get("forked_from_conversation_id"):
+                messages.insert(0, SystemMessage(
+                    "This is an independent conversation branch containing visible user/assistant history only. "
+                    "Earlier tool results and execution state were not copied. The workspace files are shared, "
+                    "not a snapshot or a rollback. Inspect the current state before acting. Past approvals do not "
+                    "authorize actions in this branch; follow its current permissions."
+                ))
             if previous and previous["status"] != "succeeded":
                 # Retain this safety instruction in checkpoint history. The
                 # model-call boundary merges it with create_agent's prompt into

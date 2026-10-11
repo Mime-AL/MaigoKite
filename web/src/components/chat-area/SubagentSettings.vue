@@ -2,6 +2,8 @@
 import { t } from '@/i18n'
 import { computed, ref, watch } from 'vue'
 import type { ModelOption } from '@/config/model-groups'
+import IconSymbol from '@/components/common/IconSymbol.vue'
+import StatPopover from '@/components/inkwell/StatPopover.vue'
 const props = withDefaults(
   defineProps<{
     calls: number
@@ -20,6 +22,11 @@ const emit = defineEmits<{
 const calls = ref(props.calls),
   concurrent = ref(props.concurrent)
 const selectedModels = ref([...props.modelIds])
+const summary = computed(() =>
+  t('子 Agent · {0}', [
+    props.calls ? t('每次任务 {0} 个 / 并行 {1}', [props.calls, props.concurrent]) : t('关闭'),
+  ]),
+)
 watch(
   () => JSON.stringify(props.modelIds),
   () => {
@@ -61,16 +68,21 @@ function apply() {
 </script>
 
 <template>
-  <details class="subagent-settings">
-    <summary>
-      {{
-        $t('子 Agent · {0}', [
-          props.calls
-            ? $t('每次任务 {0} 个 / 并行 {1}', [props.calls, props.concurrent])
-            : $t('关闭'),
-        ])
-      }}
-    </summary>
+  <StatPopover
+    :label="$t('子 Agent')"
+    :title="summary"
+    placement="below"
+    toolbar
+  >
+    <template #trigger>
+      <span
+        class="subagent-settings__trigger"
+        :class="{ enabled: props.calls > 0 }"
+      ><IconSymbol
+        name="subagents"
+        :size="20"
+      /></span>
+    </template>
     <div class="subagent-settings__body">
       <label>{{ $t('每次任务最多派发（0 关闭）')
       }}<input
@@ -131,32 +143,32 @@ function apply() {
         }}
       </p>
     </div>
-  </details>
+  </StatPopover>
 </template>
 
 <style scoped>
-.subagent-settings {
-  margin-top: var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--ink-2);
+.subagent-settings__trigger {
+  display: inline-flex;
 }
-summary {
-  cursor: pointer;
-  width: fit-content;
+.subagent-settings__trigger.enabled {
+  color: var(--accent);
 }
 .subagent-settings__body {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--size-10);
-  padding: var(--size-10) 0;
+  gap: var(--space-4);
   align-items: center;
 }
 label {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-basis: 100%;
+  min-width: 0;
   gap: var(--space-3);
 }
 input {
+  flex: none;
   width: var(--measure-58px);
   padding: var(--space-2);
   color: var(--ink);
@@ -166,6 +178,8 @@ input {
 }
 .subagent-settings__models {
   flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
   border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-sm);
   padding: var(--space-3);
@@ -174,6 +188,8 @@ input {
 }
 .subagent-settings__models label {
   margin: var(--size-6) 0;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
 }
 .subagent-settings__models input {
   width: auto;

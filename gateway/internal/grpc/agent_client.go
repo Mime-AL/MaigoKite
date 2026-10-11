@@ -76,6 +76,9 @@ func (c *AgentClient) ProcessMessage(ctx context.Context, request *agentv1.Proce
 func (c *AgentClient) CreateConversation(ctx context.Context, req *agentv1.ConversationRequest) (*agentv1.Conversation, error) {
 	return c.client.CreateConversation(ctx, req)
 }
+func (c *AgentClient) ForkConversation(ctx context.Context, req *agentv1.ForkConversationRequest) (*agentv1.Conversation, error) {
+	return c.client.ForkConversation(ctx, req)
+}
 func (c *AgentClient) GetConversation(ctx context.Context, req *agentv1.ConversationRequest) (*agentv1.Conversation, error) {
 	return c.client.GetConversation(ctx, req)
 }
@@ -134,6 +137,10 @@ func (c *AgentClient) RecordAuditEvent(ctx context.Context, workspaceID, actor, 
 }
 func (c *AgentClient) GetChatModelSettings(ctx context.Context, workspaceID string) (*agentv1.ChatModelSettings, error) {
 	return c.client.GetChatModelSettings(ctx, &agentv1.WorkspaceRequest{WorkspaceId: workspaceID})
+}
+
+func (c *AgentClient) GetChatModelThinking(ctx context.Context, workspaceID, modelID string) (*agentv1.ThinkingControl, error) {
+	return c.client.GetChatModelThinking(ctx, &agentv1.ChatModelRequest{WorkspaceId: workspaceID, ModelId: modelID})
 }
 func (c *AgentClient) UpdateChatModelSettings(ctx context.Context, workspaceID string, settings *agentv1.ChatModelSettings) (*agentv1.ChatModelSettings, error) {
 	return c.client.UpdateChatModelSettings(ctx, &agentv1.UpdateChatModelSettingsRequest{WorkspaceId: workspaceID, Settings: settings})

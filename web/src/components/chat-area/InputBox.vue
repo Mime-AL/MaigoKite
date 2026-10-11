@@ -13,11 +13,14 @@ import {
 } from '@/utils/composer-presentation'
 import ComposerToolbar from '@/components/inkwell/ComposerToolbar.vue'
 import ComposerFooter from '@/components/inkwell/ComposerFooter.vue'
+import ComposerAlert from '@/components/inkwell/ComposerAlert.vue'
 import ComposerDraft from '@/components/inkwell/ComposerDraft.vue'
+import ComposerHint from '@/components/inkwell/ComposerHint.vue'
 const props = withDefaults(defineProps<ComposerProps>(), composerDefaults)
 const emit = defineEmits<ComposerEmits>()
 const toolbar = ref<InstanceType<typeof ComposerToolbar> | null>(null),
   sent = ref(0)
+const hint = ref<InstanceType<typeof ComposerHint> | null>(null)
 const menuId = computed(() => 'inkwell-' + props.sessionId)
 const inputValue = ref(''),
   textarea = ref<InstanceType<typeof ComposerDraft> | null>(null)
@@ -140,7 +143,7 @@ function command(item: SlashCommand) {
   else ui.openDrawer(item.id as 'files' | 'changes' | 'plan')
 }
 function handleKeydown(event: KeyboardEvent) {
-  if (event.isComposing) return
+  if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return
   if (event.key === 'Escape' && toolbar.value?.closeMenu()) {
     event.preventDefault()
     event.stopPropagation()
@@ -156,7 +159,10 @@ function handleKeydown(event: KeyboardEvent) {
     inputValue.value = props.lastMessage
     return
   }
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (
+    event.key === 'Enter' && !event.shiftKey &&
+    (event.altKey || event.ctrlKey || event.metaKey || ui.appearance.enterBehavior !== 'newline')
+  ) {
     event.preventDefault()
     void send(event.altKey)
   }
@@ -167,6 +173,7 @@ function handleKeydown(event: KeyboardEvent) {
     class="composer-wrap"
     :class="{ 'is-running': isSending, 'is-waiting': waiting, 'has-queue': queuedCount > 0 }"
   >
+    <ComposerAlert :session-id="sessionId" />
     <div
       class="composer"
       :aria-busy="isSending || busy"
@@ -192,8 +199,10 @@ function handleKeydown(event: KeyboardEvent) {
         :disabled="!modelOptions.length"
         @mention="chooseMention"
         @command="command"
+        @focus="hint?.show()"
         @keydown="handleKeydown"
       />
+      <ComposerHint ref="hint" />
       <ComposerToolbar
         ref="toolbar"
         v-bind="props"
@@ -206,7 +215,7 @@ function handleKeydown(event: KeyboardEvent) {
         @cancel="emit('cancel')"
         @send="send"
         @model-change="emit('model-change', $event)"
-        @response-mode-change="emit('response-mode-change', $event)"
+        @thinking-change="emit('thinking-change', $event)"
         @permission-mode-change="emit('permission-mode-change', $event)"
       />
     </div>
@@ -231,7 +240,7 @@ function handleKeydown(event: KeyboardEvent) {
     >
       {{
         $t(
-          '补充会在 Agent 下一步之前送达，它准备执行的下一个操作会先暂停重新考虑；已执行的操作不会撤回。',
+          '补充会让下一步操作暂停并重新考虑，已执行的操作不会撤回。',
         )
       }}
       <button
@@ -244,7 +253,6 @@ function handleKeydown(event: KeyboardEvent) {
     <ComposerFooter
       v-bind="props"
       :busy="busy"
-      @subagents-change="emit('subagents-change', $event)"
     />
   </div>
 </template>

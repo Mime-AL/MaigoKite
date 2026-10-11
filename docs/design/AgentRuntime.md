@@ -22,6 +22,12 @@ ExecutionEngine、TaskManager、IChatProvider/ChatAdapter 和执行后端开关�
 
 Core 保留 ToolRegistry、PermissionPolicy、Repository 等产品能力；ToolRegistry 只做发现和元数据，不再提供另一个 invoke 执行入口。
 
+聊天的 `thinking` 是独立于输出预算的会话设置：保存和开始运行时均按模型能力校验，切换模型默认清空，
+空值不发推理参数。原 `response_mode` 仅保留旧客户端兼容字段，不再将 fast/balanced/thorough 映射到
+max_tokens。思考配置进入模型/图缓存身份，但不重建 Runtime。原生 SDK 负责 Responses、Anthropic
+adaptive/effort 和 Ollama think；元数据客户端由 Core 模型生命周期持有并关闭，不读取第三方私有字段。
+能力来源与未接通接口的边界见 [API：会话思考控制](API.md#36-设置模型和凭证引用)。未运行本批行为测试或真实 Provider 验收。
+
 ## 2. 状态与资源所有权
 
 | 内容 | 所有者 / 查询来源 | 不承担的职责 |
@@ -105,6 +111,7 @@ flowchart TD
 ### 浏览器与活跃命令进程
 
 - Browser 使用官方 Playwright：默认临时上下文；`open(profile="名称", visible=true)` 经审批打开独立登录窗口，用户在窗口中登录，不要求在对话中交密码。具名配置复用 `launch_persistent_context`，目录在 `~/.maigokite/browser-profiles`，按工作区和名称隔离，POSIX 目录权限 0700。它不是密钥链，也不导入日常 Chrome 配置；同一配置只允许一个活动会话。`close` 关闭窗口但保留登录态；当前没有配置目录删除 GUI。
+- Core 的既有配置支持 `browser.max_sessions`（默认 4，1–16）与 `browser.idle_timeout_seconds`（默认 1800，60–86400）。启动中的会话也占用名额，超限明确拒绝；每分钟检查无工具操作的空闲会话，持锁/启动中的页面不回收，具名登录数据不删除。同一页面使用标准 asyncio 锁串行操作；排队取消不关闭页面，持锁操作取消或整体 90 秒超时才关闭自己的 context。关闭失败保留资源所有权供后续回收/Core 关闭处理。下载最终路径校验不意外丢失显式完全访问边界。这些是 Playwright 资源管理，不是新 Browser 协议；尚未实际运行本批浏览器验收。
 - 活动 session_id 绑定工作区、会话和实际根路径，其他会话不能借 ID 操作。Core 重启后 session_id 失效，需重新 open 同一 profile；浏览器审批仍按临时运行状态处理，不自动重放下载/上传或旧页面点击。
 - `upload(selector,path,url)` 使用 `set_input_files`；`download(selector,path,url)` 使用 `expect_download/save_as`，下载到明确的新文件名，不覆盖既有文件。url 必须取自当前快照；批准后页面 URL 改变则拒绝执行，重新检查与审批。上传/下载均经过审批和工作区/路径白名单约束，浏览器配置目录不可作为传输路径。单文件接收上限 50 MiB、下载操作超时 60 秒；下载大小在完成暂存后检查，不是下载期间的磁盘配额保证。关闭上下文负责回收 Playwright 临时下载。
 - 公共 HTTP(S) 导航/资源校验继续保留，禁用 Service Worker 绕过请求路由；这不是完整网络沙箱。可见登录需要桌面显示环境；第三方网站验证码、浏览器限制及断电时登录持久性需要真实网站验收。
@@ -144,9 +151,9 @@ Anthropic 当前锁定集成在 token callback 处取消时可遗留 HTTP 响应
 
 本地 Ollama/OpenAI-compatible 不借用云端环境密钥，并保持本地端点绕过系统代理的行为。连接验证产生的临时客户端必须关闭。
 
-保留既有 fast/balanced/thorough 的产品输出预算：上限分别为 2048、8192 和模型配置值，
-均不超过模型配置的 max_tokens。由原生工厂映射 SDK 参数，不在 Runtime 写 Provider 协议。
-它们不代表服务端推理速率、模型实际窗口或缓存容量；模型缓存区分响应模式。
+输出预算只使用模型配置的 max_tokens，不再被 fast/balanced/thorough 二次截断。
+思考强度使用独立的会话 thinking 和原生 SDK 参数，模型缓存区分实际选择；服务默认不发送覆盖值。
+它不代表推理速率、窗口大小或保证的 token 数量，不在 Runtime 写 Provider 协议。
 
 限制：`file_read` 在最多 8 KiB 的读取片段之间协作取消，但单次文件系统调用仍不可抢占；其他同步线程工具无法立即停止。第三方 MCP 传输方式和同步线程取消仍有边界。不得在任务实际仍执行时先宣称停止，不为此建立自研线程杀死机制或取消树。
 
@@ -166,11 +173,15 @@ Anthropic 当前锁定集成在 token callback 处取消时可遗留 HTTP 响应
 
 ### 输入预算与摘要
 
-- `context.max_tokens` 默认 32000，是用户配置的输入预算上限。有效预算 `B` 在 SDK 提供合法 `profile.max_input_tokens` 时，取配置上限与 SDK 容量扣除已配置输出量的较小值（至少 1）；这是保守预留，不是精确窗口探测。元数据缺失的兼容/本地模型仍使用用户预算，不猜测模型名称或联网查询容量。计数为近似值，仍须留出估算误差。
+- `context.max_tokens` 默认 32000，只是产品输入预算上限，不是模型窗口。LM Studio 兼容模型在每次模型步骤开始前，复用 Core 所有的 HTTP 客户端只读查询同一服务的 `/api/v1/models`，按精确模型 key/实例 ID 取 `loaded_instances[].config.context_length`。多个实例无法确定路由、模型未加载、旧服务不支持、鉴权失败等均返回未知及原因，不能用 `max_context_length` 或同名云模型的 SDK 资料冒充实际加载容量；不自动加载模型或修改服务设置。保留反向代理路径前缀，不跟随重定向；查询总超时 3 秒、响应上限 2 MiB，取消只关闭本次响应。
+- 有效预算 `B = min(产品预算, 已知窗口 - 输出预留 - 估算余量)`，至少 1。LM Studio 加载窗口或服务端超限回执的估算余量为 `min(1024, max(128, 窗口 × 5%))`；这不是已用 token，也不保证精确计数。云端继续使用 SDK `profile.max_input_tokens` 并标记 `model_profile` 来源；无法获知的其他服务保持未知。摘要与主回复使用同一容量观测，但分别扣除自身输出上限，不把主回复的输出预留错误套给短摘要。每次步骤刷新，审批续接/重启不依赖旧进程缓存；子 Agent 独立获取其模型容量。
+- 明确不支持原生元数据接口（404/405/不可识别结构）或鉴权失败时，同一次 run 不在每个工具轮次重复探测；下一任务/恢复的新 run 可重新查询。不会对非 LM Studio 的兼容服务持续增加无效请求。
+- `context.updated` 在压缩前和正式调用前发布，即使提前拒绝也提供窗口、来源、观测时间、输入预算、输出预留与压缩阈值。显式 `exceed_context_size_error` 回执中的 `n_ctx / n_prompt_tokens` 会覆盖本次观测并以 `measurement=provider` 发布，不作为计费回执，不重新执行工具。此回执不持久化为模型配置，下一步骤仍读取服务端，避免把旧实例容量长期缓存。未知容量仍使用产品预算进行保护，但明确不能据此保证满足服务端窗口。
 - 新路径复用原生 `SummarizationMiddleware`。完整输入（历史、固定指令、启用工具和原生 Todo 提示/结构定义）约达到输入预算 `B` 的 80% 时才尝试压缩，不每轮重写历史。
 - 摘要本体软目标为 `min(10% × B, 6000)`，保护上限为 `min(15% × B, 8000)`，至少 1 token。比例基于上述有效输入预算而非压缩后总占比；短历史不凑字数，不要求压缩后填满某一比例。摘要触发、摘要上限与调用前拒绝使用同一预算，模型本身更小的输出限制仍然生效。
 - 近期保留量基线为扣除固定开销后预算的 25%，最多 8000 token；当前用户回合与工具配对需要更多时保留更多。原生中间件决定安全切分；不自建历史剪裁/摘要引擎。当前回合本身过大仍可能报错。
 - 薄保护保留系统指令与最近用户请求，检查摘要请求本身的预算、错误/空摘要、Provider 截断标记、摘要上限、压缩收益和压缩后的整体预算。失败不提交替换，不反复重试；取消随根任务传播。所有本地 token 计数仍是近似值，不保证 Provider 精确窗口。
+- 压缩过程发出 `context.compaction.started / failed / skipped`，成功沿用 `context.compacted`；无可压缩历史时不会伪造成功。当前本批只补后端：现有窗口仪表可继续消费 `model_context_window`，新的压缩状态及容量来源说明留给前端接入，尚未增加手动压缩 API。此改动仅静态核对，未做 LM Studio 实测或软件测试。
 - 摘要是有损信息。超大输入或工具结果、初始历史已超模型提供方容量时可能仍失败，不构建无限重试或第二套分块摘要引擎。
 
 ### 缓存和调用限制
@@ -192,6 +203,8 @@ Anthropic 当前锁定集成在 token callback 处取消时可遗留 HTTP 响应
 - 新路径 ToolMessage 沿用既有 `data` 与 `raw` 去重，完整执行证据留在产品 artifact，不重新实现 Tool 调度。工具页限额是输入减量，不等于总 token 保证或 OS sandbox 增强。
 
 复用依据：[LangChain 中间件](https://docs.langchain.com/oss/python/langchain/middleware/built-in)、[OpenAI 提示词缓存](https://developers.openai.com/api/docs/guides/prompt-caching)、[Anthropic 提示词缓存](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)。这些链接是既有设计依据，本次文档归并没有重新验证服务端表现。
+
+实际加载容量字段依据：[LM Studio 原生模型列表](https://lmstudio.ai/docs/developer/rest/list)（`loaded_instances[].config.context_length` 与理论 `max_context_length` 分离）；不把 OpenAI-compatible `/v1/models` 的普通模型目录当作已加载实例配置。
 
 ## 7. 技能、子任务与工作流边界
 
@@ -218,7 +231,13 @@ Anthropic 当前锁定集成在 token callback 处取消时可遗留 HTTP 响应
 
 上一轮定向测试发现 `delegate` 的 `ToolRuntime` 注入参数被 StructuredTool 的参数转换丢弃。本轮移除该模块的延迟字符串注解，保留 SDK 可识别的真实注入类型，并补齐上述多模型路径；未重新运行测试、类型检查、应用构建或真实模型请求，不把修复源码计作验收通过。
 
-参考 [DSH 模型选择与独立/继承上下文委派](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subagent/tool-subagent/README.md) 的交互边界，不复制其 Cordis/插件/子生命周期框架。当前仍是等待子图结果的工具调用，不是后台启动并返回 ID；后台委派、后续发消息、Fork、worktree、聊天分岔和写入型子 Agent 均未交付。
+参考 [DSH 模型选择与独立/继承上下文委派](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subagent/tool-subagent/README.md) 的交互边界，不复制其 Cordis/插件/子生命周期框架。当前仍是等待子图结果的工具调用，不是后台启动并返回 ID；后台委派、后续发消息、子 Agent Fork、worktree 和写入型子 Agent 均未交付。
+
+### 独立聊天分岔（源码接入，未验收）
+
+会话 API 创建新的产品会话并复制某条助手回复之前的可见 user/assistant 历史。源会话必须空闲，复制上限 500 条/2 MiB，超限拒绝；请求幂等与复制在同一产品事务内完成。分岔不调用模型，也不复制任务、审批、工具结果、事件、队列或 checkpoint；普通下一轮仍进入唯一 LangGraph Runtime，首次从现有产品历史导入入口读取消息并追加“文件共享、未回滚、审批不继承”的边界说明。首次模型调用后仍由原生 checkpoint 维护执行状态，不新增 Runtime continuation。完全访问/旧自动模式降为工作区权限，须用户重新选择才提升。
+
+这是对话上下文分岔，不是执行 time travel、工具重放、Git worktree 或文件快照。GUI 在已保存助手回复下方的「⋯ → 从此处分叉新对话」传入所选消息 ID，侧栏会话管理不再承载分叉入口。数据库增量与 API 见 [数据库](Database.md) 和 [API](API.md#32-会话与消息)；尚未运行本批迁移、幂等并发或 GUI 验收。
 
 持久确定性流程先评估现有检查点的组合，不另建工作流平台。缓存预热、复杂插件生命周期、版本化提示词/对照评测与自动重规划均非当前交付；只有实测需求和收益后才考虑。
 

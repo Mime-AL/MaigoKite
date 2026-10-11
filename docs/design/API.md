@@ -57,6 +57,7 @@ POST 仅所有者可用，接受 `root_path` 与可选 `name`，由 Core 校验�
 ```text
 GET    /workspaces/{workspace_id}/conversations
 POST   /workspaces/{workspace_id}/conversations
+POST   /workspaces/{workspace_id}/conversations/{conversation_id}/fork
 GET    /workspaces/{workspace_id}/conversations/{conversation_id}
 PATCH  /workspaces/{workspace_id}/conversations/{conversation_id}
 DELETE /workspaces/{workspace_id}/conversations/{conversation_id}
@@ -66,6 +67,14 @@ GET    /workspaces/{workspace_id}/conversations/{conversation_id}/snapshot
 ```
 
 发送消息返回已创建的 `task_id`；增量结果通过事件流提供。
+
+`POST .../fork` 需 `Idempotency-Key`（1–128 个无空格可打印 ASCII 字符），body 为 `{}` 或
+`{"message_id":"msg_..."}`。省略消息 ID 时选择最新持久消息；分岔点须为助手回复，源会话有活动/待审批任务时返回 409。
+201 返回新 `Conversation`，含 `forked_from_conversation_id / forked_from_message_id`。同源会话同键同参数返回原分岔；换参数使用旧键返回 409。
+分岔复制该点之前的 user/assistant 消息，最多 500 条/2 MiB，超限返回 400 而非静默裁剪；创建与消息复制同事务提交。
+模型、思考设置、目录和子 Agent 限额沿用源会话；完全访问及旧自动模式降为工作区权限。审批授权、任务、checkpoint、工具事件、队列和文件均不复制，也不调用模型。
+分岔的首次执行沿用现有产品历史导入入口，不恢复源任务；文件仍共享，源会话删除不删除分岔。GUI 从已保存助手回复下方的「⋯ → 从此处分叉新对话」传入该回复的 `message_id`，不再由会话管理默认从末尾分岔；不是逐节点执行 Fork 或文件回滚。
+请求键只在本次页面内保留；刷新后先查看会话列表，不保证找回原键。分岔删除后不保留去重墓碑。
 
 发送消息可带 `Idempotency-Key`（1–128 个无空格可打印 ASCII 字符）。键按工作区、会话、主体隔离，内容指纹覆盖 content 与 attachments；新请求返回 202，相同键/相同内容返回原任务的 200 `{task_id, conversation_id, status, replayed: true}` 和 `Idempotency-Replayed: true`，不同内容返回 409。返回旧任务不会重新发模型请求、写消息或广播历史事件；中断/失败任务也不会因重发键自动恢复。相同文本的新操作必须用新键。省略键保持旧行为；GUI 已为每次逻辑提交生成键，网络/5xx 错误时保留原键，用户点击确认才重试。4xx 明确拒绝会释放键；成功回执后刷新失败不等于提交失败。键仅保留在当前页面会话内，刷新页面后应先查询任务记录，不保证找回原键。服务端的键随任务保留，删除会话/任务后不再保留去重记录。最新 GUI 接线未验收。
 
@@ -102,6 +111,8 @@ DELETE /workspaces/{workspace_id}/approvals/{approval_id}/authorization
 允许请求可携带 `scope`：`{"decision":"allow","version":1,"scope":"session"}`。缺省为 `once`；另支持 `task / session`，仅可选择审批响应的 `allowed_scopes`。`deny` 只接受 `once`。响应增加服务端生成的 `reuse_scope`（只读）、`authorization_scope / authorization_expires_at / authorization_revoked_at`；客户端不得提交自定义 scope 规则。L5/MCP/沙箱外命令不支持复用。
 
 授权列表返回 `{"authorizations":[...]}`，项包括 `approval_id / conversation_id / task_id / scope / expires_at / resource`；撤销返回 204。两接口要求 owner 且校验主体，不删除原审批审计；任务/会话授权最长 8 小时。每次执行重新核对权限和回执，详见 [工具权限](../agent-capabilities/security/tool-permission.md#窄范围复用)。
+
+GUI 审批卡已接 scope 选择，只展示该审批版本允许的选项；会话管理接授权列表与撤销。快照额外解析 `reuse_scope_json` 为同一 DTO。完全访问显式确认后发送 `danger_full_access`，旧自动模式仅保留显示，不冒充完全访问。本次没有运行交互验收。
 
 ### 3.4 用户记忆与数据摘要
 
@@ -155,6 +166,7 @@ PATCH /workspaces/{workspace_id}/settings
 GET   /workspaces/{workspace_id}/tool-settings
 PATCH /workspaces/{workspace_id}/tool-settings
 GET   /workspaces/{workspace_id}/models
+GET   /workspaces/{workspace_id}/models/{model_id}/thinking
 POST  /workspaces/{workspace_id}/models
 PUT   /workspaces/{workspace_id}/models/{model_id}
 DELETE /workspaces/{workspace_id}/models/{model_id}
@@ -178,6 +190,24 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 
 读取凭证只返回引用和元数据，不返回敏感凭证值。
 
+**会话思考控制。** `models/{model_id}/thinking` 返回 `kind: effort | toggle | unavailable`、
+`options: string[]`、`default`、`source` 和 `reason`；列表由 Core 确认，前端不按模型名称猜测。
+`default` 为空表示默认值未知，不等于关闭思考。查询只读取能力资料，不发生成请求、不自动加载模型。
+Gateway 在读取能力、保存显式思考设置之前，沿用 OS 凭证存储恢复所选模型的 Core 内存凭证，
+不启动 MCP/Skill，不返回 Secret。
+
+创建/PATCH 会话接受 `thinking: string`；PATCH 省略保持原值，`""` 恢复服务默认（不发送推理参数）。
+模型变更且未指定 thinking 时自动清空；非法档位由 Core 拒绝，活跃或等待批准的任务不允许更改。
+GET/List 返回相同字段；protobuf JSON 省略空值时客户端按 `""` 解读。
+旧 `response_mode` 暂留作兼容字段，但不再改变输出 token 预算，也不被转换为推理强度。
+
+当前控制范围：OpenAI 使用原生 SDK `profile.reasoning_effort_levels`（原始 GPT-5 使用官方档位修正），
+Claude 使用已确认的自适应思考型号及官方 effort 档位，Ollama 查询 `/api/show.thinking`，
+LM Studio 查询 `/api/v1/models.capabilities.reasoning`。OpenAI/LM Studio 的强度参数复用 SDK Responses，
+Claude 使用 adaptive + effort，Ollama 使用原生 reasoning/think；不自建 Provider 协议。
+LM Studio 仅原生 API 暴露的 on/off 尚不映射到兼容接口，返回 `native_control_only`；
+未知兼容服务、旧版缺少元数据或未接入的预算型控制返回不可调节，保持服务默认。
+
 模型目录支持多选及手动追加 ID；每个选中模型保存为既有的独立配置，共享本次填写的服务连接信息。前端使用稳定配置 ID，串行调用现有 `PUT models/{model_id}`，避免配置目录的读改写发生并发覆盖；部分失败保留已保存项和草稿，重试更新同一 ID，不承诺跨配置事务。
 
 模型保存请求可携带 `credential_source_id`，由 Gateway 从同工作区、同接口协议、同规范化基础地址的已保存配置复用密钥；来源无效时在写入前拒绝。显式提交 `api_key` 优先，密钥仍按目标模型 ID 存储，不回传前端。此字段不建立新的 Provider 注册表或共享密钥域。
@@ -190,7 +220,7 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 
 联网搜索凭证使用 `tavily`、`google` 引用名。网关保存或删除引用时通过内部 gRPC 同步智能体核心，并在每次消息任务开始前重新同步，以覆盖核心服务重启场景。搜索失败事件只携带稳定错误码、用户提示和设置路由，不携带敏感凭证。
 
-`GET/PATCH /workspaces/{workspace_id}/permissions` 管理默认执行模式：`read_only / workspace / danger_full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`response_mode` 和 `permission_mode`。服务端验证模型属于当前工作区；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
+`GET/PATCH /workspaces/{workspace_id}/permissions` 管理默认执行模式：`read_only / workspace / danger_full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`thinking` 和 `permission_mode`（旧 `response_mode` 仅保留兼容）。服务端验证模型属于当前工作区；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
 
 2026-10-11 兼容约定：旧 `full_access` 请求仍被接受，但规范化为 `workspace_auto`，保留原工作区限制而非自动提权；历史会话、YAML/环境变量与默认设置同样处理。前端要把 `workspace_auto` 显示为兼容的“旧版受限自动”，不作为新的完全访问档位。真正完全访问须显式提交 `{"permission_mode":"danger_full_access"}` 或 `{"default_mode":"danger_full_access"}`，界面接入时应明确告知将取消工作区沙箱与逐项审批。设置默认仅影响后续新会话。
 
@@ -239,7 +269,7 @@ GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 **能力边界。** `approval_note / approval_detail / task_inspection / file_change_events / process_list / process_stop` 为本批支持项。
 2026-10-11 增加 `process_input`，每个 job 返回 `stdin_available`。GUI 必须同时检查进程 live、stdin_available 和能力标志，不能把历史记录当成可操作进程。输入正文不保存到审计或对话，响应丢失不代表未送达；进程自行回显的输出仍可能包含输入。当前是有超时的标准管道，不提供 PTY 或断线后恢复进程。
 `structured_questions / task_input / structured_plan / context_estimate` 在 Core 的唯一 LangGraph Runtime 就绪时为 true；关闭或未就绪时不对外宣称可执行。这些标志表示后端能力，工具仍可能被工作区配置停用。
-`session_approval / task_approval / approval_authorization_revocation / permission_boundary_v2` 在 Runtime 就绪时为 true，表示支持上述新接口/语义，不代表前端已完成联调或主机沙箱可用。`auto_review / model_context_percentage / turn_rollback / automatic_memory_events` 为 false。回合回滚和审核 Agent 不在本批范围。
+`session_approval / task_approval / approval_authorization_revocation / permission_boundary_v2 / conversation_fork` 在 Runtime 就绪时为 true，表示支持上述新接口/语义，不代表前端已完成联调或主机沙箱可用。`auto_review / model_context_percentage / turn_rollback / automatic_memory_events` 为 false。回合回滚和审核 Agent 不在本批范围。
 
 **显式任务恢复。** `task_resume` 在 Runtime 就绪时为 true，表示提供受限恢复入口，不表示所有 interrupted 任务均可重放。Gateway 先按现有凭证入口补齐 Core 的进程内模型密钥，再调用流式 gRPC `ResumeTask(workspace_id, task_id, principal_id, version)`。Core 只接受所有者、最新版本、最新会话回合、无活跃运行、未归档且存在未完成 checkpoint 的 `interrupted` 任务；等待审批的任务继续使用 Approval API，不走这个接口。旧任务无 checkpoint 也按不可恢复处理；状态/版本/checkpoint 不满足返回 409，越权返回 403，任务不在工作区内返回 404。
 
@@ -263,7 +293,13 @@ Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能�
 
 **插话。** 仅接受当前活跃的普通模型任务，不接受 `/tool` 或正在等待交互的任务。content 最多 10000 字符，每任务最多 20 条未消费输入；幂等键最多 128 字节，同键不同内容返回 409。`task.input.queued` 是接收回执；下一模型步骤在原生 middleware 中追加 `HumanMessage`，包含该输入的模型调用成功返回后才保存可见用户消息并发出 `task.input.consumed`。预算拒绝、失败和取消不冒充已消费；Provider 可能已收到但响应丢失的情况仍不能确认，`not_consumed` 不是“服务端一定没收到”的证明。`consumed` 也不保证后续工具或整个任务成功。尚未开始的旧工具提议会收到未执行结果，让模型读取新输入后重新判断；不抢停已经开始的工具或模型流。若当前回合结束前未确认消费，查询状态为 `not_consumed`，不自动新建回合或重发。客户端按 input ID 合并状态，不能因迟到的 queued 回执把 consumed 状态改回 queued。
 
-**计划与上下文。** 计划直接复用 LangChain `TodoListMiddleware / write_todos`；`plan.updated.items` 是 `{content, status}` 数组，status 为 `pending / in_progress / completed`，只作用于当前任务，不是工作区 TODO。`context.updated` 提供 `estimated_input_tokens / input_budget_tokens / measurement: "estimate"`；`model_context_window / context_percent` 为 null，绝不把产品输入预算冒充模型的实际上下文容量。模型真实计费计数继续通过既有 `model.usage` 提供。
+**计划与上下文。** 计划直接复用 LangChain `TodoListMiddleware / write_todos`；`plan.updated.items` 是 `{content, status}` 数组，status 为 `pending / in_progress / completed`，只作用于当前任务，不是工作区 TODO。`context.updated` 提供 `call_id / model_name / estimated_input_tokens / input_budget_tokens / measurement`；本地估算为 `estimate`，显式超限回执提供的输入计数为 `provider`，沿用 `estimated_input_tokens` 字段兼容现有消费者，不表示计费成功。`model_context_window / context_percent` 在容量已知时有值，否则为 null，绝不把产品预算冒充模型窗口。
+
+容量附加字段：`capacity_source` 为 `lmstudio.loaded_instance / model_profile / provider_metadata / provider_error / null`，分别表示实际加载实例、已保存的模型目录容量或 SDK 资料、服务端模型目录、本次拒绝回执和未知。目录容量是资料上限，不冒充实际加载窗口。`capacity_status` 为 `known / unknown / metadata_unavailable / unsupported_metadata / unauthorized / not_loaded / model_not_found / ambiguous_instance`；`capacity_checked_at` 为 UTC 观测时间。`output_reserved_tokens / safety_margin_tokens / compaction_trigger_tokens` 分别是输出预留、估算余量和自动压缩阈值，均不是已消耗 token。`purpose` 区分 `response / summary`。压缩前和正式调用前均可发布，预检的 `context_*` call ID 不是模型调用次数，只有 `model.call.started` 才代表请求开始；不能对多个 `context.updated` 求和。模型真实计费计数继续通过既有 `model.usage` 提供。
+
+模型配置增加可选 `context_window`（正的安全整数；省略/0 表示未知），从设置页获取的目录按精确模型 ID 保存，经既有 REST / protobuf / Repository 传递，无数据库增列。换服务或换模型不能沿用另一模型的容量。兼容 Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取精确模型项的 `context_window / context_length / contextWindow / max_model_len`；只有本地服务才尝试 LM Studio 加载实例接口，不再把该路径套到所有云厂商。已保存的目录容量可作资料回退，无元数据时保持未知；不使用硬编码模型表、输出限制或默认产品预算兜底。`context.updated` 附加 `model_id / model_key`：后者为 `[provider, normalized_base_url, model, context_window_or_null]` 的紧凑 JSON，仅用于配置关联，不含密钥。前端同时匹配配置 ID 与该关联值；旧事件缺少关联值时不把历史容量套到当前配置，新请求发布新的观测。
+
+压缩状态通过 `context.compaction.started / failed / skipped` 与既有 `context.compacted` 发布。started 带 `before_tokens / input_budget_tokens / model_context_window / measurement`；failed 带 `message / error_type / model_context_window` 且保留原历史；skipped 的 `reason=no_compressible_history` 不代表完成压缩。前端按事件投影独立压缩状态，不从普通“思考中”推断；窗口仪表保留 measurement、容量来源、获取状态与观测时间，未知窗口只显示已有 Token 计数/估算、不绘制占用比例。聊天过程与底部显示压缩失败原因，关闭窗口用量显示不隐藏失败反馈。本次前端接入未运行测试或真实服务验收，后端没有手动压缩接口，界面不提供该按钮。
 
 用量汇总中，旧记录若缺少 `call_id` 或调用开始回执，`calls / failed_calls` 返回 null（未知），不能显示为“0 次调用”。已收到的 token 小计和 `reported_calls` 仍可查询，但不是完整账单或调用次数的估计。
 
@@ -345,6 +381,9 @@ task.input.queued
 task.input.consumed
 plan.updated
 context.updated
+context.compaction.started
+context.compaction.failed
+context.compaction.skipped
 context.compacted
 context.history
 file.changed

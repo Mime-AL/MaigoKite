@@ -1,6 +1,19 @@
 import { t } from '@/i18n'
 import type { AwaitItem } from '@/api/events'
 import type { Approval } from '@/api/client'
+/** Display the server's exact scope; never infer or broaden an authorization. */
+export function approvalScopeDescription(scope: Record<string, unknown> = {}) {
+  const lines: string[] = []
+  if (typeof scope.tool === 'string') lines.push(t('工具：{0}', [scope.tool]))
+  if (typeof scope.directory === 'string')
+    lines.push(t(scope.recursive === false ? '目录：{0}（不含子目录）' : '目录：{0}', [scope.directory]))
+  if (typeof scope.origin === 'string') lines.push(t('目标站点：{0}', [scope.origin]))
+  if (typeof scope.engine === 'string') lines.push(t('搜索服务：{0}', [scope.engine]))
+  if (Array.isArray(scope.argv)) lines.push(t('固定命令参数：{0}', [JSON.stringify(scope.argv)]))
+  if (typeof scope.workdir === 'string') lines.push(t('执行目录：{0}', [scope.workdir]))
+  if (typeof scope.workspace_root === 'string') lines.push(t('工作区：{0}', [scope.workspace_root]))
+  return lines
+}
 /** Describes known effects, never authorizes a tool or predicts arbitrary code. */
 export function approvalDescription(item: AwaitItem, record?: Approval) {
   let input: Record<string, unknown> = record?.arguments || {}
