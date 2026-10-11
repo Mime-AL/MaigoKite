@@ -719,8 +719,9 @@ class LangGraphRuntime:
             principal_id=principal_id,
             permission_mode=str(conversation["permission_mode"]),
         )
-        # Allow may resume execution and needs a model. Deny cancels the turn;
-        # it must not depend on credentials or provider availability.
+        # Preflight permission grants before committing. A refusal must still
+        # commit when model setup is unavailable: _drive reports a continuation
+        # failure after the decision event, without undoing the refusal.
         graph = None
         if decision != "deny":
             graph = await self._graph_for(request)
@@ -958,8 +959,6 @@ class LangGraphRuntime:
                 raise RuntimeError(f"task is already running: {request.task_id}")
         product_task = await self.repository.get_task(request.workspace_id, request.task_id)
         cancelled = product_task["status"] == "cancelled"
-        if graph is None and not cancelled:
-            graph = await self._graph_for(request)
         self._checkpoint_threads.add(request.task_id)
         queue: asyncio.Queue[MaigoKiteEvent | object] = asyncio.Queue()
         context = _RunContext(self, request, queue)
@@ -1005,13 +1004,14 @@ class LangGraphRuntime:
             context.subagent_model_ids = json.loads(task.get("subagent_model_ids_json", "[]"))
             context.child_slots = asyncio.Semaphore(int(task.get("max_concurrent_subagents", 1)))
             if task["status"] == "cancelled":
-                # A rejected/cancelled turn must never re-enter its checkpoint,
-                # invoke tools, or ask a provider to acknowledge the rejection.
+                # Only explicit task cancellation ends the entire turn.
                 await self._emit(context, "task.cancelled", {"message": "Task cancelled"})
                 return
             # Preparation belongs to the root's cancellation/error boundary too,
             # including approval/question resumes whose decision already committed.
             request = context.request
+            if graph is None:
+                graph = await self._graph_for(request)
             context.execution_metadata = (
                 await self._execution_metadata(request) if self._execution_metadata else {
                     "workspace_id": request.workspace_id,
@@ -1029,6 +1029,8 @@ class LangGraphRuntime:
                 ]
             if graph_input is None:
                 snapshot = await graph.aget_state(config)
+                if not snapshot.values:
+                    raise RuntimeError("runtime checkpoint is missing; the decision is saved but execution cannot resume")
                 if snapshot.interrupts:
                     message = next(
                         (
@@ -1077,7 +1079,7 @@ class LangGraphRuntime:
                 await self._emit(
                     context,
                     "task.cancelled",
-                    {"message": "approval denied"},
+                    {"message": "Task cancelled"},
                 )
             else:
                 await self.repository.update_task_status(
@@ -1108,9 +1110,9 @@ class LangGraphRuntime:
                 context.request.workspace_id, context.request.task_id
             )
             if task["status"] == "cancelled":
-                # A provider error while acknowledging a rejected tool batch
-                # must not overwrite the user's cancellation with task.failed.
-                await self._emit(context, "task.cancelled", {"message": "approval denied"})
+                # A concurrent stop remains cancellation even if model/tool
+                # cleanup raised an error on its way out.
+                await self._emit(context, "task.cancelled", {"message": "Task cancelled"})
             else:
                 await self.repository.update_task_status(
                     context.request.task_id, "failed", str(exc)
@@ -1257,11 +1259,9 @@ class LangGraphRuntime:
             product = message.artifact if isinstance(message.artifact, dict) else {}
             tool_name = str(message.name or context.tool_calls.get(call_id, {}).get("name", ""))
             summary = str(product.get("summary") or content)[:500]
-            task = await self.repository.get_task(
-                context.request.workspace_id, context.request.task_id
-            )
+            stored = await self.repository.get_tool_call(call_id)
             status = "failed" if failed else "succeeded"
-            if failed and task["status"] == "cancelled":
+            if failed and stored["status"] == "denied":
                 status = "denied"
             await self.repository.update_tool_call(
                 call_id,
@@ -1274,7 +1274,7 @@ class LangGraphRuntime:
                 context.request.principal_id,
                 "tool.failed" if failed else "tool.completed",
                 tool_name,
-                "failed" if failed else "success",
+                "denied" if status == "denied" else "failed" if failed else "success",
                 {"tool_call_id": call_id, "summary": summary},
             )
             await self._emit(
@@ -1286,8 +1286,8 @@ class LangGraphRuntime:
                     "message": content,
                     "summary": summary,
                     "data": product.get("data", {"content": content}),
-                    "error_code": product.get("error_code"),
-                    "user_hint": product.get("user_hint"),
+                    "error_code": "APPROVAL_REJECTED" if status == "denied" else product.get("error_code"),
+                    "user_hint": "该操作已驳回，未执行；继续处理任务的其他部分。" if status == "denied" else product.get("user_hint"),
                     "action": product.get("action"),
                 },
             )
@@ -1399,29 +1399,51 @@ class LangGraphRuntime:
         reviewed = [records.get(call["id"]) for call in calls]
         if any(record and record["status"] == "expired" for record in reviewed):
             raise PermissionError("approval has expired; start a new task")
-        # Rejection is a terminal product cancellation, never a model turn.
-        # This guard also refuses inconsistent historical product state.
-        if any(record and record["status"] == "rejected" for record in reviewed):
-            raise PermissionError("approval was rejected; this task cannot resume")
+        decisions: list[dict[str, Any]] = []
         for call, record in zip(calls, reviewed, strict=True):
+            if record is not None and record["status"] == "rejected":
+                decisions.append({"type": "reject", "message": self._rejection_message(record)})
+                continue
             decision = self._policy_decision(call["name"], call["args"], context)
             if record is None and decision.authorization_id:
                 # Native HITL still resumes the complete original batch. A
                 # receipt can cover later siblings without inventing approvals.
+                decisions.append({"type": "approve"})
                 continue
             if record is None or record["status"] != "consumed":
                 return None
             if decision.outcome == "deny" or not self._matches_approval(record, call["name"], decision):
                 raise PermissionError("approved arguments no longer match the checkpoint tool call")
-        return Command(resume={"decisions": [{"type": "approve"} for _ in calls]})
+            decisions.append({"type": "approve"})
+        # Native interrupt IDs also cover separate ToolNode boundary interrupts.
+        # Preserve each interrupt's action ordering; never broadcast one decision
+        # to other pending operations.
+        responses = {}
+        offset = 0
+        for item in interrupts:
+            count = len(item.value["action_requests"])
+            responses[item.id] = {"decisions": decisions[offset:offset + count]}
+            offset += count
+        return Command(resume=responses)
+
+    @staticmethod
+    def _rejection_message(record: dict[str, Any]) -> str:
+        message = (
+            "The user rejected this operation. It was not executed. "
+            "Do not retry it or bypass the refusal using another tool unless the user explicitly requests it. "
+            "Continue the permitted parts of the task; if the goal requires this operation, explain the limitation."
+        )
+        if record.get("note"):
+            message += f"\nUser's reason: {record['note']}"
+        return message
 
     async def _handle_interrupts(
         self, interrupts: Any, context: _RunContext
     ) -> None:
         task = await self.repository.get_task(context.request.workspace_id, context.request.task_id)
         if task["status"] == "cancelled":
-            # A model must not reopen approval after the user rejected a batch.
-            await self._emit(context, "task.cancelled", {"message": "approval denied"})
+            # Explicit stop must not reopen another approval.
+            await self._emit(context, "task.cancelled", {"message": "Task cancelled"})
             context.interrupted = True
             return
         if all(isinstance(item.value, dict) and item.value.get("kind") == "user_question" for item in interrupts):
@@ -1431,6 +1453,9 @@ class LangGraphRuntime:
         records = await self._review_records(context)
         for call in self._review_calls(interrupts, context.latest_tool_calls):
             approval = records.get(call["id"])
+            if approval is not None and approval["status"] == "rejected":
+                # Keep the refused operation denied while reviewing siblings.
+                continue
             if approval is not None and approval["status"] == "consumed":
                 # Also correct this projection after a crash between committing
                 # the approval decision and exposing the next review item.
@@ -1517,21 +1542,32 @@ class LangGraphRuntime:
                 tool_call_id=str(request.tool_call["id"]), name=tool_name, status="error",
             )
         decision = self._policy_decision(tool_name, arguments, authority)
-        approved = next((record for record in await self.repository.list_approvals(
-            context.request.workspace_id, context.request.conversation_id, "consumed",
-        ) if record["task_id"] == context.request.task_id
-            and record["tool_call_id"] == request.tool_call["id"]), None)
+        record = (await self._review_records(context)).get(str(request.tool_call["id"]))
+        approved = record if record is not None and record["status"] == "consumed" else None
+        rejected = record if record is not None and record["status"] == "rejected" else None
         if (request.tool_call["id"] in context.boundary_review_ids
-                or (decision.outcome == "approval_required" and approved is None)):
+                or (decision.outcome == "approval_required" and approved is None and rejected is None)):
             # A permission change can occur after after_model HITL, while an
             # earlier tool is executing. Suspend this ToolNode through native
             # LangGraph interrupt; existing Approval API/audit still authorize it.
-            interrupt({
+            response = interrupt({
                 "action_requests": [{"name": tool_name, "args": arguments,
                                      "description": decision.reason}],
                 "review_configs": [{"action_name": tool_name, "allowed_decisions": ["approve", "reject"]}],
                 "source": "tool_boundary",
             })
+            if response["decisions"][0]["type"] == "reject":
+                return ToolMessage(
+                    content=self._rejection_message(rejected or {}),
+                    tool_call_id=str(request.tool_call["id"]), name=tool_name, status="error",
+                )
+        if rejected is not None:
+            # Replaying a ToolNode after its interrupt was checkpointed away
+            # must still respect the audit, even if the permission mode changed.
+            return ToolMessage(
+                content=self._rejection_message(rejected),
+                tool_call_id=str(request.tool_call["id"]), name=tool_name, status="error",
+            )
         if approved is not None or decision.outcome == "approval_required":
             # HITL owns suspension/resume. The product audit still owns the
             # authorization, including replay directly into a ToolNode after

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MessageActions from './MessageActions.vue'
 defineProps<{ content: string; timestamp?: Date }>()
 </script>
 <template>
@@ -7,6 +8,7 @@ defineProps<{ content: string; timestamp?: Date }>()
     <time v-if="timestamp">{{
       timestamp.toLocaleTimeString($i18n.locale, { hour: '2-digit', minute: '2-digit' })
     }}</time>
+    <MessageActions :content="content" />
   </article>
 </template>
 <style scoped lang="scss">

@@ -98,8 +98,7 @@ Core 重启沿用上次生效配置；“恢复已有连接”可在待审批时
 
 - Go 1.22+
 - Python 3.11+
-- Node.js / npm
-- Make
+- Node.js 18+ / npm
 - ripgrep (`rg`)
 
 推荐安装 [uv](https://github.com/astral-sh/uv)。
@@ -108,51 +107,54 @@ Core 重启沿用上次生效配置；“恢复已有连接”可在待审批时
 
 [开发指南](docs/development/DevelopmentGuide.md)
 
-### 启动 Web 开发环境
+### Linux
 
-在仓库根目录：
-
-```bash
-make setup
-make dev
-```
-
-然后打开：
-
-```text
-http://localhost:5173
-```
-
-默认端口：
-
-```text
-Web      5173
-Gateway  8080
-Core     8081
-```
-
-`make setup` 会安装项目依赖并创建根目录下的 `.venv`。
-
-### 启动 Electron
-
-完成初始化后：
+在仓库根目录初始化，然后选择 Web 或桌面，二者不要同时启动：
 
 ```bash
-cd web
-npm run electron:dev
+bash scripts/setup.sh
+bash scripts/start.sh web            # Web 开发：Core + Gateway + Vite
+# 或：bash scripts/start.sh desktop  # 桌面开发：Electron + Core + Gateway + Vite
 ```
 
-此命令打开独立的 Electron 桌面窗口，并自动启动 Python Core 和 Gateway，不需要另外执行 `make dev` 或打开浏览器。Core 就绪后启动 Gateway，两者就绪后加载界面；首次 Go 编译可能需要等待。
-
-启动失败会显示桌面错误弹窗，详细的 Core / Gateway 输出保留在当前终端。关闭窗口只是隐藏到托盘；右键托盘图标选择“退出”，或在启动终端按 `Ctrl+C`，才会退出并清理此桌面进程启动的后端。
-
-桌面开发命令固定使用 5173 端口；端口已占用时直接报错，不自动切换到另一个页面。Electron 退出时开发服务器也会停止。
-
-如果已经单独启动后端，可以只启动桌面界面：
+先构建、后启动已有产物：
 
 ```bash
-MAIGOKITE_EXTERNAL_RUNTIME=1 npm run electron:dev
+bash scripts/build.sh all            # 也可只选 web 或 desktop
+bash scripts/start.sh web built
+# 或：bash scripts/start.sh desktop built
 ```
+
+### Windows
+
+使用 PowerShell，无需 WSL、Bash 或 Make；在仓库根目录：
+
+```powershell
+.\scripts\setup.ps1
+.\scripts\start.ps1 web              # 或 desktop
+```
+
+先构建、后启动已有产物：
+
+```powershell
+.\scripts\build.ps1 all               # 也可只选 web 或 desktop
+.\scripts\start.ps1 desktop built     # 或 web built
+```
+
+PowerShell 若按本机策略禁止脚本，可在确认源码可信后使用进程级命令，例如
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1 web`，无需永久修改系统执行策略。
+
+Web 开发地址为 `http://127.0.0.1:5173`，构建产物本地预览为 `http://127.0.0.1:4173`；Gateway/Core 分别使用 8080/8081。
+桌面 `built` 模式直接加载本地 HTML，不启动 Vite。Web `built` 使用 Vite preview，只用于本机，不是公网生产部署方案。
+
+两平台共用 `scripts/local.cjs`，所有命令均不依赖 Makefile。`setup` 默认安装到根 `.venv`，也支持 `UV_PROJECT_ENVIRONMENT`；优先复用 uv 锁文件，没有 uv 时使用 pip。
+Core 解释器选择顺序为 `MAIGOKITE_PYTHON` → 项目环境 → 已激活环境 → uv → 系统 Python / Windows `py -3`，无效的显式覆盖直接报错。
+开发启动会先编译 Gateway（桌面还编译 Electron）；`built` 不自动编译，缺少产物会明确报错。两者默认使用 `config/config.dev.yaml` 和同一份开发数据，可用 `MAIGOKITE_CONFIG` 指定配置，端口仍需保持上述约定。
+
+`Ctrl+C` 停止本次启动的整套服务；任一组件失败也会停止其余组件。关闭浏览器标签页不会停止服务。桌面关闭窗口隐藏到托盘，托盘“退出”才停止整套服务。
+启动器通过持有的管道通知 Core/Gateway 退出，正常退出先等待清理，再对超时的自有进程强制结束；不会按进程名清理其他实例。端口占用时直接报错，不会连接旧 Core。**请先退出旧启动方式遗留的实例再运行新入口。**
+
+这些是源码构建/启动脚本：仍需本机 Python 环境、Node 和项目依赖，不是自带 Runtime 的安装包。具体限制见 [构建与发布指南](docs/deployment/ReleaseGuide.md)。
 
 ### 浏览器工具
 
@@ -164,13 +166,7 @@ MAIGOKITE_EXTERNAL_RUNTIME=1 npm run electron:dev
 browser.executable_path
 ```
 
-开发配置目前使用：
-
-```text
-/usr/bin/google-chrome
-```
-
-如果你的 Chrome / Chromium 在其他位置，需要自行修改配置。
+默认留空，使用 Playwright 管理的 Chromium，不再假定本机安装了某个固定路径的 Chrome。使用已有 Chrome / Chromium 时，填写该机器上真实的可执行文件路径。
 
 详细配置见：
 
@@ -265,13 +261,13 @@ Go 使用本地模块路径 `maigokite/gateway`，不依赖 GitHub 仓库地址�
 运行测试：
 
 ```bash
-make test
+bash scripts/run_tests.sh
 ```
 
 构建：
 
 ```bash
-make build
+bash scripts/build.sh all
 ```
 
 开发环境和项目结构见：
@@ -307,6 +303,8 @@ make build
 
 Copyright (c) 2026 NanamiKite.
 
-Licensed under **GNU General Public License v3.0 only** (`GPL-3.0-only`).
+Licensed under **Mozilla Public License 2.0** (`MPL-2.0`).
 
 See [LICENSE](LICENSE).
+
+Third-party dependencies retain their respective licenses.

@@ -7,13 +7,17 @@
 
 | 入口 | 当前产物 / 限制 |
 | --- | --- |
-| 根 `make build` / `scripts/build.sh all` | 聚合 Go、Python 包与 Web 编译 |
-| `scripts/build.sh go` | 当前固定 Linux/amd64、CGO=0 的网关到 `dist/`；不是多平台发布 |
-| `scripts/build.sh python` | 从根 Python 项目生成 wheel/sdist，不等于带解释器和依赖的智能体可执行运行时 |
+| `bash scripts/build.sh all` / `scripts/build.ps1 all` | 本机 Go Gateway、Web 资源与 Electron 编译；不构建 Python 安装运行时 |
+| `build.sh web` / `build.ps1 web` | Gateway + Web，启动用对应的 `start web built` |
+| `build.sh desktop` / `build.ps1 desktop` | Gateway + Web + Electron，启动用对应的 `start desktop built`，直接加载本地 HTML |
+| `build.sh go` / `build.ps1 go` | 网关到 `dist/maigokite-api[.exe]`；成套脚本拒绝与本机不符的 GOOS/GOARCH，CGO_ENABLED 默认 0、可覆盖 |
+| `build.sh python` / `build.ps1 python` | 从根项目生成 wheel/sdist，不等于带解释器和依赖的可执行运行时 |
 | `web/ npm run build` | Vue 静态资源与 Electron 主进程/预加载层编译 |
 | `web/ npm run electron:build` | electron-builder 入口；不证明已包含正确的 Go/Python/Chromium 资源 |
 
-Electron packaged 分支期待 `resources/bin/agent-core` 和 `resources/bin/gateway`，当前源码构建产物尚未证明满足该路径和跨平台执行要求。不能把开发机已有 Go/Python、依赖或浏览器当作用户安装环境。
+Electron packaged 分支期待 `resources/bin/agent-core` 和 `resources/bin/gateway`（Windows 使用 `.exe` 后缀），当前源码构建产物尚未证明满足该路径和跨平台执行要求。不能把开发机已有 Go/Python、依赖或浏览器当作用户安装环境。
+
+Linux/Windows 的 `start desktop built` 仍是源码桌面启动，不进入 Electron `app.isPackaged` 分支；通过本地 Python 环境运行 Core，使用已编译 Gateway。Web `built` 复用 Vite preview，限定本机 loopback，不是公开部署服务器。脚本不会自动安装浏览器或进行软件测试。本批仅做静态检查，未完成 Windows 或 Linux 实机整套启停验收。
 
 开发安装与命令仅在 [开发指南](../development/DevelopmentGuide.md) 维护。当前没有已核验远程 CI workflow，本文检查项不是 CI 已实施清单。
 

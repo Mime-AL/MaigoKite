@@ -23,7 +23,7 @@ const subscribers = new Map<string, Set<(event: AgentEvent) => void>>()
 const tasks: AgentTask[] = [],
   approvals: Approval[] = [],
   memories: UserMemory[] = []
-const resumes = new Map<string, () => void>(),
+const resumes = new Map<string, (allowed: boolean, note?: string) => void>(),
   timers = new Map<string, Set<ReturnType<typeof setTimeout>>>()
 const submissions = new Map<string, { content: string; taskId: string }>()
 const forks = new Map<string, { messageId: string; conversation: Conversation }>()
@@ -119,6 +119,7 @@ function start(sessionId: string, content: string) {
       emit(sessionId, id, 'memory.added', { memory_id: memory.id, content: memory.content })
     },
     finish: (answer) => {
+      const wroteFile = approvals.some((approval) => approval.task_id === id && approval.status === 'approved')
       list.push({
         id: `answer-${id}`,
         conversation_id: sessionId,
@@ -131,11 +132,11 @@ function start(sessionId: string, content: string) {
       task.updated_at = now()
       emit(sessionId, id, 'task.succeeded', {
         summary: {
-          files: 1,
-          added: 2,
+          files: wroteFile ? 1 : 0,
+          added: wroteFile ? 2 : 0,
           removed: 0,
           commands: 1,
-          failed: 0,
+          failed: wroteFile ? 0 : 1,
           awaits: 1,
           contextPct: 18,
           durationMs: Date.now() - Date.parse(task.created_at),
@@ -312,12 +313,8 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       decision: body.decision,
       note: approval.note,
     })
-    if (task) task.status = body.decision === 'allow' ? 'running' : 'cancelled'
-    if (body.decision === 'allow') resumes.get(approval.id)?.()
-    else {
-      stopTimers(approval.task_id)
-      emit(approval.conversation_id, approval.task_id, 'task.cancelled', {})
-    }
+    if (task) task.status = 'running'
+    resumes.get(approval.id)?.(body.decision === 'allow', approval.note)
     resumes.delete(approval.id)
     result = { task_id: approval.task_id }
   } else if (parsed.pathname.endsWith('/cancel')) {

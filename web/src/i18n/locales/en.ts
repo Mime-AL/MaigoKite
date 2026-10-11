@@ -94,6 +94,7 @@ const en: Record<string, string> = {
   已回复: 'Replied',
   改动文件: 'Files changed',
   复制代码: 'Copy code',
+  复制消息: 'Copy message',
   已复制: 'Copied',
   全部: 'All',
   代码: 'Code',
@@ -875,6 +876,12 @@ const en: Record<string, string> = {
     'Reconnected, but could not refresh this chat. Reopen it.',
   '应用服务启动失败，请重新打开应用。': 'The application service could not start. Reopen the app.',
   应用服务无法启动: 'The application service could not start',
+  '端口 {0} 已被占用，请先退出已有应用服务。': 'Port {0} is unavailable. Exit the existing application services first.',
+  '指定的 Python 不可用或版本低于 3.11：{0}': 'The configured Python is unavailable or older than 3.11: {0}',
+  '项目 Python 环境不可用：{0}。请运行 scripts/setup.sh。':
+    'The project Python environment is unusable: {0}. Run scripts/setup.sh.',
+  '找不到可用的 Python。请运行 scripts/setup.sh，或设置 MAIGOKITE_PYTHON。':
+    'No usable Python found. Run scripts/setup.sh or set MAIGOKITE_PYTHON.',
   '{0} 启动失败：{1}': '{0} could not start: {1}',
   '{0} 已退出（{1}）。请查看终端日志后重新启动。': '{0} exited ({1}). Check the terminal logs before restarting.',
   '{0} 启动超时（端口 {1}）。请查看终端日志。': '{0} did not become ready in time (port {1}). Check the terminal logs.',

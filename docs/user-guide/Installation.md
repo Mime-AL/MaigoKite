@@ -4,7 +4,7 @@
 
 ## 1. 从源码启动
 
-依赖版本、初始化与启动命令只在 [开发指南](../development/DevelopmentGuide.md) 维护，避免不同指南给出不同解释器和目录。普通浏览器开发使用根目录 `make dev`；Electron 开发使用 `web/` 的 `npm run electron:dev`。不要同时启动两个本地运行时。
+依赖版本、初始化与启动命令见 [开发指南](../development/DevelopmentGuide.md)。Linux 使用 `bash scripts/start.sh web|desktop`，Windows 使用 `scripts/start.ps1 web|desktop`；先运行对应的 setup 脚本。两个入口均成套启动，不要同时启动两个本地运行时，不需要 Make。
 
 源码方式需要 Go、Python、Node/npm；未来正式安装包应包含所需运行资源，不能要求普通用户自行安装开发环境。
 

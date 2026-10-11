@@ -72,11 +72,12 @@ onScopeDispose(() => {
     @keydown.esc.stop.prevent="close(true)"
   >
     <summary
-      :aria-label="$t('回复操作')"
-      :title="$t('回复操作')"
+      class="icon-button"
+      :aria-label="$t('从此处分叉新对话')"
+      :title="$t('从此处分叉新对话')"
     >
       <IconSymbol
-        name="more"
+        name="branch"
         :size="18"
       />
     </summary>
@@ -109,7 +110,7 @@ onScopeDispose(() => {
 
 <style scoped lang="scss">
 .message-actions {
-  margin-top: var(--space-3);
+  min-width: 0;
   color: var(--ink-2);
   font-size: var(--text-xs);
 }

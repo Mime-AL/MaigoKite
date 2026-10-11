@@ -81,6 +81,7 @@ class SandboxExecutor:
     """Execute argv without a shell and confine filesystem writes to a workspace."""
 
     _OUTPUT_LIMIT = 1_000_000
+    _SYSTEM_MOUNTS = ("/usr", "/usr/local", "/bin", "/sbin", "/lib", "/lib64")
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         values = config or {}
@@ -181,9 +182,20 @@ class SandboxExecutor:
     async def execute_python(
         self, code: str, timeout: int = 30
     ) -> SandboxExecutionResult:
-        executable = shutil.which("python3") or shutil.which("python")
+        # Workspace environments take priority; Core's interpreter is not a project runtime.
+        search_path = self._execution_path()
+        executable = next(
+            (resolved for name in ("python", "python3")
+             if (resolved := shutil.which(name, path=search_path))),
+            None,
+        )
         if executable is None:
-            raise RuntimeError("Python executable is unavailable")
+            raise RuntimeError("Python executable is unavailable in the workspace execution PATH")
+        if self.mode != "danger_full_access" and not self._visible_in_sandbox(Path(executable).resolve()):
+            raise SandboxUnavailableError(
+                "Workspace Python points outside the sandbox mounts. Use a runtime inside the workspace "
+                "or system mounts, or explicitly authorize host execution. No command was started."
+            )
         return await self.execute_command(
             f"{shlex.quote(executable)} -c {shlex.quote(code)}", timeout
         )
@@ -220,7 +232,7 @@ class SandboxExecutor:
             command.append("--share-net")
         command.extend(["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"])
 
-        for source in ("/usr", "/usr/local", "/bin", "/sbin", "/lib", "/lib64"):
+        for source in self._SYSTEM_MOUNTS:
             if Path(source).exists():
                 command.extend(["--ro-bind", source, source])
         for source in (
@@ -258,7 +270,7 @@ class SandboxExecutor:
                 str(self.workspace_root),
                 "--setenv",
                 "PATH",
-                "/usr/local/bin:/usr/local/go/bin:/usr/bin:/bin",
+                self._execution_path(),
                 "--setenv",
                 "LANG",
                 os.environ.get("LANG", "C.UTF-8"),
@@ -294,18 +306,51 @@ class SandboxExecutor:
         command.extend(["--", *args])
         return command
 
-    @staticmethod
-    def _minimal_environment() -> dict[str, str]:
-        return {
-            "PATH": "/usr/local/bin:/usr/local/go/bin:/usr/bin:/bin",
-            "HOME": "/tmp",
+    def _visible_in_sandbox(self, directory: Path) -> bool:
+        return directory.is_relative_to(self.workspace_root) or any(
+            directory.is_relative_to(Path(root)) for root in self._SYSTEM_MOUNTS
+        )
+
+    def _execution_path(self) -> str:
+        environment_bin = Path(".venv") / ("Scripts" if os.name == "nt" else "bin")
+        candidates = [str(root / environment_bin) for root in (self.workdir, self.workspace_root)]
+        candidates.extend(os.environ.get("PATH", os.defpath).split(os.pathsep))
+        directories: list[str] = []
+        for candidate in candidates:
+            if not candidate:
+                continue
+            directory = Path(candidate).expanduser()
+            if not directory.is_absolute():
+                directory = self.workdir / directory
+            if not directory.is_dir() or is_sensitive_path(directory):
+                continue
+            # Changing PATH must not widen the mount boundary to arbitrary home directories.
+            if self.mode != "danger_full_access" and not self._visible_in_sandbox(directory.resolve()):
+                continue
+            value = str(directory)
+            if value not in directories:
+                directories.append(value)
+        return os.pathsep.join(directories)
+
+    def _minimal_environment(self) -> dict[str, str]:
+        temporary_directory = tempfile.gettempdir()
+        environment = {
+            "PATH": self._execution_path(),
+            "HOME": temporary_directory,
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
-            "TMPDIR": "/tmp",
+            "TMPDIR": temporary_directory,
+            "TMP": temporary_directory,
+            "TEMP": temporary_directory,
             "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_PAGER": "cat",
         }
+        if os.name == "nt":
+            for key in ("SYSTEMROOT", "WINDIR", "PATHEXT"):
+                if value := os.environ.get(key):
+                    environment[key] = value
+        return environment
 
     @staticmethod
     def _kill_process_group(process: asyncio.subprocess.Process) -> None:

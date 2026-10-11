@@ -50,7 +50,9 @@ export const useInboxStore = defineStore('inbox', () => {
     }
     // Submit the version the user actually reviewed, never a newer cached one.
     const version = item.version
-    await submit(item, () => api.decideApproval(item.id, verdict, version, note, scope))
+    // Scope grants future permission only on allow; rejecting one operation
+    // must work even after the user selected a reusable authorization scope.
+    await submit(item, () => api.decideApproval(item.id, verdict, version, note, verdict === 'deny' ? 'once' : scope))
   }
   async function answer(item: AwaitItem, text: string) {
     if (item.mode !== 'question' || !text.trim()) return

@@ -43,11 +43,14 @@ class GRPCRunner:
         """Inject the servicer with references to AgentCore, EventBus, etc."""
         self._servicer = servicer
 
-    async def start(self) -> None:
-        """Start the gRPC server."""
+    def bind(self) -> None:
+        """Reserve the endpoint before Core opens or recovers its database."""
+        if self._server is not None:
+            return
         self._server = grpc.aio.server(
             futures.ThreadPoolExecutor(max_workers=self._max_workers),
             options=[
+                ("grpc.so_reuseport", 0),
                 ("grpc.max_send_message_length", 50 * 1024 * 1024),  # 50MB
                 ("grpc.max_receive_message_length", 50 * 1024 * 1024),  # 50MB
                 ("grpc.keepalive_time_ms", 10000),
@@ -64,8 +67,13 @@ class GRPCRunner:
         address = f"{self._host}:{self._port}"
         if self._server.add_insecure_port(address) == 0:
             raise RuntimeError(f"failed to bind gRPC server to {address}")
+
+    async def start(self) -> None:
+        """Start accepting requests only after Core initialization finishes."""
+        self.bind()
+        assert self._server is not None
         await self._server.start()
-        self._logger.info("gRPC server started on %s", address)
+        self._logger.info("gRPC server started on %s:%d", self._host, self._port)
 
     async def stop(self, grace: int = 5) -> None:
         """Stop the gRPC server gracefully."""
@@ -73,7 +81,6 @@ class GRPCRunner:
             return
         self._logger.info("Stopping gRPC server (grace=%ds)...", grace)
         await self._server.stop(grace=grace)
-        await self._server.wait_for_exit()
         if self._servicer is not None:
             await self._servicer.stop_background(grace)
         self._logger.info("gRPC server stopped.")
@@ -85,14 +92,14 @@ class GRPCRunner:
         await self._server.wait_for_termination()
 
 
-async def create_and_run_server(
+def create_server(
     agent_core,
     event_bus,
     observability: Observability,
     host: str = "127.0.0.1",
     port: int = 50051,
 ) -> GRPCRunner:
-    """Factory function to create and start a gRPC server.
+    """Create an unbound server; the CLI owns binding, initialization and stop.
 
     Args:
         agent_core: AgentCore instance for business logic.
@@ -102,7 +109,7 @@ async def create_and_run_server(
         port: Bind port.
 
     Returns:
-        Started GRPCRunner instance.
+        Unstarted GRPCRunner instance.
     """
     runner = GRPCRunner(host=host, port=port)
 
@@ -113,5 +120,4 @@ async def create_and_run_server(
     )
     runner.inject_servicer(servicer)
 
-    await runner.start()
     return runner

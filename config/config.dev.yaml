@@ -23,7 +23,7 @@ workspace:
 browser:
   enabled: true
   headless: true
-  executable_path: "/usr/bin/google-chrome"
+  executable_path: ""  # Use Playwright's managed Chromium unless explicitly configured.
 
 skills:
   scan_directories:

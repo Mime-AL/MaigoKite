@@ -7,7 +7,7 @@ name = "maigokite-agent"
 version = "0.1.0"
 description = "MaigoKite AI Agent - Python backend"
 readme = "README.md"
-license = "GPL-3.0-only"
+license = "MPL-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [

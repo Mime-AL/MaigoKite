@@ -44,6 +44,21 @@ func prepareChatModelCredential(ctx context.Context, client *agentgrpc.AgentClie
 // Core credentials are process-local; no entry may assume a previous run
 // populated them. Secrets stay out of task state and approval/checkpoint data.
 func prepareExecutionCredentials(ctx context.Context, client *agentgrpc.AgentClient, mgr *credentialstore.Manager, workspaceID, conversationID string, taskIDs ...string) error {
+	if err := prepareExecutionModelCredentials(ctx, client, mgr, workspaceID, conversationID, taskIDs...); err != nil {
+		return err
+	}
+	for _, service := range []string{"tavily", "google"} {
+		apiKey, _ := mgr.GetSearchKeyForWorkspace(workspaceID, service)
+		if err := client.SetToolCredential(ctx, workspaceID, service, apiKey); err != nil {
+			return err
+		}
+	}
+	return prepareActiveExtensions(ctx, client, mgr, workspaceID)
+}
+
+// Denial resumes the model too, but must not start the declined MCP service or
+// depend on that service's credentials. Reuse just the model credential step.
+func prepareExecutionModelCredentials(ctx context.Context, client *agentgrpc.AgentClient, mgr *credentialstore.Manager, workspaceID, conversationID string, taskIDs ...string) error {
 	conversation, err := client.GetConversation(ctx, &agentv1.ConversationRequest{WorkspaceId: workspaceID, ConversationId: conversationID})
 	if err != nil {
 		return err
@@ -88,13 +103,7 @@ func prepareExecutionCredentials(ctx context.Context, client *agentgrpc.AgentCli
 			return err
 		}
 	}
-	for _, service := range []string{"tavily", "google"} {
-		apiKey, _ := mgr.GetSearchKeyForWorkspace(workspaceID, service)
-		if err := client.SetToolCredential(ctx, workspaceID, service, apiKey); err != nil {
-			return err
-		}
-	}
-	return prepareActiveExtensions(ctx, client, mgr, workspaceID)
+	return nil
 }
 
 // Restore only the last-applied catalog, never saved-but-unapplied edits. This

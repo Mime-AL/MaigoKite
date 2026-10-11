@@ -15,6 +15,7 @@ const props = withDefaults(
 
 const paths: Record<string, string> = {
   copy: 'M9 9h11v11H9V9ZM15 9V4H4v11h5',
+  branch: 'M6 7v10M18 7v3a4 4 0 0 1-4 4H6M8 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM8 19a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM20 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z',
   at: 'M16 8v7c0 3 5 1 5-3a9 9 0 1 0-4 7M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
   pending: 'm12 3 9 9-9 9-9-9 9-9Z',
   home: 'M3.5 10.7 12 3.6l8.5 7.1v8.2a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6v-8.2ZM9 20.5v-6.2h6v6.2',

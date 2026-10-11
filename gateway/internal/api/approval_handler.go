@@ -132,6 +132,11 @@ func (h *ApprovalHandler) Decide(c *gin.Context) {
 			grpcError(c, err)
 			return
 		}
+	} else {
+		// Best effort after a Core restart. Refusal must still be saved if the
+		// keychain/model is unavailable; Core reports any continuation failure
+		// through task.failed after approval.decided, never by granting the tool.
+		_ = prepareExecutionModelCredentials(c.Request.Context(), h.client, h.mgr, c.Param("workspaceID"), conversationID, pending.TaskId)
 	}
 	streamContext, cancel := context.WithCancel(context.Background())
 	events, errs := h.client.DecideApproval(streamContext, &agentv1.ApprovalDecisionRequest{

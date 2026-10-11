@@ -23,8 +23,8 @@ export function commandText(step: Step): string {
 
 /** Normalize only against the recorded workspace; never strip an arbitrary absolute prefix. */
 export function workspaceRelativePath(path: string, root = ''): string | null {
-  let relative = path.replaceAll('\\', '/')
-  const base = root.replaceAll('\\', '/').replace(/\/+$/, '')
+  let relative = path.replace(/\\/g, '/')
+  const base = root.replace(/\\/g, '/').replace(/\/+$/, '')
   const absolute = relative.startsWith('/') || /^[a-z]:\//i.test(relative)
   if (absolute) {
     if (!base && root !== '/') return null

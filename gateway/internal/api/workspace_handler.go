@@ -187,7 +187,13 @@ func (h *WorkspaceHandler) ReadFile(c *gin.Context) {
 
 func (h *WorkspaceHandler) git(ctx context.Context, args ...string) ([]byte, error) {
 	command := exec.CommandContext(ctx, "git", append([]string{"-C", h.root}, args...)...)
-	command.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "LC_ALL=C"}
+	// Preserve installed tool locations, not the host's credentials or Git overrides.
+	command.Env = []string{"LC_ALL=C"}
+	for _, key := range []string{"PATH", "SYSTEMROOT", "WINDIR", "PATHEXT", "TMPDIR", "TEMP", "TMP"} {
+		if value := os.Getenv(key); value != "" {
+			command.Env = append(command.Env, key+"="+value)
+		}
+	}
 	output := &cappedBuffer{remaining: maxGitOutputBytes}
 	command.Stdout = output
 	command.Stderr = io.Discard

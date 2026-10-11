@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import MarkdownContent from './MarkdownContent.vue'
+import MessageActions from './MessageActions.vue'
 import Pulse from '@/components/shell/Pulse.vue'
 withDefaults(
   defineProps<{
@@ -7,10 +8,12 @@ withDefaults(
     assistantName?: string
     timestamp?: Date
     isStreaming?: boolean
+    showActions?: boolean
   }>(),
   {
     assistantName: '助手',
     isStreaming: false,
+    showActions: true,
     timestamp: undefined,
   },
 )
@@ -29,7 +32,12 @@ withDefaults(
       :content="content"
       :is-streaming="isStreaming"
     />
-    <slot name="actions" />
+    <MessageActions
+      v-if="showActions && content"
+      :content="content"
+    >
+      <slot name="actions" />
+    </MessageActions>
   </article>
 </template>
 <style scoped lang="scss">

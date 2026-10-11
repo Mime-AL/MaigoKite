@@ -13,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-浏览器开发沿用 Vite 的 Gateway HTTP/WebSocket 代理。Electron 开发沿用原本的 Core/Gateway 启动方式。
+上面的 `npm run dev` 只启动前端，供 UI 单独开发。完整应用从根目录启动：Linux `bash scripts/start.sh web|desktop`，Windows `scripts/start.ps1 web|desktop`；均管理本次启动的整套服务。Web 使用 Vite 的 Gateway HTTP/WebSocket 代理。
 
 不启动 Gateway 的本地演示：
 
@@ -27,10 +27,15 @@ VITE_MOCK=1 npm run dev
 Electron 演示同时关闭自动启动的后端进程：
 
 ```sh
-VITE_MOCK=1 MAIGOKITE_EXTERNAL_RUNTIME=1 npm run electron:dev
+npm run electron:compile
+# 另开终端用 VITE_MOCK=1 npm run dev 启动演示页面后：
+VITE_MOCK=1 MAIGOKITE_EXTERNAL_RUNTIME=1 npx electron .
 ```
 
-生产编译：`npm run build`。`npm run electron:build` 沿用 electron-builder 打包入口；本轮没有完成或验证 Core/Gateway/Chromium 的跨平台资源打包闭环。
+Web 编译：`npm run build:web`；Web + Electron 编译：`npm run build`。这些 npm 命令不编译 Gateway。
+完整构建使用根目录 `build.sh` / `build.ps1` 的 `web|desktop|all`，再用 `start` 的 `built` 模式启动。
+`npm run electron:dev` 也转调完整桌面入口；`npm run electron:preview` 启动已有构建产物，不隐式重建。
+`npm run electron:build` 仍是 electron-builder 实验入口；未完成或验证 Core/Gateway/Chromium 的跨平台资源打包闭环，不等同于上述源码启动。成套入口拒绝 mock/external-runtime 环境，以免普通用户误连独立旧服务；单独联调可显式使用 `npx electron .`。
 
 ## 实现边界
 

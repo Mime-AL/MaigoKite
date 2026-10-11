@@ -1792,7 +1792,10 @@ class SQLiteRepository:
                 raise ValueError("approval has expired")
             approval_status = "consumed" if decision == "allow" else "rejected"
             call_status = "running" if decision == "allow" else "denied"
-            task_status = "running" if decision == "allow" else "cancelled"
+            # A denial rejects this operation, not the user's whole turn.
+            # LangGraph consumes the decision and either asks for the next
+            # review or returns a rejected ToolMessage to the model.
+            task_status = "running"
             with self._db() as db:
                 db.execute(
                     """UPDATE approvals SET status=?,decided_at=?,note=?,version=version+1,
@@ -1808,23 +1811,6 @@ class SQLiteRepository:
                     "UPDATE tasks SET status=?,version=version+1,updated_at=? WHERE id=?",
                     (task_status, now.isoformat(), item["task_id"]),
                 )
-                if decision == "deny":
-                    # Rejection ends this turn, not just the visible review
-                    # card. No sibling proposal may remain actionable later.
-                    db.execute(
-                        """UPDATE approvals SET status='rejected',decided_at=?,version=version+1
-                           WHERE task_id=? AND status='pending'""",
-                        (now.isoformat(), item["task_id"]),
-                    )
-                    db.execute(
-                        """UPDATE tool_calls SET status='cancelled',updated_at=? WHERE task_id=?
-                           AND status IN ('proposed','waiting_approval','running')""",
-                        (now.isoformat(), item["task_id"]),
-                    )
-                    db.execute(
-                        "UPDATE questions SET status='cancelled',version=version+1 WHERE task_id=? AND status='pending'",
-                        (item["task_id"],),
-                    )
                 # Decision and audit commit (or roll back) together.
                 db.execute(
                     "INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)",

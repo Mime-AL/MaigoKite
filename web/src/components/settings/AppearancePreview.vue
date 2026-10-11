@@ -20,6 +20,7 @@ const settings = useSettingsStore()
     <AgentMessage
       :assistant-name="settings.profile.assistantName"
       :content="$t('资料已经整理好了。可以继续讨论，也可以打开文件查看。')"
+      :show-actions="false"
     />
     <div class="preview-inkwell">
       <span>{{ $t('输入消息…') }}</span><ModePill

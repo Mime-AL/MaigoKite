@@ -3,7 +3,7 @@ import type { AgentEvent } from './client'
 export interface Playback {
   emit: (type: string, payload: Record<string, unknown>) => void
   wait: (delay: number, action: () => void) => void
-  approval: (resume: () => void) => void
+  approval: (resume: (allowed: boolean, note?: string) => void) => void
   remember: () => void
   finish: (content: string) => void
 }
@@ -34,7 +34,17 @@ export function playTask(playback: Playback) {
     }),
   )
   wait(3700, () =>
-    playback.approval(() => {
+    playback.approval((allowed, note) => {
+      if (!allowed) {
+        emit('tool.failed', {
+          tool_call_id: 'write', tool_name: 'file_write', error_code: 'APPROVAL_REJECTED',
+          message: note ? `用户驳回本次写入：${note}` : '用户驳回本次写入，文件未修改。',
+        })
+        const answer = '未写入文件。你可以先在对话中查看下一步：整理资料，列出待办事项。'
+        wait(400, () => emit('message.delta', { content: answer }))
+        wait(800, () => playback.finish(answer))
+        return
+      }
       emit('tool.started', {
         tool_call_id: 'write',
         tool_name: 'file_write',
