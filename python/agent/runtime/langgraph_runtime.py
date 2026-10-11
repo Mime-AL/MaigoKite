@@ -28,11 +28,12 @@ from langchain.agents.middleware.types import ModelRequest, ModelResponse, ToolC
 from langchain_anthropic import ChatAnthropic
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_core.messages import ToolCall as NativeToolCall
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphInterrupt
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command, interrupt
 
 from agent.models.context_capacity import ContextCapacity
@@ -353,20 +354,21 @@ class LangGraphRuntime:
             for spec in self.tool_specs
         }
         planning = TodoListMiddleware()
+        summarizer = SafeSummarizationMiddleware(
+            model=model,
+            input_budget=self.context_max_tokens,
+            system_prompt="\n\n".join(part for part in (self.system_prompt, planning.system_prompt) if part),
+            tools=[*runtime_tools, *planning.tools],
+        )
         middleware: list[AgentMiddleware[Any, Any, Any]] = [
             planning,
             ModelCallLimitMiddleware(thread_limit=self.max_model_calls, exit_behavior="error"),
-            SafeSummarizationMiddleware(
-                model=model,
-                input_budget=self.context_max_tokens,
-                system_prompt="\n\n".join(part for part in (self.system_prompt, planning.system_prompt) if part),
-                tools=[*runtime_tools, *planning.tools],
-            ),
+            summarizer,
             # Append queued user input after compaction so it cannot be reduced
             # to a summary before its first consumption receipt.
             HumanInTheLoopMiddleware(interrupt_on),
             _ProductToolMiddleware(),
-            ContextBudgetMiddleware(self.context_max_tokens),
+            ContextBudgetMiddleware(self.context_max_tokens, summarizer),
         ]
         if isinstance(model, ChatAnthropic):
             middleware.append(AnthropicPromptCachingMiddleware())
@@ -1170,6 +1172,14 @@ class LangGraphRuntime:
         if interrupts:
             await self._handle_interrupts(interrupts, context)
         for node, update in data.items():
+            if node == "model" and isinstance(update, list):
+                # ExtendedModelResponse yields separate public Command writes:
+                # one new answer, one checkpoint replacement. Only the answer
+                # is a UI event; retained historical tool calls must not replay.
+                update = next((part for part in update if isinstance(part, dict)
+                               and isinstance(part.get("messages"), list)
+                               and not any(isinstance(item, RemoveMessage) and item.id == REMOVE_ALL_MESSAGES
+                                           for item in part["messages"])), {})
             if not isinstance(update, dict):
                 continue
             if isinstance(update.get("todos"), list):

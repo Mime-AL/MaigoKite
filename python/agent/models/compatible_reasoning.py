@@ -1,4 +1,4 @@
-"""Thin reasoning-field preservation for OpenAI-compatible Chat Completions.
+"""Thin response-field preservation for OpenAI-compatible Chat Completions.
 
 LangChain still owns HTTP/SSE, retries, tool parsing, usage and cancellation.
 The two conversion overrides follow its maintained DeepSeek integration's
@@ -15,6 +15,7 @@ from langchain_openai import ChatOpenAI
 from openai import BaseModel
 
 from agent.models.reasoning import visible_reasoning
+from agent.models.usage import with_compatible_cache_usage
 
 
 def _reasoning_content(fields: dict[str, Any]) -> str:
@@ -39,10 +40,16 @@ class ReasoningChatOpenAI(ChatOpenAI):
             chunk, default_chunk_class, base_generation_info,
         )
         choices = chunk.get("choices") or chunk.get("chunk", {}).get("choices") or []
-        if result is not None and isinstance(result.message, AIMessageChunk) and choices:
-            fields = choices[0].get("delta")
-            if isinstance(fields, dict) and (text := _reasoning_content(fields)):
-                result.message.additional_kwargs["reasoning_content"] = text
+        if result is not None and isinstance(result.message, AIMessageChunk):
+            # Final usage-only chunks have no choices. Preserve counters there
+            # before the SDK folds them into the completed message.
+            result.message.usage_metadata = with_compatible_cache_usage(
+                result.message.usage_metadata, chunk.get("usage"),
+            )
+            if choices:
+                fields = choices[0].get("delta")
+                if isinstance(fields, dict) and (text := _reasoning_content(fields)):
+                    result.message.additional_kwargs["reasoning_content"] = text
         return result
 
     def _create_chat_result(
@@ -52,13 +59,21 @@ class ReasoningChatOpenAI(ChatOpenAI):
     ) -> ChatResult:
         result = super()._create_chat_result(response, generation_info)
         if isinstance(response, dict):
+            usage = response.get("usage")
             fields = [choice.get("message", {}) for choice in response.get("choices", [])]
         else:
+            usage = getattr(response, "usage", None)
+            if isinstance(usage, BaseModel):
+                usage = usage.model_dump()
             fields = [
                 getattr(choice, "message").model_dump(exclude={"parsed"}, warnings=False)
                 for choice in getattr(response, "choices", [])
             ]
         for generation, source in zip(result.generations, fields, strict=False):
-            if isinstance(generation.message, AIMessage) and (text := _reasoning_content(source)):
-                generation.message.additional_kwargs["reasoning_content"] = text
+            if isinstance(generation.message, AIMessage):
+                generation.message.usage_metadata = with_compatible_cache_usage(
+                    generation.message.usage_metadata, usage,
+                )
+                if text := _reasoning_content(source):
+                    generation.message.additional_kwargs["reasoning_content"] = text
         return result

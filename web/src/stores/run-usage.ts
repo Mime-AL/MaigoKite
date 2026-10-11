@@ -37,6 +37,7 @@ export function projectModelEvent(turn: Turn, event: MetricEvent) {
         ...turn.context,
         seq: event.seq,
         measurement: 'provider',
+        inputTokens: event.usage.input_tokens,
         usedTokens: event.usage.input_tokens + event.usage.output_tokens,
       }
   }
@@ -44,6 +45,7 @@ export function projectModelEvent(turn: Turn, event: MetricEvent) {
 }
 
 export interface UsageStats {
+  totalCalls: number
   calls: number
   summaryCalls: number
   subagentCalls: number
@@ -52,6 +54,8 @@ export interface UsageStats {
   tokens: TokenUsage
   totalTokens: number | null
   cachePct: number | null
+  cacheReportedCalls: number
+  cachePartial: boolean
   tokensPerSecond: number | null
   firstTokenMs: number | null
   modelMs: number | null
@@ -73,10 +77,14 @@ export function sessionUsage(turns: Turn[]): UsageStats {
     return null
   })
   const inputs = reported.filter((call) => call.usage?.input_tokens !== undefined)
+  const cacheReported = inputs.filter((call) => call.usage?.cache_read_tokens !== undefined)
+  // A reported subset must not masquerade as the whole conversation's rate.
   const cacheKnown =
-    inputs.length > 0 &&
-    inputs.length === reported.length &&
-    inputs.every((call) => call.usage?.cache_read_tokens !== undefined)
+    cacheReported.length > 0 &&
+    cacheReported.length === calls.length &&
+    cacheReported.every(
+      (call) => (call.usage?.cache_read_tokens ?? 0) <= (call.usage?.input_tokens ?? 0),
+    )
   const response = calls.filter((call) => call.purpose === 'response')
   const decoded = response.filter(
     (call) =>
@@ -97,6 +105,7 @@ export function sessionUsage(turns: Turn[]): UsageStats {
   const input = tokens.input_tokens ?? 0,
     cached = tokens.cache_read_tokens ?? 0
   return {
+    totalCalls: calls.length,
     calls: response.length,
     summaryCalls: calls.filter((call) => call.purpose === 'summary').length,
     subagentCalls: calls.filter((call) => call.purpose === 'subagent').length,
@@ -108,6 +117,8 @@ export function sessionUsage(turns: Turn[]): UsageStats {
       ? totals.reduce<number>((sum, total) => sum + (total ?? 0), 0)
       : null,
     cachePct: cacheKnown && input > 0 && cached <= input ? (cached / input) * 100 : null,
+    cacheReportedCalls: cacheReported.length,
+    cachePartial: cacheReported.length < calls.length,
     tokensPerSecond: decodeMs > 0 ? output / (decodeMs / 1000) : null,
     firstTokenMs: first.length ? first.reduce((sum, value) => sum + value, 0) / first.length : null,
     modelMs: times.length ? times.reduce((sum, value) => sum + value, 0) : null,

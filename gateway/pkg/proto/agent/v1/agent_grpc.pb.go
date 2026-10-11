@@ -54,6 +54,7 @@ const (
 	AgentService_RecordAuditEvent_FullMethodName             = "/maigokite.agent.v1.AgentService/RecordAuditEvent"
 	AgentService_GetChatModelSettings_FullMethodName         = "/maigokite.agent.v1.AgentService/GetChatModelSettings"
 	AgentService_GetChatModelThinking_FullMethodName         = "/maigokite.agent.v1.AgentService/GetChatModelThinking"
+	AgentService_GetChatModelContext_FullMethodName          = "/maigokite.agent.v1.AgentService/GetChatModelContext"
 	AgentService_UpdateChatModelSettings_FullMethodName      = "/maigokite.agent.v1.AgentService/UpdateChatModelSettings"
 	AgentService_ListChatModels_FullMethodName               = "/maigokite.agent.v1.AgentService/ListChatModels"
 	AgentService_UpsertChatModel_FullMethodName              = "/maigokite.agent.v1.AgentService/UpsertChatModel"
@@ -120,6 +121,7 @@ type AgentServiceClient interface {
 	RecordAuditEvent(ctx context.Context, in *AuditWriteRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetChatModelSettings(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*ChatModelSettings, error)
 	GetChatModelThinking(ctx context.Context, in *ChatModelRequest, opts ...grpc.CallOption) (*ThinkingControl, error)
+	GetChatModelContext(ctx context.Context, in *ChatModelRequest, opts ...grpc.CallOption) (*ModelContext, error)
 	UpdateChatModelSettings(ctx context.Context, in *UpdateChatModelSettingsRequest, opts ...grpc.CallOption) (*ChatModelSettings, error)
 	ListChatModels(ctx context.Context, in *WorkspaceRequest, opts ...grpc.CallOption) (*ChatModelList, error)
 	UpsertChatModel(ctx context.Context, in *UpsertChatModelRequest, opts ...grpc.CallOption) (*ChatModelSettings, error)
@@ -574,6 +576,16 @@ func (c *agentServiceClient) GetChatModelThinking(ctx context.Context, in *ChatM
 	return out, nil
 }
 
+func (c *agentServiceClient) GetChatModelContext(ctx context.Context, in *ChatModelRequest, opts ...grpc.CallOption) (*ModelContext, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ModelContext)
+	err := c.cc.Invoke(ctx, AgentService_GetChatModelContext_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) UpdateChatModelSettings(ctx context.Context, in *UpdateChatModelSettingsRequest, opts ...grpc.CallOption) (*ChatModelSettings, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ChatModelSettings)
@@ -886,6 +898,7 @@ type AgentServiceServer interface {
 	RecordAuditEvent(context.Context, *AuditWriteRequest) (*Empty, error)
 	GetChatModelSettings(context.Context, *WorkspaceRequest) (*ChatModelSettings, error)
 	GetChatModelThinking(context.Context, *ChatModelRequest) (*ThinkingControl, error)
+	GetChatModelContext(context.Context, *ChatModelRequest) (*ModelContext, error)
 	UpdateChatModelSettings(context.Context, *UpdateChatModelSettingsRequest) (*ChatModelSettings, error)
 	ListChatModels(context.Context, *WorkspaceRequest) (*ChatModelList, error)
 	UpsertChatModel(context.Context, *UpsertChatModelRequest) (*ChatModelSettings, error)
@@ -1022,6 +1035,9 @@ func (UnimplementedAgentServiceServer) GetChatModelSettings(context.Context, *Wo
 }
 func (UnimplementedAgentServiceServer) GetChatModelThinking(context.Context, *ChatModelRequest) (*ThinkingControl, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetChatModelThinking not implemented")
+}
+func (UnimplementedAgentServiceServer) GetChatModelContext(context.Context, *ChatModelRequest) (*ModelContext, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetChatModelContext not implemented")
 }
 func (UnimplementedAgentServiceServer) UpdateChatModelSettings(context.Context, *UpdateChatModelSettingsRequest) (*ChatModelSettings, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateChatModelSettings not implemented")
@@ -1750,6 +1766,24 @@ func _AgentService_GetChatModelThinking_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_GetChatModelContext_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChatModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetChatModelContext(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetChatModelContext_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetChatModelContext(ctx, req.(*ChatModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_UpdateChatModelSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateChatModelSettingsRequest)
 	if err := dec(in); err != nil {
@@ -2337,6 +2371,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetChatModelThinking",
 			Handler:    _AgentService_GetChatModelThinking_Handler,
+		},
+		{
+			MethodName: "GetChatModelContext",
+			Handler:    _AgentService_GetChatModelContext_Handler,
 		},
 		{
 			MethodName: "UpdateChatModelSettings",

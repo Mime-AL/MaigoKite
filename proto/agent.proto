@@ -38,6 +38,7 @@ service AgentService {
   rpc RecordAuditEvent(AuditWriteRequest) returns (Empty);
   rpc GetChatModelSettings(WorkspaceRequest) returns (ChatModelSettings);
   rpc GetChatModelThinking(ChatModelRequest) returns (ThinkingControl);
+  rpc GetChatModelContext(ChatModelRequest) returns (ModelContext);
   rpc UpdateChatModelSettings(UpdateChatModelSettingsRequest) returns (ChatModelSettings);
   rpc ListChatModels(WorkspaceRequest) returns (ChatModelList);
   rpc UpsertChatModel(UpsertChatModelRequest) returns (ChatModelSettings);
@@ -322,6 +323,21 @@ message UpsertChatModelRequest {
 message ChatModelRequest {
   string workspace_id = 1;
   string model_id = 2;
+}
+// Capacity belongs to the selected deployment, not to a conversation's usage.
+// Optional numbers stay absent when the provider supplies no window evidence.
+message ModelContext {
+  string model_id = 1;
+  string model_key = 2;
+  string model_name = 3;
+  optional int64 model_context_window = 4;
+  string capacity_source = 5;
+  string capacity_status = 6;
+  string capacity_checked_at = 7;
+  optional int64 input_budget_tokens = 8;
+  int64 output_reserved_tokens = 9;
+  int64 safety_margin_tokens = 10;
+  optional int64 compaction_trigger_tokens = 11;
 }
 message ValidateChatModelRequest {
   ChatModelSettings settings = 1;

@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from anthropic import BadRequestError as AnthropicBadRequestError
 from openai import APIError
 from pydantic import SecretStr
 
@@ -174,8 +175,8 @@ async def resolve_context_capacity(model: Any, previous: ContextCapacity | None 
     local = _is_local_endpoint(model.openai_api_base)
     # Unsupported/denied probes are cached only for this run/model. Loaded local
     # observations are refreshed each turn so a changed load setting is visible.
-    if previous and (previous.status in {"unsupported_metadata", "unauthorized"}
-                     or not local and previous.tokens):
+    if previous and not local and (previous.status in {"unsupported_metadata", "unauthorized"}
+                                  or previous.tokens):
         return previous if previous.tokens or not fallback.tokens else replace(fallback, status=previous.status)
     loaded = None
     if local:
@@ -214,3 +215,27 @@ def capacity_from_error(error: BaseException) -> tuple[ContextCapacity, int] | N
             return ContextCapacity(tokens, "provider_error", "known"), used
         body = body.get("error", body.get("message"))
     return None
+
+
+def is_context_overflow(error: BaseException) -> bool:
+    """Only explicit provider rejection codes qualify, never an arbitrary 4xx/500."""
+    if capacity_from_error(error) is not None:
+        return True
+    codes = {"context_length_exceeded", "context_window_exceeded", "exceed_context_size_error"}
+    code = getattr(error, "code", None)
+    if isinstance(code, str) and code in codes:
+        return True
+    body = getattr(error, "body", None)
+    for _ in range(3):
+        if not isinstance(body, dict):
+            return False
+        if any(isinstance(body.get(key), str) and body[key] in codes for key in ("code", "type")):
+            return True
+        # Anthropic uses invalid_request_error for many unrelated problems.
+        # Its documented overflow message qualifies only on that SDK's 400.
+        if isinstance(error, AnthropicBadRequestError) and body.get("type") == "invalid_request_error":
+            message = body.get("message")
+            if isinstance(message, str) and message.startswith("prompt is too long:"):
+                return True
+        body = body.get("error")
+    return False

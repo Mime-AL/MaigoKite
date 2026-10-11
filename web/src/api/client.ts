@@ -1,6 +1,7 @@
 import { request, workspacePath } from './http'
 import { mockConnect } from './mock'
-import type { PlanItem } from './events'
+import type { ContextUsage, PlanItem } from './events'
+import { mapContextPayload } from './model-events'
 export type PermissionMode = 'read_only' | 'workspace' | 'workspace_auto' | 'danger_full_access' | 'full_access'
 export type ApprovalScope = 'once' | 'task' | 'session'
 export interface ApprovalAuthorization {
@@ -527,6 +528,12 @@ export const api = {
   },
   getModelThinking(modelId: string, signal?: AbortSignal): Promise<ThinkingControl> {
     return request(`${path}/models/${encodeURIComponent(modelId)}/thinking`, { signal })
+  },
+  async getModelContext(modelId: string, signal?: AbortSignal): Promise<ContextUsage> {
+    const body = await request<Record<string, unknown>>(
+      `${path}/models/${encodeURIComponent(modelId)}/context`, { signal },
+    )
+    return mapContextPayload(body)
   },
   async saveChatModel(
     profile: ChatModelProfile,

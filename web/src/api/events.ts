@@ -52,12 +52,17 @@ export interface ContextUsage {
   modelId?: string
   modelKey?: string
   usedTokens: number | null
+  inputTokens?: number | null
   windowTokens: number | null
   measurement: 'estimate' | 'provider' | null
   purpose?: string
   capacitySource?: string | null
   capacityStatus?: string
   capacityCheckedAt?: string | null
+  inputBudgetTokens?: number | null
+  outputReservedTokens?: number | null
+  safetyMarginTokens?: number | null
+  compactionTriggerTokens?: number | null
 }
 export interface ContextCompaction {
   seq: number

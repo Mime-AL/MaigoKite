@@ -3,7 +3,41 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
+
+from langchain_core.messages.ai import InputTokenDetails, UsageMetadata
+
+
+def with_compatible_cache_usage(metadata: UsageMetadata | None, provider: Any) -> UsageMetadata | None:
+    """Keep provider cache counters in SDK metadata; LangChain aggregates chunks.
+
+    Only add fields explicitly reported by the service and not already handled
+    by the SDK. Cache misses are not necessarily cache writes.
+    """
+    if metadata is None or not isinstance(provider, dict):
+        return metadata
+    details: dict[str, int] = dict(metadata.get("input_token_details") or {})
+    for source, target in (
+        ("prompt_cache_hit_tokens", "cache_read"),
+        ("prompt_cache_miss_tokens", "cache_miss"),
+        ("cache_read_input_tokens", "cache_read"),
+        ("cache_creation_input_tokens", "cache_creation"),
+        ("cache_read_tokens", "cache_read"),
+        ("cache_creation_tokens", "cache_creation"),
+        ("cache_miss_tokens", "cache_miss"),
+    ):
+        value = provider.get(source)
+        # Normalized/tier-specific SDK counters take precedence, including zero.
+        if target in details or any(key.endswith("_" + target) for key in details):
+            continue
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+            continue
+        if isinstance(value, float) and not value.is_integer():
+            continue
+        details[target] = int(value)
+    if not details:
+        return metadata
+    return {**metadata, "input_token_details": cast(InputTokenDetails, details)}
 
 
 def message_usage(message: Any) -> dict[str, int]:
@@ -34,6 +68,7 @@ def message_usage(message: Any) -> dict[str, int]:
     for details_key, field, target in (
         ("input_token_details", "cache_read", "cache_read_tokens"),
         ("input_token_details", "cache_creation", "cache_creation_tokens"),
+        ("input_token_details", "cache_miss", "cache_miss_tokens"),
         ("output_token_details", "reasoning", "reasoning_tokens"),
         ("prompt_tokens_details", "cached_tokens", "cache_read_tokens"),
     ):
@@ -47,6 +82,7 @@ def message_usage(message: Any) -> dict[str, int]:
     for detail_key, field, target in (
         ("input_token_details", "cache_read", "cache_read_tokens"),
         ("input_token_details", "cache_creation", "cache_creation_tokens"),
+        ("input_token_details", "cache_miss", "cache_miss_tokens"),
         ("output_token_details", "reasoning", "reasoning_tokens"),
     ):
         details = normalized.get(detail_key) or {}

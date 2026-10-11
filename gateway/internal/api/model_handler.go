@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"maigokite/gateway/internal/credentialstore"
@@ -169,6 +170,27 @@ func (h *ModelHandler) Thinking(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"kind": control.Kind, "options": options,
 		"default": control.Default, "source": control.Source, "reason": control.Reason})
+}
+
+func (h *ModelHandler) Context(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+	defer cancel()
+	if err := prepareChatModelCredential(ctx, h.client, h.mgr, c.Param("workspaceID"), c.Param("modelID")); err != nil {
+		grpcError(c, err)
+		return
+	}
+	info, err := h.client.GetChatModelContext(ctx, c.Param("workspaceID"), c.Param("modelID"))
+	if err != nil {
+		grpcError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"model_id": info.ModelId, "model_key": info.ModelKey, "model_name": info.ModelName,
+		"model_context_window": info.ModelContextWindow, "capacity_source": info.CapacitySource,
+		"capacity_status": info.CapacityStatus, "capacity_checked_at": info.CapacityCheckedAt,
+		"input_budget_tokens": info.InputBudgetTokens, "output_reserved_tokens": info.OutputReservedTokens,
+		"safety_margin_tokens": info.SafetyMarginTokens, "compaction_trigger_tokens": info.CompactionTriggerTokens,
+	})
 }
 
 func (h *ModelHandler) Upsert(c *gin.Context) {

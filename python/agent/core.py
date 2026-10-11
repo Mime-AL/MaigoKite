@@ -1107,6 +1107,14 @@ class AgentCore:
     async def get_chat_model_settings(self, workspace_id: str) -> ChatModelSettings:
         return await self.models.get_settings(workspace_id)
 
+    async def get_chat_model_context(self, workspace_id: str, model_id: str) -> dict[str, Any]:
+        from agent.models.context_capacity import resolve_context_capacity
+        from agent.runtime.context import context_payload
+
+        _, model = await self.models.get_langchain_model(workspace_id, model_id)
+        capacity = await resolve_context_capacity(model)
+        return context_payload(model, capacity, self._context_max_tokens)
+
     async def update_chat_model_settings(self, workspace_id: str, settings: ChatModelSettings) -> ChatModelSettings:
         return await self.models.update_settings(workspace_id, settings)
 

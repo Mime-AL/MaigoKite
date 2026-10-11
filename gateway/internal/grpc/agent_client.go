@@ -142,6 +142,9 @@ func (c *AgentClient) GetChatModelSettings(ctx context.Context, workspaceID stri
 func (c *AgentClient) GetChatModelThinking(ctx context.Context, workspaceID, modelID string) (*agentv1.ThinkingControl, error) {
 	return c.client.GetChatModelThinking(ctx, &agentv1.ChatModelRequest{WorkspaceId: workspaceID, ModelId: modelID})
 }
+func (c *AgentClient) GetChatModelContext(ctx context.Context, workspaceID, modelID string) (*agentv1.ModelContext, error) {
+	return c.client.GetChatModelContext(ctx, &agentv1.ChatModelRequest{WorkspaceId: workspaceID, ModelId: modelID})
+}
 func (c *AgentClient) UpdateChatModelSettings(ctx context.Context, workspaceID string, settings *agentv1.ChatModelSettings) (*agentv1.ChatModelSettings, error) {
 	return c.client.UpdateChatModelSettings(ctx, &agentv1.UpdateChatModelSettingsRequest{WorkspaceId: workspaceID, Settings: settings})
 }

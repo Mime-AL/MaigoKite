@@ -167,6 +167,7 @@ GET   /workspaces/{workspace_id}/tool-settings
 PATCH /workspaces/{workspace_id}/tool-settings
 GET   /workspaces/{workspace_id}/models
 GET   /workspaces/{workspace_id}/models/{model_id}/thinking
+GET   /workspaces/{workspace_id}/models/{model_id}/context
 POST  /workspaces/{workspace_id}/models
 PUT   /workspaces/{workspace_id}/models/{model_id}
 DELETE /workspaces/{workspace_id}/models/{model_id}
@@ -189,6 +190,16 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 新增启用项在新任务/恢复生效，停用限制后续调用，不撤销已开始的副作用。
 
 读取凭证只返回引用和元数据，不返回敏感凭证值。
+
+**模型窗口查询。** `models/{model_id}/context` 由 Gateway 恢复当前配置的凭证，再调用
+Core 的 `GetChatModelContext`。与执行路径复用同一个容量解析函数和 Core 所有的模型客户端；
+不生成消息、不创建任务、不自动加载模型、不修改配置。返回 `model_id / model_key / model_name`、
+`model_context_window / capacity_source / capacity_status / capacity_checked_at`，以及
+`input_budget_tokens / output_reserved_tokens / safety_margin_tokens / compaction_trigger_tokens`。
+窗口未知时，窗口、输入预算和容量压缩阈值均为 null；不把旧的 32000 产品默认值冒充容量。
+容量已知时，预算为窗口减输出预留和安全余量，不再对所有模型套用 32000 上限。
+此接口不返回对话用量，客户端必须从当前会话的执行回执取得用量，不能借用其他会话。
+本次接口和恢复链路为源码接入状态，未运行测试或真实 Provider 验收。
 
 **会话思考控制。** `models/{model_id}/thinking` 返回 `kind: effort | toggle | unavailable`、
 `options: string[]`、`default`、`source` 和 `reason`；列表由 Core 确认，前端不按模型名称猜测。
@@ -296,6 +307,14 @@ Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能�
 **计划与上下文。** 计划直接复用 LangChain `TodoListMiddleware / write_todos`；`plan.updated.items` 是 `{content, status}` 数组，status 为 `pending / in_progress / completed`，只作用于当前任务，不是工作区 TODO。`context.updated` 提供 `call_id / model_name / estimated_input_tokens / input_budget_tokens / measurement`；本地估算为 `estimate`，显式超限回执提供的输入计数为 `provider`，沿用 `estimated_input_tokens` 字段兼容现有消费者，不表示计费成功。`model_context_window / context_percent` 在容量已知时有值，否则为 null，绝不把产品预算冒充模型窗口。
 
 容量附加字段：`capacity_source` 为 `lmstudio.loaded_instance / model_profile / provider_metadata / provider_error / null`，分别表示实际加载实例、已保存的模型目录容量或 SDK 资料、服务端模型目录、本次拒绝回执和未知。目录容量是资料上限，不冒充实际加载窗口。`capacity_status` 为 `known / unknown / metadata_unavailable / unsupported_metadata / unauthorized / not_loaded / model_not_found / ambiguous_instance`；`capacity_checked_at` 为 UTC 观测时间。`output_reserved_tokens / safety_margin_tokens / compaction_trigger_tokens` 分别是输出预留、估算余量和自动压缩阈值，均不是已消耗 token。`purpose` 区分 `response / summary`。压缩前和正式调用前均可发布，预检的 `context_*` call ID 不是模型调用次数，只有 `model.call.started` 才代表请求开始；不能对多个 `context.updated` 求和。模型真实计费计数继续通过既有 `model.usage` 提供。
+
+容量未知时不按产品默认预算触发模型压力压缩，也不发布伪造阈值。明确的服务端超限错误可以
+触发一次强制原生摘要，再重试一次；只在尚无可见 Token、历史实际缩减且当前输入保留时进行。
+摘要使用 LangGraph `TAG_NOSTREAM`，不进入回复正文；公开的 `ExtendedModelResponse / Command`
+将替换历史与新回复一起提交 checkpoint，UI 只投影新回复，不重复历史工具操作。
+恢复失败、没有可压缩历史、已输出内容或取消时不重复调用、不提交失败摘要。
+固定指令和工具定义本身超预算的失败带 `reason=fixed_overhead_exceeded`，显示输入预算不足，
+不称为历史摘要失败。现有 `context.max_tokens` 只作未知容量下恢复工作的预算，不能声明服务端窗口。
 
 模型配置增加可选 `context_window`（正的安全整数；省略/0 表示未知），从设置页获取的目录按精确模型 ID 保存，经既有 REST / protobuf / Repository 传递，无数据库增列。换服务或换模型不能沿用另一模型的容量。兼容 Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取精确模型项的 `context_window / context_length / contextWindow / max_model_len`；只有本地服务才尝试 LM Studio 加载实例接口，不再把该路径套到所有云厂商。已保存的目录容量可作资料回退，无元数据时保持未知；不使用硬编码模型表、输出限制或默认产品预算兜底。`context.updated` 附加 `model_id / model_key`：后者为 `[provider, normalized_base_url, model, context_window_or_null]` 的紧凑 JSON，仅用于配置关联，不含密钥。前端同时匹配配置 ID 与该关联值；旧事件缺少关联值时不把历史容量套到当前配置，新请求发布新的观测。
 

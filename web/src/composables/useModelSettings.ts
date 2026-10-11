@@ -24,6 +24,7 @@ export function useModelSettings() {
   const customService = ref(false)
   const selectedModels = ref<string[]>([])
   const manualModelId = ref('')
+  const capacityOverrides = ref<Record<string, string>>({})
   const pendingProfileIds = new Map<string, string>()
   let discoveryController: AbortController | null = null
 
@@ -36,6 +37,7 @@ export function useModelSettings() {
       baseUrl: 'http://127.0.0.1:11434',
       temperature: 0.7,
       maxTokens: 4096,
+      contextWindow: undefined,
       timeoutSeconds: 60,
       credentialConfigured: false,
       isDefault: false,
@@ -97,6 +99,7 @@ export function useModelSettings() {
   const canSave = computed(() =>
     Boolean(
       draft.name.trim() &&
+      !Object.values(capacityErrors.value).some(Boolean) &&
       modelCount.value && manualModelId.value.trim().length <= 200 &&
       (!requiresEndpoint.value || draft.baseUrl.trim()) &&
       (!keyRequired.value || apiKey.value.trim() || (draft.credentialConfigured && !endpointChanged.value)) &&
@@ -107,6 +110,31 @@ export function useModelSettings() {
     const capacity = discoveredModels.value.find(item => item.id === model)?.context_window
     return capacity !== undefined && Number.isSafeInteger(capacity) && capacity > 0 ? capacity : undefined
   }
+  const capacityErrors = computed(() => Object.fromEntries(modelIds.value.map(model => {
+    const value = Object.prototype.hasOwnProperty.call(capacityOverrides.value, model)
+      ? capacityOverrides.value[model].trim() : ''
+    const valid = !value || (/^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0)
+    return [model, valid ? '' : t('容量须为正整数，或留空自动获取。')]
+  })))
+  function modelCapacity(model: string): number | undefined {
+    if (Object.prototype.hasOwnProperty.call(capacityOverrides.value, model)) {
+      const value = capacityOverrides.value[model].trim()
+      return value ? Number(value) : catalogCapacity(model)
+    }
+    // A directory omitting capacity must not erase a previously saved value.
+    const existing = originalModels.value.find(item => item.model === model && item.provider === draft.provider &&
+      normalizeEndpoint(item.baseUrl) === normalizeEndpoint(draft.baseUrl))
+    return catalogCapacity(model) ?? existing?.contextWindow
+  }
+  function setModelCapacity(model: string, value: string) {
+    capacityOverrides.value = { ...capacityOverrides.value, [model]: value }
+    settings.invalidateModelValidation()
+    settings.error = null
+  }
+  function modelCapacityInput(model: string): string {
+    return Object.prototype.hasOwnProperty.call(capacityOverrides.value, model)
+      ? capacityOverrides.value[model] : String(modelCapacity(model) ?? '')
+  }
   const isDirty = computed(
     () =>
       !original.value ||
@@ -114,8 +142,7 @@ export function useModelSettings() {
       draft.name !== original.value.name ||
       selectedModels.value.length !== new Set(originalModels.value.map(item => item.model)).size ||
       originalModels.value.some(item => !selectedModels.value.includes(item.model)) ||
-      originalModels.value.some(item => discoveredModels.value.some(found => found.id === item.model) &&
-        catalogCapacity(item.model) !== item.contextWindow) ||
+      originalModels.value.some(item => modelCapacity(item.model) !== item.contextWindow) ||
       Boolean(manualModelId.value.trim()) ||
       Boolean(apiKey.value.trim()),
   )
@@ -295,14 +322,11 @@ export function useModelSettings() {
     if (removed.length && !window.confirm(t("保存后将移除 {0} 个模型：{1}。继续？", [removed.length, removed.map(item => item.model).join('、')]))) return
     const targets = selectedModels.value.flatMap((model): ChatModelProfile[] => {
       const existing = originalModels.value.filter(item => item.model === model)
-      const discovered = discoveredModels.value.find(item => item.id === model)
-      const capacity = catalogCapacity(model)
+      const capacity = modelCapacity(model)
       // Keep IDs, defaults and per-model generation settings; order is not identity.
       if (existing.length) return existing.map(item => ({
         ...item, name: snapshot.name, provider: snapshot.provider, baseUrl: snapshot.baseUrl,
-        contextWindow: discovered ? capacity : (item.provider === snapshot.provider &&
-          normalizeEndpoint(item.baseUrl) === normalizeEndpoint(snapshot.baseUrl)
-          ? item.contextWindow : undefined),
+        contextWindow: capacity,
       }))
       // Stable IDs let retries update the same profile after a partial/network failure.
       let id = pendingProfileIds.get(model)
@@ -361,6 +385,7 @@ export function useModelSettings() {
   function clearModelSelection() {
     selectedModels.value = []
     manualModelId.value = ''
+    capacityOverrides.value = {}
     pendingProfileIds.clear()
     draft.model = ''
   }
@@ -455,6 +480,11 @@ export function useModelSettings() {
     displayProviderName,
     modelOptions,
     selectedModels,
+    modelIds,
+    capacityErrors,
+    modelCapacity,
+    modelCapacityInput,
+    setModelCapacity,
     manualModelId,
     modelCount,
     addModel,

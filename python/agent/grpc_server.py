@@ -675,6 +675,15 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
         except (ValueError, RuntimeError) as exc:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
 
+    async def GetChatModelContext(self, request, context):
+        try:
+            info = await self._core.get_chat_model_context(request.workspace_id or "personal", request.model_id)
+            return agent_pb2.ModelContext(**{key: value for key, value in info.items() if value is not None})
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "model profile not found")
+        except (ValueError, RuntimeError) as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+
     async def UpdateChatModelSettings(self, request, context):
         try:
             item = await self._core.update_chat_model_settings(

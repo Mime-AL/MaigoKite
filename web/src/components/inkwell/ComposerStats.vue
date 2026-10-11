@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { t } from '@/i18n'
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
+import { api } from '@/api/client'
 import type { ContextUsage } from '@/api/events'
-import { normalizeEndpoint, type ModelOption } from '@/config/model-groups'
+import { matchesModelContext, modelContextKey } from '@/api/model-context'
+import type { ModelOption } from '@/config/model-groups'
 import { useRunStore } from '@/stores/run'
 import { useUIStore } from '@/stores/ui'
 import { sessionUsage } from '@/stores/run-usage'
@@ -16,23 +18,56 @@ const run = useRunStore(),
   ui = useUIStore()
 const empty = sessionUsage([])
 const stats = computed(() => run.metrics[props.sessionId]?.usage || empty)
-const context = computed<ContextUsage | undefined>(() => {
-  const selected = props.model
-  if (!selected) return undefined
-  const key = JSON.stringify([
-    selected.provider, normalizeEndpoint(selected.baseUrl || ''), selected.model, selected.contextWindow ?? null,
-  ])
-  const value = run.metrics[props.sessionId]?.context
-  // Old receipts without profile identity cannot prove which same-named service
-  // produced the count. Do not reuse their capacity after a model switch.
-  if (value?.modelId === selected.id && value.modelKey === key && value.modelName === selected.model)
-    return value
+const discovered = shallowRef<ContextUsage>()
+let lookup: AbortController | undefined
+
+function profileContext(selected: ModelOption, status = 'unknown'): ContextUsage {
   const capacity = selected.contextWindow
   const known = capacity !== undefined && Number.isSafeInteger(capacity) && capacity > 0
   return {
-    seq: 0, callId: '', modelName: selected.model, modelId: selected.id, modelKey: key,
-    usedTokens: null, windowTokens: known ? capacity ?? null : null, measurement: null,
-    capacitySource: known ? 'model_profile' : null, capacityStatus: known ? 'known' : 'unknown',
+    seq: 0, callId: '', modelName: selected.model, modelId: selected.id,
+    modelKey: JSON.stringify([selected.provider, selected.baseUrl || '', selected.model, capacity ?? null]),
+    usedTokens: null, windowTokens: known ? capacity : null, measurement: null,
+    capacitySource: known ? 'model_profile' : null, capacityStatus: known ? 'known' : status,
+  }
+}
+
+async function refreshCapacity() {
+  lookup?.abort()
+  const selected = props.model
+  if (!selected || ui.appearance.showContextUsage === false) return
+  const controller = new AbortController()
+  lookup = controller
+  discovered.value = profileContext(selected, 'checking')
+  try {
+    // Capacity discovery never generates text or creates a task/client owner.
+    const result = await api.getModelContext(selected.id, controller.signal)
+    if (!controller.signal.aborted)
+      discovered.value = matchesModelContext(result, selected) ? result : profileContext(selected, 'metadata_unavailable')
+  } catch {
+    if (!controller.signal.aborted) discovered.value = profileContext(selected, 'metadata_unavailable')
+  }
+}
+watch(() => [props.model ? modelContextKey(props.model) : '', props.sessionId, ui.appearance.showContextUsage],
+  () => { discovered.value = undefined; void refreshCapacity() }, { immediate: true })
+onMounted(() => window.addEventListener('focus', refreshCapacity))
+onBeforeUnmount(() => { lookup?.abort(); window.removeEventListener('focus', refreshCapacity) })
+const context = computed<ContextUsage | undefined>(() => {
+  const selected = props.model
+  if (!selected) return undefined
+  const value = run.metrics[props.sessionId]?.context
+  const receipt = matchesModelContext(value, selected) ? value : undefined
+  const resolved = matchesModelContext(discovered.value, selected) ? discovered.value : undefined
+  const capacity = receipt && resolved
+    ? (Date.parse(receipt.capacityCheckedAt || '') || 0) >= (Date.parse(resolved.capacityCheckedAt || '') || 0)
+      ? receipt : resolved
+    : receipt || resolved || profileContext(selected)
+  // Discovery is model-scoped; usage remains exclusively this conversation's.
+  return {
+    ...capacity,
+    seq: receipt?.seq ?? 0, callId: receipt?.callId || '',
+    usedTokens: receipt?.usedTokens ?? null, inputTokens: receipt?.inputTokens ?? null,
+    measurement: receipt?.measurement ?? null,
   }
 })
 const turn = computed(() => (run.turns[props.sessionId] || []).slice(-1)[0])
@@ -51,6 +86,18 @@ const speed = computed(() =>
 const cache = computed(() =>
   stats.value.cachePct === null ? '—' : `${Math.floor(stats.value.cachePct * 10) / 10}%`,
 )
+const cacheNote = computed(() => {
+  const value = stats.value
+  if (!value.totalCalls) return ''
+  if (!value.cacheReportedCalls) return t('尚无可用的缓存用量，无法计算命中率。')
+  if (value.cachePartial)
+    return t('缓存统计不完整（{0}/{1} 次请求已报告），暂不计算命中率。', [
+      value.cacheReportedCalls, value.totalCalls,
+    ])
+  if (value.cachePct === null && (value.tokens.input_tokens ?? 0) > 0)
+    return t('缓存用量不一致，无法计算命中率。')
+  return ''
+})
 const tokenLabel = computed(() =>
   stats.value.totalTokens === null
     ? '—'
@@ -132,8 +179,9 @@ const tokenLabel = computed(() =>
           </div>
         </dl>
         <p v-if="stats.partial" class="stat-note">{{ $t('用量不完整') }}</p>
+        <p v-if="cacheNote" class="stat-note">{{ cacheNote }}</p>
       </StatPopover>
-      <StatPopover :label="$t('缓存命中率')" :title="$t('缓存命中 {0}', [cache])">
+      <StatPopover :label="$t('缓存命中率')" :title="cacheNote || $t('缓存命中 {0}', [cache])">
         <template #trigger
           ><IconSymbol name="bolt" :size="14" /><span>{{ $t('缓存 {0}', [cache]) }}</span></template
         >
@@ -143,17 +191,22 @@ const tokenLabel = computed(() =>
             <dd>{{ cache }}</dd>
           </div>
           <div>
-            <dt>{{ $t('命中输入 Token') }}</dt>
+            <dt>{{ $t(stats.cachePartial ? '已报告命中输入 Token' : '命中输入 Token') }}</dt>
             <dd>{{ count(stats.tokens.cache_read_tokens) }}</dd>
           </div>
           <div>
-            <dt>{{ $t('总输入 Token') }}</dt>
+            <dt>{{ $t(stats.cachePartial ? '已报告总输入 Token' : '总输入 Token') }}</dt>
             <dd>{{ count(stats.tokens.input_tokens) }}</dd>
           </div>
+          <div>
+            <dt>{{ $t('已报告缓存用量的请求') }}</dt>
+            <dd>{{ $t('{0}/{1} 次', [stats.cacheReportedCalls, stats.totalCalls]) }}</dd>
+          </div>
         </dl>
+        <p v-if="cacheNote" class="stat-note">{{ cacheNote }}</p>
       </StatPopover>
     </template>
-    <InkMeter v-if="ui.appearance.showContextUsage !== false && context" :context="context" />
+    <InkMeter v-if="ui.appearance.showContextUsage !== false && context" :context="context" @refresh="refreshCapacity" />
     <CompactionStatus
       v-if="turn && footerCompaction"
       :compaction="footerCompaction"

@@ -209,6 +209,11 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.ChatModelRequest.SerializeToString,
                 response_deserializer=agent__pb2.ThinkingControl.FromString,
                 _registered_method=True)
+        self.GetChatModelContext = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/GetChatModelContext',
+                request_serializer=agent__pb2.ChatModelRequest.SerializeToString,
+                response_deserializer=agent__pb2.ModelContext.FromString,
+                _registered_method=True)
         self.UpdateChatModelSettings = channel.unary_unary(
                 '/maigokite.agent.v1.AgentService/UpdateChatModelSettings',
                 request_serializer=agent__pb2.UpdateChatModelSettingsRequest.SerializeToString,
@@ -549,6 +554,12 @@ class AgentServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetChatModelContext(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def UpdateChatModelSettings(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -876,6 +887,11 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.GetChatModelThinking,
                     request_deserializer=agent__pb2.ChatModelRequest.FromString,
                     response_serializer=agent__pb2.ThinkingControl.SerializeToString,
+            ),
+            'GetChatModelContext': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetChatModelContext,
+                    request_deserializer=agent__pb2.ChatModelRequest.FromString,
+                    response_serializer=agent__pb2.ModelContext.SerializeToString,
             ),
             'UpdateChatModelSettings': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateChatModelSettings,
@@ -1948,6 +1964,33 @@ class AgentService:
             '/maigokite.agent.v1.AgentService/GetChatModelThinking',
             agent__pb2.ChatModelRequest.SerializeToString,
             agent__pb2.ThinkingControl.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetChatModelContext(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/GetChatModelContext',
+            agent__pb2.ChatModelRequest.SerializeToString,
+            agent__pb2.ModelContext.FromString,
             options,
             channel_credentials,
             insecure,

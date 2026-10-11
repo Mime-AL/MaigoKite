@@ -15,7 +15,8 @@ const props = withDefaults(defineProps<{
 const interrupted = computed(() => props.compaction.status === 'running' && props.turnStatus !== 'running')
 const running = computed(() => props.compaction.status === 'running' && !interrupted.value)
 const labels = { running: '正在压缩上下文', completed: '上下文已压缩', failed: '上下文压缩失败', skipped: '未进行压缩' }
-const label = computed(() => t(interrupted.value ? '压缩结果未确认' : labels[props.compaction.status]))
+const label = computed(() => t(interrupted.value ? '压缩结果未确认'
+  : props.compaction.reason === 'fixed_overhead_exceeded' ? '模型输入预算不足' : labels[props.compaction.status]))
 const detail = computed(() => {
   if (interrupted.value) return t('无法确认上下文是否已压缩。')
   if (props.compaction.status === 'failed')

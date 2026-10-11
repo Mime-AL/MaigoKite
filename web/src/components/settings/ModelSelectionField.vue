@@ -3,6 +3,7 @@ import { ref, toRefs, type UnwrapNestedRefs } from 'vue'
 import type { useModelSettings } from '@/composables/useModelSettings'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import ModelCatalogPicker from './ModelCatalogPicker.vue'
+import ModelContextFields from './ModelContextFields.vue'
 
 const props = defineProps<{ editor: UnwrapNestedRefs<ReturnType<typeof useModelSettings>> }>()
 const {
@@ -46,6 +47,7 @@ function editModelManually() {
     data-settings-field="model-selection"
   >
     <label for="model-id-input">{{ $t('模型（可多选）') }}<b>{{ $t('至少一个') }}</b></label>
+    <ModelContextFields :editor="editor" />
     <div
       v-if="selectedModels.length"
       class="selected-models"

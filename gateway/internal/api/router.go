@@ -117,6 +117,7 @@ func (r *Router) routes() {
 	workspaces.PATCH("/settings", r.requireWorkspaceOwner(), models.UpdateSettings)
 	workspaces.GET("/models", models.List)
 	workspaces.GET("/models/:modelID/thinking", models.Thinking)
+	workspaces.GET("/models/:modelID/context", models.Context)
 	workspaces.POST("/models", r.requireWorkspaceOwner(), models.Upsert)
 	workspaces.PUT("/models/:modelID", r.requireWorkspaceOwner(), models.Upsert)
 	workspaces.DELETE("/models/:modelID", r.requireWorkspaceOwner(), models.Delete)

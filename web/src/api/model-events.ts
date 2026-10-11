@@ -36,25 +36,34 @@ const compactionStates: Record<string, ContextCompaction['status']> = {
   'context.compacted': 'completed',
 }
 
+/** Shared by capacity discovery and durable execution receipts. */
+export function mapContextPayload(p: Record<string, unknown>): ContextUsage {
+  const capacity = number(p.model_context_window)
+  const input = number(p.estimated_input_tokens) ?? null
+  return {
+    seq: 0, callId: typeof p.call_id === 'string' ? p.call_id : '',
+    modelName: typeof p.model_name === 'string' ? p.model_name : '',
+    modelId: typeof p.model_id === 'string' ? p.model_id : undefined,
+    modelKey: typeof p.model_key === 'string' ? p.model_key : undefined,
+    usedTokens: input, inputTokens: input,
+    windowTokens: capacity && Number.isSafeInteger(capacity) ? capacity : null,
+    measurement: measurement(p.measurement),
+    purpose: typeof p.purpose === 'string' ? p.purpose : 'response',
+    capacitySource: typeof p.capacity_source === 'string' ? p.capacity_source : null,
+    capacityStatus: typeof p.capacity_status === 'string' ? p.capacity_status : undefined,
+    capacityCheckedAt: typeof p.capacity_checked_at === 'string' ? p.capacity_checked_at : null,
+    inputBudgetTokens: number(p.input_budget_tokens) ?? null,
+    outputReservedTokens: number(p.output_reserved_tokens) ?? null,
+    safetyMarginTokens: number(p.safety_margin_tokens) ?? null,
+    compactionTriggerTokens: number(p.compaction_trigger_tokens) ?? null,
+  }
+}
+
 /** Additive product telemetry, not LangGraph/SDK types in the public protocol. */
 export function mapModelEvent(event: AgentEvent, base: EventBase): GatewayEvent | undefined {
   const p = event.payload
   if (event.type === 'context.updated') {
-    const capacity = number(p.model_context_window)
-    const context: ContextUsage = {
-      seq: base.seq,
-      callId: typeof p.call_id === 'string' ? p.call_id : '',
-      modelName: typeof p.model_name === 'string' ? p.model_name : '',
-      modelId: typeof p.model_id === 'string' ? p.model_id : undefined,
-      modelKey: typeof p.model_key === 'string' ? p.model_key : undefined,
-      usedTokens: number(p.estimated_input_tokens) ?? null,
-      windowTokens: capacity && Number.isSafeInteger(capacity) ? capacity : null,
-      measurement: measurement(p.measurement),
-      purpose: typeof p.purpose === 'string' ? p.purpose : 'response',
-      capacitySource: typeof p.capacity_source === 'string' ? p.capacity_source : null,
-      capacityStatus: typeof p.capacity_status === 'string' ? p.capacity_status : undefined,
-      capacityCheckedAt: typeof p.capacity_checked_at === 'string' ? p.capacity_checked_at : null,
-    }
+    const context = { ...mapContextPayload(p), seq: base.seq }
     return { ...base, type: 'context_update', context }
   }
   const status = Object.prototype.hasOwnProperty.call(compactionStates, event.type)
