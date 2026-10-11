@@ -9,7 +9,7 @@ let intersection: IntersectionObserver | undefined, mutation: MutationObserver |
 let observedRoot: HTMLElement | null = null
 const targets = new Map<string, HTMLElement>()
 function observe() {
-  if (!props.scrollRoot || typeof IntersectionObserver === 'undefined') return
+  if (!props.items.length || !props.scrollRoot || typeof IntersectionObserver === 'undefined') return
   if (observedRoot !== props.scrollRoot) {
     intersection?.disconnect()
     targets.clear()
@@ -46,12 +46,37 @@ function observe() {
   }
 }
 function schedule() { if (!frame) frame = requestAnimationFrame(() => { frame = 0; observe() }) }
-watch(() => props.items.map(item => item.id).join('|'), schedule)
-watch(() => props.scrollRoot, root => {
+watch([() => props.scrollRoot, () => props.items.map(item => item.id).join('|')], ([root, ids]) => {
   mutation?.disconnect()
-  if (root && typeof MutationObserver !== 'undefined') {
-    mutation = new MutationObserver(schedule)
-    mutation.observe(root, { childList: true, subtree: true })
+  if (!root || !ids) {
+    intersection?.disconnect()
+    observedRoot = null
+    targets.clear()
+    visible.value = new Set()
+    if (frame) cancelAnimationFrame(frame)
+    frame = 0
+    return
+  }
+  if (typeof MutationObserver !== 'undefined') {
+    // Ordinary Markdown replacements cannot add or remove approval controls.
+    const selector = '[data-await], [data-await-action]'
+    mutation = new MutationObserver(records => {
+      if (records.some(record => {
+        if (record.target instanceof Element && record.target.closest('.markdown-content, .code-block'))
+          return false
+        return (record.type === 'attributes' && record.target instanceof Element &&
+          Boolean(record.target.closest('[data-await]'))) ||
+          [...record.addedNodes, ...record.removedNodes].some(node =>
+            node instanceof Element && (node.matches(selector) || Boolean(node.querySelector(selector))),
+          )
+      })) schedule()
+    })
+    mutation.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    })
   }
   schedule()
 }, { immediate: true, flush: 'post' })

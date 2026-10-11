@@ -15,6 +15,7 @@ export const useRunStore = defineStore('run', () => {
   const reasoningStreams = new Set<string>()
   const stateSequences = new Map<string, number>()
   const dirtyTurns = new Map<string, Set<string>>()
+  const dirtyCollections = new Set<string>()
   let frame = 0
   function publish() {
     if (!frame)
@@ -30,36 +31,40 @@ export const useRunStore = defineStore('run', () => {
           dirtyMetrics.clear()
           metrics.value = next
         }
-        // Fresh identities reach computed selectors and child props. Only copy
-        // changed tasks; streaming must not clone every historical task.
+        // Text-only frames retain activity identities so Rail does not rebuild
+        // unchanged tools, approvals and inputs for every token.
         const nextTurns = { ...turns.value }
         for (const [id, ids] of dirtyTurns) {
           if (!nextTurns[id]) continue
-          nextTurns[id] = nextTurns[id].map((turn) =>
-            ids.has(turn.id)
-              ? {
-                  ...turn,
-                  steps: turn.steps.map((step) => ({ ...step })),
-                  awaits: turn.awaits.map((item) => ({ ...item })),
-                  timeline: [...turn.timeline],
-                  memories: [...turn.memories],
-                  changes: turn.changes.map((item) => ({ ...item })),
-                  plan: [...turn.plan],
-                  inputs: turn.inputs?.map((item) => ({ ...item })),
-                  jobs: turn.jobs.map((item) => ({ ...item })),
-                  modelCalls: turn.modelCalls ? { ...turn.modelCalls } : undefined,
-                }
-              : turn,
-          )
+          nextTurns[id] = nextTurns[id].map((turn) => {
+            if (!ids.has(turn.id)) return turn
+            if (!dirtyCollections.has(`${id}:${turn.id}`)) return { ...turn }
+            return {
+              ...turn,
+              steps: turn.steps.map((step) => ({ ...step })),
+              awaits: turn.awaits.map((item) => ({ ...item })),
+              timeline: [...turn.timeline],
+              memories: [...turn.memories],
+              changes: turn.changes.map((item) => ({ ...item })),
+              plan: [...turn.plan],
+              inputs: turn.inputs?.map((item) => ({ ...item })),
+              jobs: turn.jobs.map((item) => ({ ...item })),
+              modelCalls: turn.modelCalls ? { ...turn.modelCalls } : undefined,
+            }
+          })
         }
         dirtyTurns.clear()
+        dirtyCollections.clear()
         turns.value = nextTurns
       })
   }
-  function getTurn(sessionId: string, turnId: string, time?: string): Turn {
+  function getTurn(
+    sessionId: string, turnId: string, time?: string, collectionsChanged = true,
+  ): Turn {
     const dirty = dirtyTurns.get(sessionId) || new Set<string>()
     dirty.add(turnId)
     dirtyTurns.set(sessionId, dirty)
+    if (collectionsChanged) dirtyCollections.add(`${sessionId}:${turnId}`)
     const list = (turns.value[sessionId] ||= [])
     let turn = list.find((t) => t.id === turnId)
     if (!turn) {
@@ -261,6 +266,8 @@ export const useRunStore = defineStore('run', () => {
     metrics.value = next
     dirtyMetrics.delete(id)
     dirtyTurns.delete(id)
+    for (const key of dirtyCollections)
+      if (key.startsWith(`${id}:`)) dirtyCollections.delete(key)
     for (const key of stateSequences.keys())
       if (key.startsWith(`${id}:`)) stateSequences.delete(key)
     triggerRef(connected)
@@ -280,15 +287,16 @@ export const useRunStore = defineStore('run', () => {
       : `${event.sessionId}:${event.turnId}:${event.seq}:${event.type}:${itemId}`
     if (seen.has(identity)) return
     const existed = turns.value[event.sessionId]?.some((item) => item.id === event.turnId)
-    const previous = getTurn(event.sessionId, event.turnId, event.time)
-    // Stage only the affected turn. Token deltas copy scalar fields; structural
-    // events copy mutable collections so a failed reducer can be retried safely.
-    const turn: Turn = [
+    const textOnly = [
       'text_delta',
       'thinking_delta',
       'thinking_started',
       'thinking_completed',
     ].includes(event.type)
+    const previous = getTurn(event.sessionId, event.turnId, event.time, !textOnly)
+    // Stage only the affected turn. Token deltas copy scalar fields; structural
+    // events copy mutable collections so a failed reducer can be retried safely.
+    const turn: Turn = textOnly
       ? { ...previous }
       : {
           ...previous,
@@ -598,11 +606,14 @@ export const useRunStore = defineStore('run', () => {
     if (['completed', 'cancelled'].includes(turn.status)) return 'idle'
     return turn.steps.some((s) => s.status === 'running') ? 'acting' : 'thinking'
   }
-  const awaits = computed(() =>
-    Object.values(turns.value)
+  const awaits = computed<AwaitItem[]>((previous) => {
+    const next = Object.values(turns.value)
       .flatMap((list) => list.flatMap((t) => t.awaits))
-      .filter((a) => !a.verdict && !a.closed),
-  )
+      .filter((a) => !a.verdict && !a.closed)
+    // Streaming must not invalidate every sidebar and pending-count selector.
+    return previous && previous.length === next.length &&
+      next.every((item, index) => item === previous[index]) ? previous : next
+  })
   onScopeDispose(() => {
     if (frame) cancelAnimationFrame(frame)
   })

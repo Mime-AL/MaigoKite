@@ -12,20 +12,31 @@ let alive = true,
 let frame = 0,
   resize: ResizeObserver | undefined,
   mutations: MutationObserver | undefined
+let timer: ReturnType<typeof setTimeout> | undefined
+let measuredAt = -Infinity,
+  anchorsDirty = true
+let buttons = new Map<string | undefined, HTMLElement>()
 function measure() {
   frame = 0
+  measuredAt = performance.now()
   const root = props.scrollRoot
   if (!root) {
     buckets.value = []
     return
   }
   const bounds = root.getBoundingClientRect()
-  const buttons = new Map(
-    Array.from(root.querySelectorAll<HTMLElement>('[data-rail-node]')).map((element) => [
-      element.dataset.railNode,
-      element,
-    ]),
-  )
+  if (anchorsDirty) {
+    buttons = new Map(
+      Array.from(root.querySelectorAll<HTMLElement>('[data-rail-node]')).map((element) => [
+        element.dataset.railNode,
+        element,
+      ]),
+    )
+    anchorsDirty = false
+  }
+  const scrollTop = root.scrollTop
+  const height = Math.max(root.scrollHeight, root.clientHeight, 1)
+  const rectangles = new Map<HTMLElement, DOMRect>()
   const positioned: PositionedNode[] = []
   for (const node of props.nodes) {
     let element = buttons.get(node.turnId + ':' + node.id)
@@ -36,25 +47,43 @@ function measure() {
         element = parent.querySelector<HTMLElement>(':scope > summary') || element
       parent = parent.parentElement
     }
-    const rect = element.getBoundingClientRect()
+    // A folded read group can represent many nodes with one summary element.
+    let rect = rectangles.get(element)
+    if (!rect) {
+      rect = element.getBoundingClientRect()
+      rectangles.set(element, rect)
+    }
     if (!rect.height) continue
     positioned.push({
       node,
-      position:
-        (rect.top + rect.height / 2 - bounds.top + root.scrollTop) /
-        Math.max(root.scrollHeight, root.clientHeight, 1),
+      position: (rect.top + rect.height / 2 - bounds.top + scrollTop) / height,
     })
   }
   buckets.value = inkBuckets(positioned)
 }
 function schedule() {
-  if (alive && !frame) frame = requestAnimationFrame(measure)
+  if (!alive || frame || timer) return
+  // Height can change on every streaming paint; the minimap need not run at 60Hz.
+  const delay = Math.max(0, 120 - (performance.now() - measuredAt))
+  if (delay) timer = setTimeout(() => {
+    timer = undefined
+    if (alive) frame = requestAnimationFrame(measure)
+  }, delay)
+  else frame = requestAnimationFrame(measure)
 }
 function disconnect() {
   resize?.disconnect()
   mutations?.disconnect()
   if (frame) cancelAnimationFrame(frame)
+  if (timer) clearTimeout(timer)
   frame = 0
+  timer = undefined
+  buttons.clear()
+  anchorsDirty = true
+}
+function containsAnchor(node: Node) {
+  return node instanceof Element &&
+    (node.matches('[data-rail-node]') || Boolean(node.querySelector('[data-rail-node]')))
 }
 async function observe() {
   const current = ++observation
@@ -67,14 +96,26 @@ async function observe() {
   resize.observe(root)
   let content = root.querySelector('.messages-inner')
   if (content) resize.observe(content)
-  mutations = new MutationObserver(() => {
-    const next = root.querySelector('.messages-inner')
-    if (next !== content) {
-      if (content) resize?.unobserve(content)
-      content = next
-      if (content) resize?.observe(content)
+  mutations = new MutationObserver((records) => {
+    let changed = false
+    for (const record of records) {
+      if (record.type === 'attributes') changed = true
+      if (record.type !== 'childList') continue
+      if (record.target instanceof Element && record.target.closest('.markdown-content, .code-block'))
+        continue
+      if (record.target === root) {
+        const next = root.querySelector('.messages-inner')
+        if (next !== content) {
+          if (content) resize?.unobserve(content)
+          content = next
+          if (content) resize?.observe(content)
+          anchorsDirty = changed = true
+        }
+      }
+      if ([...record.addedNodes, ...record.removedNodes].some(containsAnchor))
+        anchorsDirty = changed = true
     }
-    schedule()
+    if (changed) schedule()
   })
   // Text deltas don't need a mutation callback; resize tracks real content height.
   mutations.observe(root, {
@@ -88,7 +129,10 @@ async function observe() {
 watch(() => props.scrollRoot, observe, { flush: 'post' })
 // Stream deltas replace Turn identities, not node positions. Measure only when
 // identities/layout change, never rescan the DOM for every text delta.
-watch(() => props.nodes.map((node) => node.turnId + ':' + node.id).join('|'), schedule, {
+watch(() => props.nodes.map((node) => node.turnId + ':' + node.id).join('|'), () => {
+  anchorsDirty = true
+  schedule()
+}, {
   flush: 'post',
 })
 onMounted(observe)

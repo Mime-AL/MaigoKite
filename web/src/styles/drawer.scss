@@ -11,15 +11,19 @@
   background: var(--paper);
   z-index: var(--z-drawer);
   isolation: isolate;
+  -webkit-app-region: no-drag;
   box-shadow: var(--shadow-raised);
   animation: drawer-arrive var(--motion-panel) var(--ease-out);
+}
+.drawer.resizing {
+  box-shadow: none;
 }
 .drawer-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  min-height: var(--titlebar-window-button-width);
+  min-height: var(--titlebar-height);
   padding: var(--size-6) var(--size-10) var(--size-6) var(--size-14);
 }
 .drawer-workspace {
@@ -103,7 +107,7 @@
   .drawer {
     position: fixed;
     right: 0;
-    top: var(--titlebar-height);
+    top: calc(var(--window-chrome-height) + var(--titlebar-height));
     bottom: 0;
     width: min(var(--drawer-width), calc(100vw - var(--space-5)));
     box-shadow: var(--shadow-raised);
@@ -111,7 +115,7 @@
   .drawer-shade {
     display: block;
     position: fixed;
-    inset: var(--titlebar-height) 0 0;
+    inset: calc(var(--window-chrome-height) + var(--titlebar-height)) 0 0;
     z-index: var(--z-drawer-shade);
     background: var(--backdrop);
   }

@@ -1,11 +1,16 @@
 import type { AwaitItem, RailNode, SupplementInput, Turn } from '@/api/events'
 import { railNodes } from '@/stores/run-projection'
-import { t } from '@/i18n'
+import { i18n, t } from '@/i18n'
 // Display-only node: no new Gateway event or execution state.
 export type PresentationNode = Omit<RailNode, 'kind'> & {
   kind: RailNode['kind'] | 'input'
   input?: SupplementInput
 }
+type NodeCache = Pick<Turn, 'steps' | 'awaits' | 'memories' | 'inputs' | 'status' | 'error'> & {
+  locale: string
+  nodes: PresentationNode[]
+}
+const nodeCache = new WeakMap<Turn['timeline'], NodeCache>()
 function timestamp(time?: string) {
   const value = Date.parse(time || '')
   return Number.isFinite(value) ? value : undefined
@@ -15,6 +20,13 @@ export function hasOrder(item: { seq?: number; time?: string }) {
 }
 /** Read-only presentation copy. Snapshot-only questions have no fabricated seq. */
 export function presentationNodes(turn: Turn): PresentationNode[] {
+  const locale = i18n.global.locale.value
+  const cached = nodeCache.get(turn.timeline)
+  if (
+    cached && cached.steps === turn.steps && cached.awaits === turn.awaits &&
+    cached.memories === turn.memories && cached.inputs === turn.inputs &&
+    cached.status === turn.status && cached.error === turn.error && cached.locale === locale
+  ) return cached.nodes
   const timeline: (
     Turn['timeline'][number] | { id: string; kind: 'input'; seq?: number; time?: string }
   )[] = [
@@ -92,6 +104,17 @@ export function presentationNodes(turn: Turn): PresentationNode[] {
       nodes.splice(index, 1)
     }
   }
+  // Collection identities change on structural receipts, not on text deltas.
+  nodeCache.set(turn.timeline, {
+    steps: turn.steps,
+    awaits: turn.awaits,
+    memories: turn.memories,
+    inputs: turn.inputs,
+    status: turn.status,
+    error: turn.error,
+    locale,
+    nodes,
+  })
   return nodes
 }
 export function pendingItem(item: { closed?: boolean; verdict?: string; answer?: string }) {

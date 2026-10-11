@@ -21,6 +21,18 @@ body {
   overflow: hidden;
   isolation: isolate;
 }
+/* Keep feedback across the whole surface while a captured pointer crosses panels. */
+html[data-resize-axis] * {
+  user-select: none !important;
+}
+html[data-resize-axis='column'],
+html[data-resize-axis='column'] * {
+  cursor: col-resize !important;
+}
+html[data-resize-axis='row'],
+html[data-resize-axis='row'] * {
+  cursor: row-resize !important;
+}
 body::before {
   content: '';
   position: fixed;

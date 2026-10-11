@@ -72,6 +72,9 @@
   --explorer-split-handle-height: 12px;
   --resize-step: 8px;
   --resize-step-fast: 32px;
+  --resize-line-rest-scale: 0.75;
+  --resize-grip-rest-opacity: 0.65;
+  --resize-grip-active-scale: 1.25;
   --font-scale: 1;
   --breakpoint-drawer: #{breakpoints.$drawer-overlay};
   --breakpoint-sidebar: #{breakpoints.$sidebar-overlay};
@@ -297,8 +300,12 @@
   --transparent: transparent;
   --backdrop: rgb(0 0 0 / 0.15);
   --titlebar-height: 44px;
+  --window-titlebar-height: 36px;
+  --window-chrome-height: 0px;
+  --sidebar-overlay-top: var(--titlebar-height);
   --titlebar-button-size: 36px;
   --titlebar-window-button-width: 46px;
+  --titlebar-system-gap: var(--space-5);
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 56px;
   --drawer-width: 380px;

@@ -1,4 +1,8 @@
 const en: Record<string, string> = {
+  应用窗口: 'Application window',
+  应用导航: 'Application navigation',
+  应用操作: 'Application actions',
+  窗口控制: 'Window controls',
   '工具：{0}': 'Tool: {0}',
   '目录：{0}（不含子目录）': 'Directory: {0} (excluding subdirectories)',
   '目录：{0}': 'Directory: {0}',

@@ -4,20 +4,19 @@
  * 处理三栏布局中分隔线的拖拽调整宽度。
  */
 
-import { ref, onUnmounted } from 'vue'
-import { useLayoutStore } from '@/stores/layout'
+import { nextTick, ref, onUnmounted } from 'vue'
+import { panelWidths, useLayoutStore } from '@/stores/layout'
+import { layoutPixels } from '@/utils/layout-media'
 
 export function useLayout() {
   const layoutStore = useLayoutStore()
   const isDragging = ref(false)
-  const dragStartX = ref(0)
-  const dragStartWidth = ref(0)
 
-  let onPointerMove: ((e: PointerEvent) => void) | null = null
-  let onPointerEnd: ((e: PointerEvent) => void) | null = null
-  let dragFrame = 0
-  let pendingX: number | null = null
-  let applyPendingDrag: (() => void) | null = null
+  let detach: (() => void) | null = null
+  let commit: (() => void) | null = null
+  function visibilityChanged() {
+    if (document.hidden) stopDrag()
+  }
 
   /** 开始拖拽 */
   function startDrag(
@@ -26,56 +25,80 @@ export function useLayout() {
     startWidth: number,
     maximum = Infinity,
     pointerId?: number,
+    panel?: HTMLElement,
   ) {
     stopDrag()
-    isDragging.value = true
-    dragStartX.value = startX
-    dragStartWidth.value = startWidth
-
-    applyPendingDrag = () => {
-      if (pendingX === null) return
-      const delta = side === 'left' ? pendingX - dragStartX.value : dragStartX.value - pendingX
-      const newWidth = Math.min(maximum, dragStartWidth.value + delta)
-      if (side === 'left') layoutStore.setSidebarWidth(newWidth)
-      else layoutStore.setFileExplorerWidth(newWidth)
-      pendingX = null
+    let width = startWidth
+    const originalWidth = panel?.style.width ?? ''
+    const handle = panel?.querySelector<HTMLElement>(':scope > .resize-handle')
+    const drawer = side === 'left'
+      ? panel?.parentElement?.querySelector<HTMLElement>('#work-drawer')
+      : null
+    const peer = drawer && drawer.getClientRects().length && getComputedStyle(drawer).position !== 'fixed'
+      ? drawer : null
+    const peerWidth = peer?.getBoundingClientRect().width ?? 0
+    const originalPeerWidth = peer?.style.width ?? ''
+    const available = window.innerWidth - layoutPixels('--chat-min-width')
+    function apply(x: number) {
+      const delta = side === 'left' ? x - startX : startX - x
+      width = Math.max(panelWidths[side].min, Math.min(maximum, startWidth + delta))
+      // Local DOM writes keep the gesture off the app-wide reactive render path.
+      if (panel) panel.style.width = `${width}px`
+      handle?.setAttribute('aria-valuenow', String(Math.round(width)))
+      if (peer) {
+        const limit = Math.max(panelWidths.right.min, available - width)
+        peer.style.width = `${peer.classList.contains('wide') ? limit : Math.min(peerWidth, limit)}px`
+      }
     }
-
-    onPointerMove = (e: PointerEvent) => {
-      if (!isDragging.value || (pointerId !== undefined && e.pointerId !== pointerId)) return
-      pendingX = e.clientX
-      if (dragFrame) return
-      dragFrame = requestAnimationFrame(() => {
-        applyPendingDrag?.()
-        dragFrame = 0
+    function move(e: MouseEvent | PointerEvent) {
+      if (!isDragging.value || (pointerId !== undefined &&
+        (!(e instanceof PointerEvent) || e.pointerId !== pointerId))) return
+      if (!(e.buttons & 1)) return stopDrag()
+      apply(e.clientX)
+    }
+    function end(e: MouseEvent | PointerEvent) {
+      if (pointerId !== undefined && (!(e instanceof PointerEvent) || e.pointerId !== pointerId)) return
+      if (pointerId === undefined && e instanceof PointerEvent && e.pointerType !== 'mouse') return
+      if (e.type === 'pointerup' || e.type === 'mouseup') apply(e.clientX)
+      stopDrag()
+    }
+    const moveEvent = pointerId === undefined ? 'mousemove' : 'pointermove'
+    const endEvent = pointerId === undefined ? 'mouseup' : 'pointerup'
+    document.addEventListener(moveEvent, move, true)
+    document.addEventListener(endEvent, end, true)
+    document.addEventListener('pointercancel', end, true)
+    document.addEventListener('visibilitychange', visibilityChanged)
+    window.addEventListener('blur', stopDrag)
+    window.addEventListener('resize', stopDrag)
+    detach = () => {
+      document.removeEventListener(moveEvent, move, true)
+      document.removeEventListener(endEvent, end, true)
+      document.removeEventListener('pointercancel', end, true)
+      document.removeEventListener('visibilitychange', visibilityChanged)
+      window.removeEventListener('blur', stopDrag)
+      window.removeEventListener('resize', stopDrag)
+    }
+    commit = () => {
+      if (side === 'left') layoutStore.setSidebarWidth(width)
+      else layoutStore.setFileExplorerWidth(width)
+      layoutStore.persistLayout()
+      // Restore CSS ownership only after the committed layout reaches the DOM.
+      void nextTick(() => {
+        if (panel) panel.style.width = originalWidth
+        if (peer) peer.style.width = originalPeerWidth
       })
     }
-
-    document.addEventListener('pointermove', onPointerMove)
-    onPointerEnd = (e: PointerEvent) => {
-      if (pointerId === undefined || e.pointerId === pointerId) stopDrag()
-    }
-    document.addEventListener('pointerup', onPointerEnd)
-    document.addEventListener('pointercancel', onPointerEnd)
-    window.addEventListener('blur', stopDrag)
+    isDragging.value = true
   }
 
   /** 停止拖拽 */
   function stopDrag() {
-    if (dragFrame) cancelAnimationFrame(dragFrame)
-    dragFrame = 0
-    applyPendingDrag?.()
-    applyPendingDrag = null
-    if (isDragging.value) layoutStore.persistLayout()
+    detach?.()
+    detach = null
+    const finish = commit
+    commit = null
+    finish?.()
     isDragging.value = false
-    if (onPointerMove) document.removeEventListener('pointermove', onPointerMove)
-    if (onPointerEnd) {
-      document.removeEventListener('pointerup', onPointerEnd)
-      document.removeEventListener('pointercancel', onPointerEnd)
-    }
-    window.removeEventListener('blur', stopDrag)
-    onPointerMove = null
-    onPointerEnd = null
   }
 
   onUnmounted(() => {

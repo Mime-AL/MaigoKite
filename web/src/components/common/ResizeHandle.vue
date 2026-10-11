@@ -46,68 +46,109 @@ let captured: HTMLElement | null = null,
   capturedId = -1
 let startY = 0,
   startHeight = 0,
-  dragValue = 0,
-  frame = 0
-let pendingY: number | null = null
+  dragValue = 0
+let heightPanel: HTMLElement | null = null
+let moveEvent: 'mousemove' | 'pointermove' = 'mousemove'
+let endEvent: 'mouseup' | 'pointerup' = 'mouseup'
+let ownsFeedback = false
+function feedback(active: boolean) {
+  if (active) {
+    document.documentElement.dataset.resizeAxis = horizontal.value ? 'row' : 'column'
+    ownsFeedback = true
+  } else if (ownsFeedback) {
+    delete document.documentElement.dataset.resizeAxis
+    ownsFeedback = false
+  }
+}
 function clamp(next: number) {
   return Math.max(minimum.value, Math.min(maximum.value, next))
 }
 function release() {
-  if (captured?.hasPointerCapture(capturedId)) captured.releasePointerCapture(capturedId)
+  const target = captured,
+    id = capturedId
   captured = null
+  capturedId = -1
+  if (id >= 0 && target?.hasPointerCapture(id)) target.releasePointerCapture(id)
 }
-function begin(event: PointerEvent) {
-  if (event.button !== 0 || !event.isPrimary) return
+function begin(event: MouseEvent | PointerEvent) {
+  // Native mouse events avoid Electron's pointer-capture path; touch/pen keep it.
+  if (event instanceof PointerEvent && event.pointerType === 'mouse') return
+  if (event.button !== 0 || (event instanceof PointerEvent && !event.isPrimary)) return
   const target = event.currentTarget
   if (!(target instanceof HTMLElement)) return
   event.preventDefault()
-  target.focus()
+  finish()
+  target.focus({ preventScroll: true })
   captured = target
-  capturedId = event.pointerId
-  target.setPointerCapture(event.pointerId)
+  capturedId = event instanceof PointerEvent ? event.pointerId : -1
+  moveEvent = capturedId < 0 ? 'mousemove' : 'pointermove'
+  endEvent = capturedId < 0 ? 'mouseup' : 'pointerup'
+  // Document listeners keep resizing alive if native pointer capture is lost.
+  if (capturedId >= 0) {
+    try { target.setPointerCapture(capturedId) } catch { /* Document listeners still track movement. */ }
+  }
   if (horizontal.value) {
     startY = event.clientY
-    startHeight = dragValue = value.value
+    heightPanel = target.previousElementSibling instanceof HTMLElement ? target.previousElementSibling : null
+    // Start from the visible split, including flex/layout constraints.
+    startHeight = dragValue = clamp(heightPanel?.getBoundingClientRect().height ?? value.value)
     heightDragging.value = true
+    document.addEventListener(moveEvent, move, true)
+    document.addEventListener(endEvent, finishPointer, true)
+    document.addEventListener('pointercancel', finishPointer, true)
+    document.addEventListener('visibilitychange', visibilityChanged)
     window.addEventListener('blur', finish)
+    window.addEventListener('resize', finish)
     return
   }
   const actual = target.parentElement?.getBoundingClientRect().width ?? value.value
-  startDrag(props.side, event.clientX, actual, maximum.value, event.pointerId)
+  startDrag(props.side, event.clientX, actual, maximum.value,
+    capturedId < 0 ? undefined : capturedId, target.parentElement ?? undefined)
 }
-function flushHeight() {
-  if (pendingY === null) return
-  dragValue = clamp(startHeight + pendingY - startY)
-  pendingY = null
-  emit('update:modelValue', dragValue)
+function applyHeight(y: number) {
+  dragValue = clamp(startHeight + y - startY)
+  if (heightPanel) heightPanel.style.flexBasis = `${dragValue}px`
+  else emit('update:modelValue', dragValue)
+  captured?.setAttribute('aria-valuenow', String(Math.round(dragValue)))
 }
-function move(event: PointerEvent) {
-  if (!heightDragging.value || event.pointerId !== capturedId) return
-  pendingY = event.clientY
-  // Coalesce pointer movement; only persist once the gesture finishes.
-  if (!frame) {
-    frame = requestAnimationFrame(() => {
-      frame = 0
-      flushHeight()
-    })
-  }
+function matches(event: MouseEvent | PointerEvent) {
+  return capturedId < 0
+    ? !(event instanceof PointerEvent) || event.pointerType === 'mouse'
+    : event instanceof PointerEvent && event.pointerId === capturedId
+}
+function move(event: MouseEvent | PointerEvent) {
+  if (!heightDragging.value || !matches(event)) return
+  if (!(event.buttons & 1)) return finish()
+  // No rAF gate or parent render for each pixel; commit the ratio on release.
+  applyHeight(event.clientY)
 }
 function finish() {
-  if (frame) cancelAnimationFrame(frame)
-  frame = 0
   if (heightDragging.value) {
-    flushHeight()
-    heightDragging.value = false
+    emit('update:modelValue', clamp(dragValue))
     emit('change', clamp(dragValue))
+    heightDragging.value = false
   }
+  heightPanel = null
+  document.removeEventListener(moveEvent, move, true)
+  document.removeEventListener(endEvent, finishPointer, true)
+  document.removeEventListener('pointercancel', finishPointer, true)
+  document.removeEventListener('visibilitychange', visibilityChanged)
   window.removeEventListener('blur', finish)
+  window.removeEventListener('resize', finish)
   stopDrag()
   release()
+  feedback(false)
 }
-function finishPointer(event: PointerEvent) {
-  if (event.pointerId !== capturedId) return
-  if (heightDragging.value && event.type === 'pointerup') pendingY = event.clientY
+function visibilityChanged() {
+  if (document.hidden) finish()
+}
+function finishPointer(event: MouseEvent | PointerEvent) {
+  if (!matches(event)) return
+  if (heightDragging.value && (event.type === 'pointerup' || event.type === 'mouseup')) applyHeight(event.clientY)
   finish()
+}
+function lostCapture(event: PointerEvent) {
+  if (event.pointerId === capturedId) captured = null
 }
 function reset() {
   if (!horizontal.value) return layout.resetPanelWidth(props.side)
@@ -143,9 +184,10 @@ function onKey(event: KeyboardEvent) {
   layout.persistLayout()
 }
 watch(isDragging, (active) => {
+  feedback(active)
   emit('dragging', active)
   if (!active) release()
-})
+}, { flush: 'sync' })
 onDeactivated(finish)
 onUnmounted(finish)
 </script>
@@ -162,71 +204,12 @@ onUnmounted(finish)
     :aria-valuenow="Math.round(value)"
     :title="hint || (horizontal ? $t('拖动调整文件树和预览；双击还原') : $t('拖动调整宽度；双击还原'))"
     @pointerdown="begin"
-    @pointermove="move"
-    @pointerup="finishPointer"
-    @pointercancel="finishPointer"
-    @lostpointercapture="finishPointer"
+    @mousedown="begin"
+    @lostpointercapture="lostCapture"
     @keydown="onKey"
     @dblclick="reset"
   />
 </template>
 <style scoped lang="scss">
-.resize-handle {
-  position: absolute;
-  inset-block: 0;
-  width: var(--space-3);
-  z-index: var(--z-resize);
-  cursor: col-resize;
-  touch-action: none;
-  translate: none;
-}
-.left {
-  right: calc(-1 * var(--space-2));
-}
-.right {
-  left: calc(-1 * var(--space-2));
-}
-.resize-handle::after {
-  content: '';
-  position: absolute;
-  inset-block: 0;
-  left: var(--focus-offset);
-  width: var(--space-1);
-  background: var(--transparent);
-  transition:
-    transform var(--motion-fast) var(--ease),
-    opacity var(--motion-fast) var(--ease);
-}
-.resize-handle:hover::after,
-.resize-handle:focus-visible::after,
-.resize-handle.dragging::after {
-  background: var(--accent);
-}
-.horizontal {
-  position: relative;
-  inset: auto;
-  flex: none;
-  width: 100%;
-  height: var(--explorer-split-handle-height);
-  cursor: row-resize;
-  background: var(--paper-3);
-}
-.horizontal::before {
-  content: '';
-  position: absolute;
-  inset-inline: 0;
-  top: 50%;
-  height: var(--hairline);
-  background: var(--rule);
-}
-.horizontal::after {
-  inset: auto;
-  top: 50%;
-  left: 50%;
-  width: var(--space-8);
-  height: var(--space-1);
-  transform: translate(-50%, -50%);
-  border-radius: var(--radius-round);
-  background: var(--ink-3);
-}
+@use '@/styles/resize-handle';
 </style>

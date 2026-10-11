@@ -19,10 +19,12 @@ watch(
       timer = setTimeout(() => {
         timer = undefined
         displayed.value = props.content
-      }, 100)
+      }, Math.min(400, 100 + Math.floor(props.content.length / 8000) * 50))
   },
 )
-const blocks = computed(() => assistantMarkdownBlocks(displayed.value))
+// Longer streams parse less often; transient prefixes must not evict finished
+// messages from the shared Markdown cache. Completion still flushes immediately.
+const blocks = computed(() => assistantMarkdownBlocks(displayed.value, !props.isStreaming))
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })

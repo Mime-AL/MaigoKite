@@ -13,28 +13,40 @@ const editing = ref(false),
 const parts = ref<[string, string]>([props.title, ''])
 const label = computed(() => (props.sessionId ? t('双击重命名对话') : props.title))
 let observer: ResizeObserver | undefined
+let context: CanvasRenderingContext2D | null = null
+let measuredTitle = '', measuredFont = '', titleWidth = 0
+let candidates: [string, string, number][] = []
+function showParts(first: string, last: string) {
+  if (parts.value[0] !== first || parts.value[1] !== last) parts.value = [first, last]
+}
 function measure() {
   if (!host.value || editing.value) return
-  const context = document.createElement('canvas').getContext('2d')
+  context ??= document.createElement('canvas').getContext('2d')
   if (!context) return
-  context.font = getComputedStyle(host.value).font
+  const font = getComputedStyle(host.value).font
+  if (measuredTitle !== props.title || measuredFont !== font) {
+    measuredTitle = props.title
+    measuredFont = font
+    context.font = font
+    titleWidth = context.measureText(props.title).width
+    candidates = []
+  }
   const width = host.value.clientWidth
-  if (!width || context.measureText(props.title).width <= width) {
-    parts.value = [props.title, '']
+  if (!width || titleWidth <= width) {
+    showParts(props.title, '')
     return
   }
   const chars = Array.from(props.title)
-  for (let count = chars.length - 1; count > 1; count--) {
-    const front = Math.ceil(count * 0.6),
-      back = count - front
-    const first = chars.slice(0, front).join(''),
-      last = chars.slice(-back).join('')
-    if (context.measureText(first + '…' + last).width <= width) {
-      parts.value = [first, last]
-      return
+  if (!candidates.length) {
+    // Preserve the existing middle-ellipsis choices; measure them once per title/font.
+    for (let count = chars.length - 1; count > 1; count--) {
+      const front = Math.ceil(count * 0.6), back = count - front
+      const first = chars.slice(0, front).join(''), last = chars.slice(-back).join('')
+      candidates.push([first, last, context.measureText(first + '…' + last).width])
     }
   }
-  parts.value = ['', chars.slice(-1).join('')]
+  const fit = candidates.find((item) => item[2] <= width)
+  showParts(fit?.[0] ?? '', fit?.[1] ?? chars.slice(-1).join(''))
 }
 async function rename() {
   if (!props.sessionId || busy.value) return

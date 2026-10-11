@@ -9,7 +9,7 @@
   border-right: var(--hairline) solid var(--rule);
   display: flex;
   flex-direction: column;
-  padding: var(--size-14) var(--space-4) var(--space-4);
+  padding: 0 var(--space-4) var(--space-4);
   isolation: isolate;
 }
 .sidebar.resizing {
@@ -23,7 +23,8 @@
   display: flex;
   align-items: center;
   gap: var(--size-10);
-  min-height: var(--titlebar-button-size);
+  min-height: var(--titlebar-height);
+  flex: none;
   margin: 0 var(--space-1) var(--size-14);
 }
 .identity strong {
@@ -175,7 +176,8 @@ footer a.router-link-active {
 @include breakpoints.sidebar-overlay {
   .sidebar {
     position: fixed;
-    inset: var(--titlebar-height) auto 0 0;
+    inset: var(--sidebar-overlay-top) auto 0 0;
+    height: auto;
     z-index: var(--z-sidebar);
     box-shadow: var(--shadow-raised);
     animation: sidebar-arrive var(--motion-panel) var(--ease-out);

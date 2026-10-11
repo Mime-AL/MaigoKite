@@ -161,7 +161,10 @@ export const useSessionStore = defineStore('session', () => {
       const known = tasks.value[id]?.find((item) => item.id === task)
       if (known) known.status = 'waiting_approval'
     }
-    if (!covered) projectMessage((messages.value[id] ||= []), event, replay)
+    // Live text belongs to run.turns. Persisted messages update only on completion;
+    // otherwise every delta bypasses the run store's frame batching via this ref.
+    if (!covered && event.type === 'message.completed')
+      projectMessage((messages.value[id] ||= []), event, replay)
     if (event.type === 'message.completed' && typeof event.payload.content === 'string')
       run.completeText(id, task, event.payload.content, String(event.payload.message_id || ''))
     // Rebuild historical activity, but never let replay regress atomic product facts.

@@ -8,14 +8,14 @@ import { useUIStore } from '@/stores/ui'
 import { useRunStore } from '@/stores/run'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useInboxStore } from '@/stores/inbox'
-import type { AwaitItem } from '@/api/events'
+import type { AwaitItem, Turn } from '@/api/events'
 import { useAutoFollow } from '@/composables/useAutoFollow'
 import { presentationNodes, pendingItem, pendingOrder } from '@/utils/rail-presentation'
 import { remainingMessages } from '@/stores/session-projection'
 import { revealRailNode } from '@/utils/rail-navigation'
 import { pickMygoQuote } from '@/config/mygo-quotes'
 import { paperLight, takeWelcomeIntroduction } from '@/utils/welcome-presentation'
-import { api, type PermissionMode } from '@/api/client'
+import { api, type ChatMessage, type PermissionMode } from '@/api/client'
 import UserMessage from '@/components/chat-area/UserMessage.vue'
 import AgentMessage from '@/components/chat-area/AgentMessage.vue'
 import MessageForkAction from '@/components/chat-area/MessageForkAction.vue'
@@ -63,18 +63,23 @@ const turns = computed(() => run.turns[sessionId.value] || [])
 const forkDisabled = computed(() => sending.value || restoring.value ||
   Boolean(session.runningTaskIds[sessionId.value]?.length) ||
   turns.value.some((turn) => ['running', 'waiting'].includes(turn.status)))
-const nodes = computed(() =>
-  turns.value.flatMap((t) => [
-    ...presentationNodes(t).map((n) => ({ id: n.id, turnId: t.id })),
-    ...(t.summary ? [{ id: 'end', turnId: t.id }] : []),
-  ]),
-)
 const savedMessages = computed(() =>
   sessionId.value ? session.messages[sessionId.value] || [] : [],
 )
-const unprojectedMessages = computed(() => remainingMessages(savedMessages.value, turns.value))
-const timeline = computed(() =>
-  [
+const unprojectedMessages = computed<ChatMessage[]>((previous) => {
+  const next = remainingMessages(savedMessages.value, turns.value)
+  return previous && previous.length === next.length &&
+    next.every((message, index) => message === previous[index]) ? previous : next
+})
+type TimelineItem = {
+  key: string
+  time: number
+  turn: Turn | undefined
+  message: ChatMessage | undefined
+}
+const timeline = computed<TimelineItem[]>((previous) => {
+  const entries = new Map<string, TimelineItem>(previous?.map((item) => [item.key, item]))
+  const next: TimelineItem[] = [
     ...turns.value.map((turn) => ({
       key: 'turn-' + turn.id,
       time: turn.startedAt,
@@ -87,9 +92,33 @@ const timeline = computed(() =>
       message,
       turn: undefined,
     })),
-  ].sort((a, b) => a.time - b.time),
-)
+  ].map((item) => {
+    const prior = entries.get(item.key)
+    return prior && prior.time === item.time && prior.turn === item.turn && prior.message === item.message
+      ? prior : item
+  })
+  // A text delta changes content, never chronological order. Keep old entries
+  // stable and sort only when history membership or timestamps actually change.
+  const sameOrder = previous?.length === next.length &&
+    next.every((item) => entries.get(item.key)?.time === item.time)
+  if (previous && sameOrder) {
+    const byKey = new Map(next.map((item) => [item.key, item]))
+    const ordered = previous.map((item) => byKey.get(item.key)!)
+    return ordered.every((item, index) => item === previous[index]) ? previous : ordered
+  }
+  return next.sort((a, b) => a.time - b.time)
+})
 const visibleTimeline = computed(() => timeline.value.slice(-visibleCount.value))
+const nodes = computed<{ id: string; turnId: string }[]>((previous) => {
+  // The minimap measures mounted history only; hidden pages have no real position.
+  const next = visibleTimeline.value.flatMap(({ turn }) => turn ? [
+    ...presentationNodes(turn).map((node) => ({ id: node.id, turnId: turn.id })),
+    ...(turn.summary ? [{ id: 'end', turnId: turn.id }] : []),
+  ] : [])
+  return previous && previous.length === next.length && next.every((node, index) =>
+    node.id === previous[index]?.id && node.turnId === previous[index]?.turnId,
+  ) ? previous : next
+})
 function loadEarlier() {
   visibleCount.value += 20
   for (const item of visibleTimeline.value)

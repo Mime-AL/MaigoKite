@@ -6,7 +6,9 @@ import { useUIStore } from '@/stores/ui'
 import { useInboxStore } from '@/stores/inbox'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useDesktopBridge } from '@/composables/useDesktopBridge'
+import { useElectron } from '@/composables/useElectron'
 import TitleBar from '@/components/shell/TitleBar.vue'
+import WindowBar from '@/components/shell/WindowBar.vue'
 import Drawer from '@/components/shell/Drawer.vue'
 import CommandPalette from '@/components/common/CommandPalette.vue'
 import Sidebar from './Sidebar.vue'
@@ -16,6 +18,7 @@ const session = useSessionStore(),
   settings = useSettingsStore(),
   ui = useUIStore(),
   inbox = useInboxStore()
+const { isElectron, platform } = useElectron()
 const viewportWidth = ref(window.innerWidth)
 const narrowSidebar = computed(() => overlayPanel('sidebar', viewportWidth.value))
 const narrowDrawer = computed(() => overlayPanel('drawer', viewportWidth.value))
@@ -124,8 +127,15 @@ onUnmounted(() => {
 })
 </script>
 <template>
-  <div class="app-layout inkline-shell">
-    <TitleBar :sidebar-overlay="narrowSidebar" />
+  <div
+    class="app-layout inkline-shell"
+    :class="{ desktop: isElectron }"
+  >
+    <WindowBar
+      v-if="isElectron"
+      :platform="platform"
+      :sidebar-overlay="narrowSidebar"
+    />
     <div
       class="app-body"
       :style="panelStyle"
@@ -139,12 +149,18 @@ onUnmounted(() => {
         :maximum-width="sidebarMaximum"
         :inert="activeOverlay === 'work-drawer' ? true : undefined"
       />
-      <main
-        class="main-content"
-        :inert="activeOverlay ? true : undefined"
-      >
-        <router-view />
-      </main>
+      <div class="main-column">
+        <TitleBar
+          :desktop="isElectron"
+          :sidebar-overlay="narrowSidebar"
+        />
+        <main
+          class="main-content"
+          :inert="activeOverlay ? true : undefined"
+        >
+          <router-view />
+        </main>
+      </div>
       <Drawer :maximum-width="drawerMaximum" />
     </div>
     <CommandPalette />
@@ -160,14 +176,27 @@ onUnmounted(() => {
   overflow: hidden;
   background: var(--paper);
 }
+.app-layout.desktop {
+  --window-chrome-height: var(--window-titlebar-height);
+  --sidebar-overlay-top: var(--window-titlebar-height);
+}
 .app-body {
   display: flex;
   min-height: 0;
   flex: 1;
+  -webkit-app-region: no-drag;
+}
+.main-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 .main-content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
 }
 .sidebar-shade {
@@ -177,7 +206,7 @@ onUnmounted(() => {
   .sidebar-shade {
     display: block;
     position: fixed;
-    inset: var(--titlebar-height) 0 0;
+    inset: var(--sidebar-overlay-top) 0 0;
     background: var(--backdrop);
     z-index: var(--z-sidebar-shade);
   }

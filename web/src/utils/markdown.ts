@@ -75,7 +75,7 @@ export function renderAssistantMarkdown(value: string): string {
 }
 
 /** Reuse MarkdownIt's parser. Keep nested fences in their list/quote structure. */
-export function assistantMarkdownBlocks(value: string): MarkdownBlock[] {
+export function assistantMarkdownBlocks(value: string, cacheResult = true): MarkdownBlock[] {
   const source = normalizeAssistantMarkdown(value)
   const cached = blockCache.get(source)
   if (cached) return cached
@@ -98,7 +98,7 @@ export function assistantMarkdownBlocks(value: string): MarkdownBlock[] {
     start = index + 1
   })
   flush(tokens.length)
-  if (source.length < 50000) {
+  if (cacheResult && source.length < 50000) {
     if (blockCache.size >= 64) blockCache.delete(blockCache.keys().next().value || '')
     blockCache.set(source, result)
   }
