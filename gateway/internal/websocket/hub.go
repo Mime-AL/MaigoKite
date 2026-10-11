@@ -40,7 +40,9 @@ var upgrader = gorilla.Upgrader{CheckOrigin: func(r *http.Request) bool {
 		return true
 	}
 	remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if origin == "null" && net.ParseIP(remoteHost) != nil && net.ParseIP(remoteHost).IsLoopback() {
+	// Match the HTTP boundary for Electron's local file renderer. Accept only
+	// these exact origins from a loopback peer, never arbitrary file URLs.
+	if (origin == "null" || origin == "file://") && net.ParseIP(remoteHost) != nil && net.ParseIP(remoteHost).IsLoopback() {
 		return true
 	}
 	parsed, err := url.Parse(origin)

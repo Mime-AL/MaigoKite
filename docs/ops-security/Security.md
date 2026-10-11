@@ -37,6 +37,8 @@ exec_command 的受限模式要求可用的系统沙箱，默认断网，沙箱�
 
 ## 5. 网络与 Electron
 
+Gateway 的 HTTP 来源边界与 WebSocket 升级校验均允许本机回环连接使用精确的 `null` 或 `file://` 来源，兼容 Electron 从本地 HTML 加载的渲染进程。判断使用实际连接的 `RemoteAddr`，不信任转发头；不允许远程连接凭借这两种来源访问，也不接受任意 `file:` 地址。该兼容规则不是桌面身份认证，远程接入仍需独立设备认证。
+
 浏览器当前公开 HTTP(S)/地址检查是应用防护，不保证 Chromium 所有出站请求都隔离；DNS 重绑定、重定向、下载和资源访问需实测及主机/容器出口策略。不能把 URL 检查写成完整 SSRF 沙箱。
 
 远程入口须 HTTPS/WSS、受限 Origin/CORS、设备会话和最小开放资源。Electron 当前安全窗口基线见 [前端与桌面交互设计](../design/FrontendDesign.md)，任意导航/下载、资源替换和 IPC 参数安全仍须发布验收。

@@ -39,7 +39,10 @@ func localOriginBoundary() gin.HandlerFunc {
 		origin := c.GetHeader("Origin")
 		remoteHost, _, _ := net.SplitHostPort(c.Request.RemoteAddr)
 		loopback := net.ParseIP(remoteHost) != nil && net.ParseIP(remoteHost).IsLoopback()
-		trusted := origin == "" || (loopback && (origin == "null" || strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:")))
+		// Electron's local renderer may send file:// rather than null. Neither
+		// origin grants remote access; use the socket peer, not forwarded headers.
+		desktopOrigin := origin == "null" || origin == "file://"
+		trusted := origin == "" || (loopback && (desktopOrigin || strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:")))
 		if !trusted {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "ORIGIN_DENIED", "message": "origin is not allowed"}})
 			return

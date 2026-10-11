@@ -90,6 +90,36 @@ models:
 
 ## 4. 工具选择与联网配置
 
+### Windows PowerShell 命令工具
+
+Agent 通过同一个 `exec_command` 执行命令，不需要另外安装 MCP 工具。默认 `shell=auto` 在 Windows 上优先使用 PATH 中的 PowerShell 7（`pwsh.exe`），找不到时使用系统 Windows PowerShell 5.1（`powershell.exe`）；其他平台仍使用不展开变量或管道的 direct argv。可要求 Agent 显式指定 `shell=pwsh` 或 `shell=powershell`，指定版本不可用时报告错误，不悄悄换解释器。工具结果返回实际选择的 shell 和可执行路径，启动时检查主版本是否符合要求。
+
+例如可对 Agent 说“使用 PowerShell 列出当前工作区文件”。底层调用示例（不是终端命令）：
+
+```json
+{
+  "command": "Get-ChildItem -LiteralPath . | Select-Object Name,Length",
+  "shell": "auto",
+  "sandbox_permissions": "require_escalated",
+  "network_access": true
+}
+```
+
+Windows 暂无受限进程沙箱。上面的参数是请求本次宿主执行及其不可隔离的网络权限，**不是授予权限**；非完全访问模式仍需用户批准。拒绝后不会执行。也可以由用户显式启用完全访问；不会因为检测到 Windows 而自动开启。PowerShell 脚本不能复用“以后都允许某个工具”的授权，现有命令白名单也不会只检查脚本开头。
+
+中文与编码处理：
+
+- 原始脚本通过两版都支持的 UTF-16LE `-EncodedCommand` 传入，避免中文、反斜杠与多层引号被宿主 Shell 再解析；审批展示的仍是原始脚本。
+- 仅在新子进程内把 Console 输入/输出和 `$OutputEncoding` 设为 UTF-8，使用 `-NoProfile`，不修改系统代码页、用户 Profile 或执行策略。普通调用使用 `-NonInteractive`；`interactive=true` 仍需审批，只提供标准输入，不是交互终端。
+- **文件编码独立于命令输出编码**：5.1 的 `>` / `Out-File` 默认 UTF-16LE，`-Encoding UTF8` 带 BOM，且不能使用 `utf8NoBOM`；7 的常规文本输出默认 UTF-8 无 BOM。优先用文件工具，Shell 读写应显式指定所需编码。5.1 执行包含中文的 `.ps1` 文件时，该文件应使用可识别的编码，例如 UTF-8 BOM；命令传输编码不会修复已有脚本文件。
+- 外部程序可能忽略这些设置并输出 GBK 等字节。发现无法按 UTF-8 解码时，结果标记 `output_decoding_errors`、提示检查该程序编码并保留原始日志，不自动猜编码或改写文件。PowerShell 在内部已错误解码的文本无法据此可靠检测。
+
+超时与取消使用现有进程管理，Windows 通过 `taskkill /T /F` 请求停止所属进程树并等待返回；父进程先退出、后台脱离等情形没有 Job Object 级保证。日志面板支持 Windows 的独立文件句柄读取，不改变子进程的写入偏移。
+
+本轮仅静态检查，尚未完成 Windows 实机验收。待验证：5.1/7 的中文输出与中文/空格路径、管道和错误退出码、UTF-8/BOM 文件差异、审批拒绝与恢复、中文 stdin、超时及 GUI 停止子进程树。Linux 原有 direct 行为也需回归；未执行项不视为通过。
+
+编码约定依据：[微软编码说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_character_encoding?view=powershell-7.5)、[EncodedCommand 参数](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_exe?view=powershell-5.1#-encodedcommand)、[taskkill](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill)。
+
 ### 对话中的子 Agent
 
 聊天输入框的“子 Agent”展开项可以设置每次任务派发总数和最大并行数，0 为关闭。在“允许指定的其他模型”中勾选已配置模型并应用后，可以直接发送：“用我配置的‘文档审阅’模型开一个子 Agent 检查这些文件，最后由你汇总。”

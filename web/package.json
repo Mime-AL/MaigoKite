@@ -6,6 +6,9 @@
   "license": "MPL-2.0",
   "main": "dist-electron/main.cjs",
   "type": "module",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
   "build": {
     "appId": "com.electron.maigokite-web",
     "icon": "public/brand/app-icon-cat-ribbon-v1.png"
@@ -32,6 +35,11 @@
     "vue": "^3.4.0",
     "vue-i18n": "11.4.14",
     "vue-router": "^4.2.0"
+  },
+  "overrides": {
+    "extract-zip": {
+      "yauzl": "3.3.1"
+    }
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

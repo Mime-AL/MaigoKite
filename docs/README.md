@@ -39,7 +39,7 @@ MaigoKite 面向个人用户和选定工作流。本目录按“一项事实、�
 | 用户首次使用 / 设置 | [安装与首次使用](user-guide/Installation.md)、[配置指南](user-guide/Configuration.md) |
 | 取舍历史 / 术语 | [架构决策](reference/Decisions.md)、[术语表](reference/Glossary.md) |
 
-[运行时迁移说明](development/RuntimeMigration.md) 是临时启用/退役说明，新运行时成为稳定默认并删旧分支后删除，不作为第二份运行设计。
+历史需求快照、临时迁移记录和内部验收报告只保留在本地，不纳入版本控制。当前运行机制以智能体运行时设计为准。
 
 ## 状态与维护
 

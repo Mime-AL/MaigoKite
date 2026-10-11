@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
+import inspect
 import os
 from typing import Any, BinaryIO
 
@@ -24,17 +26,31 @@ class ProcessRegistry:
         item = self.active.get(job_id)
         if item is None or item["workspace_id"] != workspace_id:
             return None
+        can_read_logs = hasattr(os, "pread") or all(
+            isinstance(getattr(stream, "name", None), str) for stream in (item["stdout"], item["stderr"])
+        )
         result: dict[str, Any] = {"pid": item["process"].pid, "live": item["process"].returncode is None,
-                                  "log_tail": "", "live_logs_available": hasattr(os, "pread")}
+                                  "log_tail": "", "live_logs_available": can_read_logs}
         stdin = item["process"].stdin
         result["stdin_available"] = bool(result["live"] and stdin is not None and not stdin.is_closing())
-        if hasattr(os, "pread"):
-            # pread does not move the shared file offset used by the child.
+        if can_read_logs:
+            # Use pread, or a separate file handle on Windows. Never seek on
+            # the child's shared output handle while it is writing.
             chunks = []
             for stream in (item["stdout"], item["stderr"]):
                 try:
                     size = os.fstat(stream.fileno()).st_size
-                    chunks.append(os.pread(stream.fileno(), 4000, max(0, size - 4000)).decode("utf-8", errors="replace"))
+                    if hasattr(os, "pread"):
+                        data = os.pread(stream.fileno(), 4000, max(0, size - 4000))
+                    else:
+                        with open(stream.name, "rb") as reader:
+                            reader.seek(max(0, size - 4000))
+                            data = reader.read(4000)
+                    # Tail reads can start inside a UTF-8 Chinese character.
+                    if size > 4000:
+                        while data and data[0] & 0xC0 == 0x80:
+                            data = data[1:]
+                    chunks.append(codecs.getincrementaldecoder("utf-8")("replace").decode(data, final=False))
                 except (OSError, ValueError):
                     continue
             result["log_tail"] = "\n".join(chunks)
@@ -45,7 +61,9 @@ class ProcessRegistry:
         if item is None or item["workspace_id"] != workspace_id or item["process"].returncode is not None:
             raise ValueError("process is no longer running")
         try:
-            item["stop"](item["process"])
+            stopped = item["stop"](item["process"])
+            if inspect.isawaitable(stopped):
+                await stopped
         except ProcessLookupError:
             # It may exit between checking the owned handle and signalling it.
             pass

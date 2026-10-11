@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import os
 import platform
 import shlex
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.security.sensitive_paths import is_sensitive_path
+from agent.utils.command_shell import powershell_argv, resolve_command_shell
 
 
 class SandboxUnavailableError(RuntimeError):
@@ -34,6 +36,18 @@ class SandboxExecutionResult:
     sandboxed: bool = False
     stdout_path: str = ""
     stderr_path: str = ""
+    shell: str = "direct"
+    executable: str = ""
+    output_decoding_errors: bool = False
+
+
+def _decode_preview(data: bytes, limit: int) -> tuple[str, bool]:
+    """Do not turn a byte-limit-split Chinese character into a spurious U+FFFD."""
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    try:
+        return decoder.decode(data[:limit], final=len(data) <= limit), False
+    except UnicodeDecodeError:
+        return data[:limit].decode("utf-8", errors="replace"), True
 
 
 @lru_cache(maxsize=4)
@@ -78,7 +92,7 @@ def _bubblewrap_works(binary: str) -> bool:
 
 
 class SandboxExecutor:
-    """Execute argv without a shell and confine filesystem writes to a workspace."""
+    """Execute argv or an explicitly selected shell within the approved boundary."""
 
     _OUTPUT_LIMIT = 1_000_000
     _SYSTEM_MOUNTS = ("/usr", "/usr/local", "/bin", "/sbin", "/lib", "/lib64")
@@ -110,13 +124,24 @@ class SandboxExecutor:
 
     async def execute_command(
         self, command: str, timeout: int = 30, *, on_spawn: Any = None, on_exit: Any = None, interactive: bool = False,
+        shell: str = "direct",
     ) -> SandboxExecutionResult:
-        try:
-            args = shlex.split(command)
-        except ValueError as exc:
-            raise ValueError("command has invalid quoting") from exc
-        if not args:
-            raise ValueError("command must not be empty")
+        shell = resolve_command_shell(shell)
+        if not command.strip() or "\x00" in command:
+            raise ValueError("command must be non-empty text without NUL")
+        if shell == "direct":
+            try:
+                args = shlex.split(command)
+            except ValueError as exc:
+                raise ValueError("command has invalid quoting") from exc
+            if not args:
+                raise ValueError("command must not be empty")
+        else:
+            args = powershell_argv(command, shell, interactive=interactive)
+            if self.mode != "danger_full_access" and not self._visible_in_sandbox(Path(args[0]).resolve()):
+                raise SandboxUnavailableError(
+                    "PowerShell is outside the sandbox mounts; request explicit host execution. No command was started."
+                )
 
         argv, sandboxed = self._build_argv(args)
         start = time.monotonic()
@@ -144,14 +169,14 @@ class SandboxExecutor:
                 await asyncio.wait_for(process.wait(), timeout)
             except asyncio.TimeoutError:
                 timed_out = True
-                self._kill_process_group(process)
+                await self._kill_process_group(process)
                 await process.wait()
             except asyncio.CancelledError:
-                self._kill_process_group(process)
+                await self._kill_process_group(process)
                 await process.wait()
                 raise
             except Exception:
-                self._kill_process_group(process)
+                await self._kill_process_group(process)
                 await process.wait()
                 raise
             finally:
@@ -165,10 +190,12 @@ class SandboxExecutor:
             stdout_path = str(stdout_file.name) if self.output_directory is not None else ""
             stderr_path = str(stderr_file.name) if self.output_directory is not None else ""
 
+        stdout, stdout_error = _decode_preview(stdout_bytes, self.output_limit)
+        stderr, stderr_error = _decode_preview(stderr_bytes, self.output_limit)
         return SandboxExecutionResult(
             exit_code=-1 if timed_out else int(process.returncode or 0),
-            stdout=stdout_bytes[:self.output_limit].decode("utf-8", errors="replace"),
-            stderr=stderr_bytes[:self.output_limit].decode("utf-8", errors="replace") or ("command timed out" if timed_out else ""),
+            stdout=stdout,
+            stderr=stderr or ("command timed out" if timed_out else ""),
             duration_ms=(time.monotonic() - start) * 1000,
             timed_out=timed_out,
             output_truncated=(
@@ -177,6 +204,9 @@ class SandboxExecutor:
             sandboxed=sandboxed,
             stdout_path=stdout_path,
             stderr_path=stderr_path,
+            shell=shell,
+            executable=args[0],
+            output_decoding_errors=stdout_error or stderr_error,
         )
 
     async def execute_python(
@@ -353,11 +383,43 @@ class SandboxExecutor:
         return environment
 
     @staticmethod
-    def _kill_process_group(process: asyncio.subprocess.Process) -> None:
+    async def _kill_process_group(process: asyncio.subprocess.Process) -> None:
         if os.name == "posix":
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
         else:
-            process.kill()
+            if process.returncode is not None:
+                return
+            # Use Windows' maintained process-tree operation, not a PID walker.
+            # This is cleanup, not a sandbox/Job Object or a detached-job API.
+            root = os.environ.get("SYSTEMROOT")
+            if not root:
+                process.kill()
+                await process.wait()
+                raise RuntimeError("SystemRoot unavailable; only the direct process could be stopped")
+            killer = None
+            try:
+                killer = await asyncio.create_subprocess_exec(
+                    str(Path(root) / "System32" / "taskkill.exe"), "/PID", str(process.pid), "/T", "/F",
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                await asyncio.wait_for(killer.wait(), timeout=10)
+            except BaseException:
+                if killer is not None:
+                    if killer.returncode is None:
+                        killer.kill()
+                    await killer.wait()
+                if process.returncode is None:
+                    process.kill()
+                await process.wait()
+                raise
+            if killer.returncode:
+                if process.returncode is None:
+                    process.kill()
+                await process.wait()
+                raise RuntimeError("Windows process-tree cleanup could not be confirmed; the direct process has exited")

@@ -1,7 +1,7 @@
 # 构建与发布指南
 
-> 权威范围：源码构建、桌面制品、发布门禁与回滚。
-> 当前尚未形成正式桌面 runtime bundling 闭环；本页的发布检查项是目标，不是验收结果。
+> 本文说明源码构建、桌面制品、发布门禁和回滚。
+> 桌面安装包尚未完成运行资源打包与验证（runtime bundling）。本页检查项是发布要求，不是已通过的验收结果。
 
 ## 1. 当前可生成什么
 
@@ -15,17 +15,21 @@
 | `web/ npm run build` | Vue 静态资源与 Electron 主进程/预加载层编译 |
 | `web/ npm run electron:build` | electron-builder 入口；不证明已包含正确的 Go/Python/Chromium 资源 |
 
-Electron packaged 分支期待 `resources/bin/agent-core` 和 `resources/bin/gateway`（Windows 使用 `.exe` 后缀），当前源码构建产物尚未证明满足该路径和跨平台执行要求。不能把开发机已有 Go/Python、依赖或浏览器当作用户安装环境。
+Electron packaged 分支会查找 `resources/bin/agent-core` 和 `resources/bin/gateway`，Windows 使用 `.exe` 后缀。尚未验证源码构建产物是否满足这些路径和跨平台执行要求。打包时不能假定用户机器上已经安装开发机使用的 Go/Python、依赖或浏览器。
 
-Linux/Windows 的 `start desktop built` 仍是源码桌面启动，不进入 Electron `app.isPackaged` 分支；通过本地 Python 环境运行 Core，使用已编译 Gateway。Web `built` 复用 Vite preview，限定本机 loopback，不是公开部署服务器。脚本不会自动安装浏览器或进行软件测试。本批仅做静态检查，未完成 Windows 或 Linux 实机整套启停验收。
+Linux/Windows 的 `start desktop built` 仍从源码目录启动，不进入 Electron `app.isPackaged` 分支。它使用本地 Python 环境运行 Core，并启动已编译的 Gateway。Web `built` 使用 Vite preview，只监听本机 loopback，不是公网服务器。
 
-开发安装与命令仅在 [开发指南](../development/DevelopmentGuide.md) 维护。当前没有已核验远程 CI workflow，本文检查项不是 CI 已实施清单。
+脚本不会自动安装浏览器或运行软件测试。脚本调整仅做了静态检查，Windows 和 Linux 实机的整套启停仍未完成验收。
 
-Python 构建与安装统一读取根 `pyproject.toml`，依赖锁定使用根 `uv.lock`；不再从 `python/` 选择另一套分发包。第一批轻量化仅修改入口并更新锁文件，没有执行构建或安装包验收，也没有补齐 runtime bundling。
+开发环境安装与命令以 [开发指南](../development/DevelopmentGuide.md) 为准。目前没有已核验的远程 CI workflow，不要把本文检查项当作已经运行的 CI 检查。
+
+Python 构建与安装统一读取根目录的 `pyproject.toml`，依赖锁定使用根目录的 `uv.lock`，不从 `python/` 安装另一套分发包。第一批轻量化只修改了入口和锁文件，当时没有执行构建或安装包验收，也没有完成 runtime bundling。
 
 ## 2. 个人桌面发布闭环
 
-默认工作区为安装根目录下的 `.workspace`，不得落入 `app.asar`、AppImage 挂载点或 macOS 签名包内部。启动器将安装根目录传给 Core/Gateway；安装位置不可写时明确失败，可显式设置 `MAIGOKITE_WORKSPACE_ROOT`，不自动换目录或提权。源码已接线，仍须纳入各平台安装/升级/卸载验收；升级和卸载不能自动删除其中的用户文件。详细路径和覆盖规则见 [配置指南](../user-guide/Configuration.md#默认工作区)。
+默认工作区位于安装根目录下的 `.workspace`，不得放入 `app.asar`、AppImage 挂载点或 macOS 签名包内部。启动器会把安装根目录传给 Core/Gateway。安装位置不可写时会报错，不会自动换目录或提权；可显式设置 `MAIGOKITE_WORKSPACE_ROOT` 指定可写位置。
+
+源码已接入上述路径处理，但各平台的安装、升级和卸载仍须验收。升级或卸载不能自动删除工作区中的用户文件。详细路径和覆盖规则见 [配置指南](../user-guide/Configuration.md#默认工作区)。
 
 ```text
 确定目标平台与版本
@@ -50,30 +54,30 @@ Python 构建与安装统一读取根 `pyproject.toml`，依赖锁定使用根 `
 - [ ] 敏感凭证不进入制品、普通配置、数据库或日志；导出内容已脱敏。
 - [ ] 版本、Changelog、制品校验信息和验证记录一致。
 
-运行代码存在或 electron-builder 成功不等于以上门禁通过。完整发布阻塞状态只在 [交付路线与状态](../project/Roadmap.md) 跟踪。
+代码存在或 electron-builder 执行成功，都不代表以上检查已通过。发布阻塞项统一在 [交付路线与状态](../project/Roadmap.md) 中跟踪。
 
 ## 3. 最小质量门
 
-场景由 [测试与验收](../testing/TestPlan.md) 定义，执行命令由 DevelopmentGuide 定义。至少包括适用的静态检查/type、Go/Python/Vue 测试、协议兼容、授权安全、数据库升级、真实进程恢复与桌面 package-smoke。
+验收场景见 [测试与验收](../testing/TestPlan.md)，执行命令见 DevelopmentGuide。至少覆盖适用的静态检查/type、Go/Python/Vue 测试、协议兼容、授权安全、数据库升级、真实进程恢复和桌面 package-smoke。
 
-缺少工具、凭证或平台时写明未运行/跳过，不标通过。模型提供方验收分别记录 PROTOCOL、LIVE 和 UNVERIFIED；真实缓存收益与成本不能从模拟服务推断。逐步复用现成 CI，不为个人项目建设发布平台或要求值班系统。
+缺少工具、凭证或平台时，须标记未运行/跳过，不能标记通过。模型提供方验收分别记录 PROTOCOL、LIVE 和 UNVERIFIED；不能根据模拟服务推断真实缓存收益和成本。优先复用现成 CI，不为个人项目另建发布平台或值班系统。
 
 ## 4. 配置与数据升级
 
-使用当前配置方式，不为发布另造配置 Schema。敏感凭证留在 OS 凭证存储；用户路径和业务数据不能写入不可变应用资源目录。活动运行实例关闭后才能安全退出/更换其资源。
+沿用现有配置方式，不为发布单独创建配置 Schema。敏感凭证保存在 OS 凭证存储中；用户路径和业务数据不能写入不可变的应用资源目录。退出或替换运行资源前，须先关闭使用这些资源的活动实例。
 
-当前 Repository 是启动时兼容升级，不是 Alembic 或单独 Migration Job。发布前用受支持旧库副本验证，再留一致性恢复点；备份边界见 [备份与恢复](../ops-security/Backup.md)。业务库、检查点、文件和凭证不能假定一次复制就形成全局原子快照。
+Repository 在启动时执行兼容升级，不使用 Alembic 或独立 Migration Job。发布前须用受支持的旧库副本验证，并保留一致性恢复点；备份要求见 [备份与恢复](../ops-security/Backup.md)。一次复制业务库、检查点、文件和凭证，不保证得到全局原子快照。
 
 ## 5. 回滚与诊断
 
-保留上一稳定制品及适用的数据兼容说明。升级后数据库格式若不兼容旧版，不能直接降级程序；先恢复副本演练或做明确的向前兼容修复。
+保留上一稳定制品及其数据兼容说明。如果升级后的数据库格式不兼容旧版，不能直接降级程序；须先恢复副本做演练，或明确修复向前兼容问题。
 
-诊断查 [日志与诊断](../ops-security/Observability.md)，发布说明写实际功能，不把规划中页面、空壳工作流或未验收运行时当成已交付。回滚不能恢复已撤销的权限/凭证，也不能撤销已发生的工具副作用。
+排查方法见 [日志与诊断](../ops-security/Observability.md)。发布说明只写实际功能，不能把规划中页面、空壳工作流或未验收运行时列为已交付。回滚不能恢复已撤销的权限或凭证，也不能撤销工具已经产生的副作用。
 
 ## 6. 历史容器与未来远程访问
 
-根 Compose/Dockerfile 有历史残留，当前没有完成服务边界、health、端口和制品对齐，不能作为已支持的部署方式。不继续维护另一份目标 Compose 示例，避免与实际配置分叉。
+根目录的 Compose/Dockerfile 是历史配置，服务边界、health、端口和制品尚未对齐，不能用于声明支持 Docker 部署。不要另行维护一份目标 Compose 示例，以免它与实际配置不一致。
 
-若未来有具体容器需求，再修复构建上下文、非 root、敏感凭证、仅网关公开、gRPC health、数据一致性和进程关闭，并通过真实容器 E2E。PostgreSQL、多副本 lease、Kubernetes 不是个人桌面发布前提。
+未来如需容器部署，再处理构建上下文、非 root 运行、敏感凭证、仅公开网关、gRPC health、数据一致性和进程关闭，并通过真实容器 E2E。个人桌面发布不要求 PostgreSQL、多副本 lease 或 Kubernetes。
 
-手机远程访问在 [手机远程访问](../design/RemoteAccess.md) 单独定义；必须完成设备配对和受保护入口，不能通过部署旧 Compose 或公开 loopback 端口“实现”。
+手机远程访问的设计见 [手机远程访问](../design/RemoteAccess.md)。交付前必须完成设备配对和受保护的入口；部署旧 Compose 或公开 loopback 端口不能替代这些要求。

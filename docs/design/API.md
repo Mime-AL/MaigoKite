@@ -301,7 +301,7 @@ POST 接口为用户显式文件操作，限工作区所有者；不作为 Agent
 
 首版恢复只接受保留的 checkpoint 中工具调用均为 `file_read / file_write` 的任务，以及这两种直接 `/tool` 命令。保留历史若包含旧回合的其他工具也会保守拒绝；命令、Browser、MCP 等不自动重放。恢复不等于重新授权：未批准的调用仍暂停等待，已批准的调用仍核对当前策略及审批 hash/version。文件内容匹配时可零写入核对；不同内容可能被再次覆盖，接口不提供外部编辑冲突保护、回滚或 exactly-once 保证。调用者应先检查目标文件，确认重放意图。
 
-接受事件 `task.resumed` 使用既有 AgentEvent DTO 和持久 event_id/sequence/occurred_at，payload 包含 `execution_resumed: true` 与本次 `trace_id`。Gateway 收到该请求的确认才返回 202，后续事件透传原 WS 通道；并发拒绝请求不会冒领其他恢复请求的事件。执行与订阅分离：断线不取消；用户停止与 Core shutdown 都取消并等待同一根任务。UI 不接触 checkpoint/continuation，不新增前端状态机。当前批次只补后端接口与样例，验收状态见 [Runtime 迁移记录](../development/RuntimeMigration.md)。
+接受事件 `task.resumed` 使用既有 AgentEvent DTO 和持久 event_id/sequence/occurred_at，payload 包含 `execution_resumed: true` 与本次 `trace_id`。Gateway 收到该请求的确认才返回 202，后续事件透传原 WS 通道；并发拒绝请求不会冒领其他恢复请求的事件。执行与订阅分离：断线不取消；用户停止与 Core shutdown 都取消并等待同一根任务。UI 不接触 checkpoint/continuation，不新增前端状态机。当前批次只补后端接口与样例，验收状态见 [交付路线与状态](../project/Roadmap.md)。
 
 **任务详情。** `tool_calls` 返回工具名、参数、结果、状态和时间；不暴露 checkpoint、运行时对象或 `continuation_json`。
 `projection` 包含 `plan / context / changes / summary / questions / usage / truncated`；问题包含 `options` 数组和已保存回答。快照在同一 Repository 锁内读取。最多 50 条工具调用、50 条审批和最近 100 条相关事件；工具结果、审批、文件差异与问题另外共用约 900 KB 的输出预算，过大条目省略并标记 `truncated`。`usage` 独立汇总该任务全部已保存的用量事件，不受最近 100 条活动限制；按 purpose 返回 `calls / failed_calls / reported_calls / tokens`，另有 `compactions`。它仅汇总已有回执，不将缺失字段填零，不计算价格；cached/reasoning 不额外加到总 token。`last_sequence` 是该任务的事件水位，不是整个会话所有任务的完整快照水位。截断时应补读既有事件历史，不能将省略的内容判为不存在。
@@ -435,7 +435,7 @@ file.changed
 
 客户端收到 `stream.ready` 后才通过 REST `events/history?after=` 连续分页重放（每页最多 1000 条），期间缓冲实时事件；回放成功再释放缓冲。历史游标只由已确认的 HTTP 历史推进，不能用较新的实时序号或会话快照跳过活动历史。补拉失败则重连，不先释放越过缺口的实时事件；注册确认超过 10 秒同样重连。慢订阅者被断开后沿用这一恢复路径。
 
-这提供“注册屏障 → 历史补拉 → 实时缓冲”的衔接，不是跨数据库/WebSocket 原子事务或新的 Event Sourcing。Core 持久日志是事件身份的唯一来源；Gateway 不再为缺身份的错误或业务事件发明 ID/序列，转发异常只触发重连。Gateway 与 Web 需一起更新，旧 Gateway 不会发送注册确认。后端注册顺序、身份保持和超过 1000 条历史的定向证据见 [迁移记录](../development/RuntimeMigration.md)；本次不包含浏览器 GUI E2E。
+这提供“注册屏障 → 历史补拉 → 实时缓冲”的衔接，不是跨数据库/WebSocket 原子事务或新的 Event Sourcing。Core 持久日志是事件身份的唯一来源；Gateway 不再为缺身份的错误或业务事件发明 ID/序列，转发异常只触发重连。Gateway 与 Web 需一起更新，旧 Gateway 不会发送注册确认。后端注册顺序、身份保持和超过 1000 条历史的定向验收范围见 [交付路线与状态](../project/Roadmap.md)；本次不包含浏览器 GUI E2E。
 
 ## 7. 错误模型
 

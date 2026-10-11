@@ -16,7 +16,7 @@ Gateway REST/WS → Core gRPC → AgentCore 产品组合根
 普通聊天、显式 `/tool`、批准/回答续接、停止和受限文件任务恢复均走该路径。旧 Loop、
 ExecutionEngine、TaskManager、IChatProvider/ChatAdapter 和执行后端开关已删除，不支持回退。
 2026-10-10 按用户要求先完成源码切换，随后获准补做前四批定向后端验收；实际范围与结果见
-[迁移记录](../development/RuntimeMigration.md)，不外推为全量发布验收。
+[交付路线与状态](../project/Roadmap.md)，不外推为全量发布验收。
 
 生产适配层只承担四类桥接代码：运行调用、界面事件映射、审批桥接、产品持久投影。模型协议、工具调度、检查点、暂停恢复和上下文摘要优先复用成熟组件，不在适配层内重建状态机、续接数据、事件总线或插件框架。
 
@@ -265,7 +265,7 @@ LangGraph 恢复是至少执行一次（at-least-once），不保证工具恰好
 
 审批后尚未执行、写入已发生但 ToolMessage/检查点未提交两类崩溃点均须保留真实测试，不能用投影成功掩盖重放行为。
 
-2026-10-10 的获准定向验收已通过上述两个真实 Core 进程崩溃点，以及单项/部分审批后的重启。进程样例仍调用既有恢复路径，最新收口另验收 Gateway 的公开 ResumeTask 转发及版本/归属/资格拒绝。具体范围、首次失败与修复、最新通过记录唯一来源为 [迁移说明](../development/RuntimeMigration.md)。本地模拟 Provider 不算 Live，后端回归不代替 GUI 操作验收。
+2026-10-10 的获准定向验收已通过上述两个真实 Core 进程崩溃点，以及单项/部分审批后的重启。进程样例仍调用既有恢复路径，最新收口另验收 Gateway 的公开 ResumeTask 转发及版本/归属/资格拒绝。公开的验收范围与未完成项见 [交付路线与状态](../project/Roadmap.md)。本地模拟 Provider 不算 Live，后端回归不代替 GUI 操作验收。
 
 验证入口见 [测试与验收](../testing/TestPlan.md)。现有重点文件：
 

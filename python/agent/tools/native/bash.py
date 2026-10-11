@@ -1,7 +1,8 @@
-"""Command execution without shell expansion; BashTool is a legacy alias."""
+"""Native command execution, including PowerShell; BashTool is a legacy alias."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,8 +19,20 @@ class BashParams(BaseModel):
         min_length=1,
         max_length=8_192,
         description=(
-            "The command to execute without shell expansion. Run concise, targeted "
-            "commands rather than long multi-step pipelines."
+            "Command text: auto uses PowerShell on Windows, direct argv elsewhere. "
+            "For PowerShell pass the original script, not pwsh -Command or Base64. "
+            "Use concise commands; file_read/file_write avoid shell file-encoding differences."
+        ),
+    )
+    shell: Literal["auto", "direct", "powershell", "pwsh"] = Field(
+        default="auto",
+        description=(
+            "auto: Windows prefers PowerShell 7 then Windows PowerShell 5.1; other OSes use direct. "
+            "powershell: Windows 5.1 only; pwsh: 7+ only (no fallback). "
+            "direct: legacy POSIX-quoted argv, no shell expansion; not Windows command-line syntax. "
+            "Scripts receive/send UTF-8 text; native programs with other encodings need explicit handling. "
+            "File encoding is separate: 5.1 -Encoding UTF8 writes a BOM; 7 writes no BOM. "
+            "Do not use utf8NoBOM in 5.1; prefer file_read/file_write."
         ),
     )
     timeout: int = Field(
@@ -42,7 +55,10 @@ class BashParams(BaseModel):
 
 
 BASH_DESCRIPTION = (
-    "Execute argv without shell expansion. Normal commands use a workspace process sandbox with no network. "
+    "Execute a command using the selected shell. PowerShell supports Chinese text, variables and pipelines. "
+    "Direct argv has no shell expansion. Linux restricted commands use a workspace sandbox with no network. "
+    "Windows has no restricted process sandbox: explicitly request require_escalated plus network_access, "
+    "or use user-enabled full access; never silently fall back to host execution. "
     "Request network_access for networking within the sandbox, or require_escalated plus network_access for host execution; policy decides approval. "
     "Returns bounded stdout/stderr, exit code and log paths. Use file_read with offset to inspect more output."
 )
@@ -55,7 +71,8 @@ class ExecCommandTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return BASH_DESCRIPTION
+        host = "Windows (auto selects PowerShell)" if os.name == "nt" else "non-Windows (auto selects direct argv)"
+        return f"{BASH_DESCRIPTION} Current host: {host}."
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
@@ -87,10 +104,14 @@ class ExecCommandTool(BaseTool):
             result = await executor.execute_command(
                 str(arguments["command"]), int(arguments.get("timeout", 30)), on_spawn=on_spawn, on_exit=on_exit,
                 interactive=bool(arguments.get("interactive", False)),
+                shell=str(arguments.get("shell", "auto")),
             )
         except SandboxUnavailableError as exc:
             return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
-                                      user_hint="受限命令需要可用的系统沙箱。请安装或启用 bubblewrap；也可单次批准明确的沙箱外执行请求。")
+                                      user_hint="Windows/macOS 暂无受限进程沙箱；Linux 需要 bubblewrap。可审批明确的沙箱外执行请求（包含网络权限），不会自动放行。")
+        except FileNotFoundError as exc:
+            return ToolResult.failure({}, str(exc), error_code="COMMAND_UNAVAILABLE",
+                                      user_hint="请检查程序安装和 PATH。pwsh 需要 PowerShell 7；powershell 指 Windows PowerShell 5.1。")
 
         parts = [f"Exit code {result.exit_code}"]
         if result.timed_out:
@@ -108,6 +129,10 @@ class ExecCommandTool(BaseTool):
                 "sandboxed": result.sandboxed,
                 "stdout_path": result.stdout_path,
                 "stderr_path": result.stderr_path,
+                "shell": result.shell,
+                "executable": result.executable,
+                "expected_text_encoding": "utf-8",
+                "output_decoding_errors": result.output_decoding_errors,
             },
             summary="; ".join(parts),
             raw=result.stdout or result.stderr or "",
@@ -118,6 +143,8 @@ class ExecCommandTool(BaseTool):
                 "sandboxed": result.sandboxed,
             },
             success=result.exit_code == 0 and not result.timed_out,
+            user_hint=("外部程序输出包含非 UTF-8 字节；预览可能乱码，原始日志已保留。请显式配置该程序的输出编码。"
+                       if result.output_decoding_errors else None),
             error_code=("COMMAND_TIMEOUT" if result.timed_out else "COMMAND_FAILED")
             if result.exit_code != 0 or result.timed_out else None,
         )

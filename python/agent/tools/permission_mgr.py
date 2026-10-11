@@ -5,6 +5,7 @@ Approval receipts remain in the existing product Repository.
 """
 
 from __future__ import annotations
+
 import re
 import shlex
 from copy import copy
@@ -13,8 +14,10 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
-from agent.security.whitelist import Whitelist
+
 from agent.security.sensitive_paths import is_sensitive_path
+from agent.security.whitelist import Whitelist
+from agent.utils.command_shell import resolve_command_shell
 
 
 class RiskLevel(IntEnum):
@@ -199,17 +202,34 @@ class PermissionManager:
             if normalized.get("interactive"):
                 risk = RiskLevel.L5
             command = str(normalized.get("command", ""))
+            try:
+                shell = resolve_command_shell(str(normalized.get("shell", "auto")))
+            except ValueError as exc:
+                return PolicyDecision("deny", RiskLevel.L5, str(exc), normalized)
+            # Approval covers the original script AND the resolved dialect.
+            # Never store an encoded transport string as the approved command.
+            normalized["shell"] = shell
+            is_script = shell != "direct"
+            if is_script:
+                risk = RiskLevel.L5
+            if not command.strip() or "\x00" in command:
+                return PolicyDecision("deny", RiskLevel.L5, "command must be non-empty text without NUL", normalized)
             if (self._configured_deny and self._configured_deny.search(command)) or (
                 not unrestricted and self._hard_deny.search(command)
             ):
                 return PolicyDecision("deny", RiskLevel.L5, "command matches hard-deny policy", normalized)
-            if self.allowlist and self.allowlist.restricts_commands and not self.allowlist.is_command_allowed(command):
+            if self.allowlist and self.allowlist.restricts_commands and not self.allowlist.is_command_allowed(
+                command, script=is_script,
+            ):
                 return PolicyDecision("deny", RiskLevel.L5, "command is not in the configured allowlist", normalized)
             try:
-                parts = shlex.split(command)
+                # PowerShell owns script parsing. Treat it as opaque and require
+                # one-shot review; parsing it as argv loses backslashes/quotes
+                # and would give false path/prefix safety guarantees.
+                parts = [] if is_script else shlex.split(command)
             except ValueError:
                 return PolicyDecision("deny", RiskLevel.L5, "command has invalid quoting", normalized)
-            if not parts:
+            if not is_script and not parts:
                 return PolicyDecision("deny", RiskLevel.L5, "command must not be empty", normalized)
             # Check even bare filenames (cat .env / cat credentials.json), and
             # resolve relative operands from the actual command working directory.
@@ -226,7 +246,7 @@ class PermissionManager:
                     candidate = command_dir / candidate
                 if not unrestricted and (is_sensitive_path(candidate) or is_sensitive_path(candidate.resolve())):
                     return PolicyDecision("deny", RiskLevel.L5, "command addresses a protected credential path", normalized)
-            executable = Path(parts[0]).name
+            executable = shell if is_script else Path(parts[0]).name
             # Normal workspace commands rely on a real process sandbox, not a
             # growing list of trusted interpreters. Legacy workspace_auto keeps
             # its old, narrower command admission until explicitly changed.
@@ -347,7 +367,7 @@ class PermissionManager:
             if name == "browser":
                 operation["action"] = "open"
         elif name in {"bash", "exec_command"} and risk <= RiskLevel.L3:
-            operation = {"argv": shlex.split(args["command"]), "workdir": args["workdir"]}
+            operation = {"argv": shlex.split(args["command"]), "workdir": args["workdir"], "shell": args["shell"]}
         else:
             return None
         return {"policy_version": 2, "tool": name, "workspace_root": str(self.workspace_root),

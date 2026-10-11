@@ -47,7 +47,7 @@ flowchart LR
 - 手机消费现有 REST 和 界面事件 DTO，不连接 gRPC、不持有模型提供方敏感凭证、不运行第二套智能体主循环。
 - 运行时恢复依据主机检查点；会话、审批和 UI 查询使用主机产品投影。移动端不同步 SQLite/检查点，不建立双主状态。
 - 用户身份仍是同一个个人主体；设备身份单独用于配对、撤销和访问审计。现有 `workspace_id`、`principal_id` 保留，不能用客户端提交的主体冒充认证。
-- 手机接入复用唯一 LangGraph Runtime，不扩展当前工具覆盖范围；迁移状态见 [运行时迁移说明](../development/RuntimeMigration.md)。
+- 手机接入复用唯一 LangGraph Runtime，不扩展当前工具覆盖范围；执行边界见 [智能体运行时设计](AgentRuntime.md)。
 
 ### 成熟实现选择
 

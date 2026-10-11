@@ -40,7 +40,11 @@ class Whitelist:
     def add_command_prefix(self, prefix: str) -> None:
         self._command_prefixes.add(prefix.strip())
 
-    def is_command_allowed(self, command: str) -> bool:
+    def is_command_allowed(self, command: str, *, script: bool = False) -> bool:
+        # A script beginning with an allowed executable may run arbitrary later
+        # statements. Do not apply argv prefix rules or a POSIX parser to it.
+        if script:
+            return command.strip() in self._command_prefixes
         try:
             parts = shlex.split(command)
         except ValueError:

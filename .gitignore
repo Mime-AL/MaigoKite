@@ -21,6 +21,12 @@ build/
 # Local image-generation prompts
 /web/public/brand/*.prompt.txt
 
+# Local historical requirements and internal delivery records
+/prd.md
+/project.md
+/docs/design/inkline-final-review.md
+/docs/development/RuntimeMigration.md
+
 # Python cache
 __pycache__/
 *.pyc

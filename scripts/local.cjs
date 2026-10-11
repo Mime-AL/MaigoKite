@@ -2,7 +2,7 @@
 // Shared source-tree entry point. Bash/PowerShell wrappers only forward arguments.
 // Process fan-out and failure propagation use concurrently, not a custom supervisor.
 const { spawn, spawnSync } = require('node:child_process')
-const { existsSync, mkdirSync } = require('node:fs')
+const { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync } = require('node:fs')
 const { createRequire } = require('node:module')
 const net = require('node:net')
 const os = require('node:os')
@@ -101,19 +101,93 @@ function needWebDependencies() {
   needFile(path.join(web, 'node_modules/concurrently/package.json'))
 }
 
+function needElectron() {
+  try {
+    const executable = requireWeb('electron')
+    const info = statSync(executable)
+    if (!info.isFile() || !info.size) throw new Error(`Not a non-empty executable: ${executable}`)
+    accessSync(executable, constants.X_OK)
+    // Custom distributions are explicitly owned by the caller. For the npm
+    // installation, also reject stale binaries left over from another version.
+    if (!process.env.ELECTRON_OVERRIDE_DIST_PATH) {
+      const packagePath = requireWeb.resolve('electron/package.json')
+      const expected = requireWeb('electron/package.json').version
+      const installed = readFileSync(path.join(path.dirname(packagePath), 'dist/version'), 'utf8').trim().replace(/^v/, '')
+      if (installed !== expected) throw new Error(`Electron version mismatch: expected ${expected}, found ${installed}`)
+    }
+    return executable
+  } catch (error) {
+    throw new Error([
+      `Electron runtime is missing or incomplete (Node ${process.version}).`,
+      `Cause: ${error.message}`,
+      'Repair from the project root (no Go/Python reinstall):',
+      windows ? '.\\scripts\\setup.ps1 electron' : 'bash scripts/setup.sh electron',
+      'Unset ELECTRON_SKIP_BINARY_DOWNLOAD if set. Rebuilding application code will not install the runtime.',
+      'See docs/development/DevelopmentGuide.md (Electron installation).',
+    ].join('\n'))
+  }
+}
+
+function checkElectronInstallEnvironment() {
+  if (process.env.ELECTRON_SKIP_BINARY_DOWNLOAD) {
+    const command = windows ? 'Remove-Item Env:ELECTRON_SKIP_BINARY_DOWNLOAD' : 'unset ELECTRON_SKIP_BINARY_DOWNLOAD'
+    throw new Error(`Electron installation was disabled. Run: ${command}. Even a value of 0 skips installation.`)
+  }
+  for (const [key, host] of [['npm_config_platform', process.platform], ['npm_config_arch', process.arch]]) {
+    if (process.env[key] && process.env[key] !== host)
+      throw new Error(`Unset ${key}: local desktop dependencies must match this computer (${host}).`)
+  }
+}
+
+function checkGo() {
+  // Let Go resolve its own SDK; do not guess a Conda/Scoop/system installation
+  // or silently override an explicit GOROOT. Use the same cwd/env as the build.
+  const result = spawnSync('go', ['env', 'GOROOT'], {
+    cwd: gateway, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 30_000, maxBuffer: 64 * 1024, windowsHide: true,
+  })
+  const sdk = result.stdout?.trim()
+  const diagnostic = result.stderr?.trim() || result.error?.message || `exit ${result.status}`
+  if (result.error || result.status !== 0 || !sdk) {
+    const commands = windows ? 'where.exe go; $env:GOROOT' : 'command -v go; printenv GOROOT'
+    throw new Error([
+      'Go SDK check failed before building Gateway:', diagnostic,
+      `Inspect the selected Go installation: ${commands}`,
+      'Install/repair the complete Go SDK (https://go.dev/doc/install), not only go.exe.',
+      'If selecting an SDK manually, GOROOT must be its root (not bin or the project); PATH must select that same SDK.',
+    ].join('\n'))
+  }
+  if (!existsSync(path.join(sdk, 'src', 'runtime')) || !existsSync(path.join(sdk, 'pkg', 'tool')))
+    throw new Error(`Incomplete Go SDK at ${sdk}: src/runtime and pkg/tool are required. Repair the Go installation.`)
+  console.info(`[MaigoKite] Go SDK: ${sdk}`)
+}
+
 function buildGateway() {
   const goOS = { win32: 'windows', linux: 'linux', darwin: 'darwin' }[process.platform]
   const goArch = { x64: 'amd64', arm64: 'arm64', ia32: '386' }[process.arch]
   if ((process.env.GOOS && process.env.GOOS !== goOS) || (process.env.GOARCH && process.env.GOARCH !== goArch))
     throw new Error('Local suite builds must target this computer. Unset cross-compilation GOOS/GOARCH overrides.')
+  checkGo()
   mkdirSync(path.dirname(gatewayBinary), { recursive: true })
   run('go', ['build', '-ldflags=-s -w', '-o', gatewayBinary, './cmd/gateway'], gateway,
     { ...process.env, CGO_ENABLED: process.env.CGO_ENABLED || '0' })
 }
 
 function setup() {
-  if (targetArg || modeArg || extra.length) throw new Error('Usage: setup (no arguments)')
-  if (!output('go', ['version'])) throw new Error('Go 1.22+ is required.')
+  if ((targetArg && !['all', 'electron'].includes(targetArg)) || modeArg || extra.length)
+    throw new Error('Usage: setup [all|electron]')
+  checkElectronInstallEnvironment()
+  if (targetArg === 'electron') {
+    // npm applies the checked-in overrides; Electron owns download/checksum/
+    // extraction. Do not invent a second installer or touch Go/Python here.
+    needFile(path.join(web, 'node_modules/electron/package.json'))
+    console.info('[MaigoKite] Repairing Electron: refreshing Web dependencies, then running its official installer.')
+    npm(['install', '--ignore-scripts', '--include=dev', '--engine-strict', '--no-audit', '--no-fund'])
+    npm(['rebuild', 'electron', '--foreground-scripts', '--ignore-scripts=false'])
+    console.info(`[MaigoKite] Electron ready: ${needElectron()}`)
+    return
+  }
+  checkGo()
   run('go', ['mod', 'download'], gateway)
   if (output('uv', ['--version'])) {
     const args = ['sync', '--locked', '--extra', 'dev']
@@ -125,7 +199,8 @@ function setup() {
     if (!probePython(venvPython)) throw new Error('Project Python environment is unusable.')
     run(venvPython, ['-m', 'pip', 'install', '-e', '.[dev]'])
   }
-  npm(['ci'])
+  npm(['ci', '--include=dev', '--engine-strict', '--foreground-scripts', '--ignore-scripts=false'])
+  console.info(`[MaigoKite] Electron ready: ${needElectron()}`)
   console.info('Dependencies installed. Browser tools additionally need: <Core Python> -m playwright install chromium')
 }
 
@@ -142,6 +217,7 @@ function build(target) {
     return
   }
   if (target !== 'go') needWebDependencies()
+  if (['desktop', 'all'].includes(target)) needElectron()
   if (target !== 'vue') buildGateway()
   if (target !== 'go') npm(['run', ['desktop', 'all'].includes(target) ? 'build' : 'build:web'])
   console.info('Build complete. Source-tree output only; Python dependencies are still required (not an installer).')
@@ -161,6 +237,7 @@ async function start(target, mode) {
   if (extra.length || !['web', 'desktop'].includes(target) || !['dev', 'built'].includes(mode))
     throw new Error('Usage: start [web|desktop] [dev|built]')
   needWebDependencies()
+  const electron = target === 'desktop' ? needElectron() : undefined
   // These are real, owned suites; never silently attach to an old Core or use mock UI.
   if (process.env.MAIGOKITE_EXTERNAL_RUNTIME === '1' || process.env.VITE_MOCK === '1')
     throw new Error('Unset MAIGOKITE_EXTERNAL_RUNTIME / VITE_MOCK before starting a complete suite.')
@@ -193,7 +270,7 @@ async function start(target, mode) {
         { name: 'Core', executable: python, args: [path.join(root, 'python/main.py'), 'run', '--config', config, '--port', '8081'], cwd: root },
         { name: 'Gateway', executable: gatewayBinary, args: [], cwd: root },
       ]
-    : [{ name: 'Desktop', executable: requireWeb('electron'), args: [web], cwd: root }]
+    : [{ name: 'Desktop', executable: electron, args: [web], cwd: root }]
   if (target === 'web' || mode === 'dev') specs.push({
     name: 'Web', executable: process.execPath,
     args: ['--require', path.join(__dirname, 'lib/web-owner.cjs'), vite,
@@ -244,10 +321,14 @@ async function start(target, mode) {
 }
 
 async function main() {
-  if (Number(process.versions.node.split('.')[0]) < 18) throw new Error('Node.js 18+ is required.')
+  // Match web/package.json engines (including the locked nopt/abbrev tools).
+  const [major, minor, patch] = process.versions.node.split('.').map(Number)
+  if (!((major === 22 && (minor > 22 || (minor === 22 && patch >= 2))) ||
+        (major === 24 && minor >= 15) || major >= 26))
+    throw new Error(`Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+ is required; found ${process.version}.`)
   if (action === 'setup') setup()
   else if (action === 'build') build(targetArg || 'all')
   else if (action === 'start') await start(targetArg || 'web', modeArg || 'dev')
-  else throw new Error('Usage: node scripts/local.cjs setup | build [web|desktop|all] | start [web|desktop] [dev|built]')
+  else throw new Error('Usage: node scripts/local.cjs setup [all|electron] | build [web|desktop|all] | start [web|desktop] [dev|built]')
 }
 main().catch((error) => { console.error(`[MaigoKite] ${error.message}`); process.exitCode = 1 })

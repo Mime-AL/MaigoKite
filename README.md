@@ -1,192 +1,103 @@
 # MaigoKite
 
-一个本地优先的个人 Agent。
-
-它可以在你的工作区里读写文件、查资料、操作网页，也可以通过 MCP 接入其他工具。你可以选择自己使用的模型，并决定 Agent 能访问什么、哪些操作需要确认。
-
+MaigoKite 是一个运行在你电脑上的个人 Agent。它可以读写工作区文件、查资料、操作网页，也可以通过 MCP 接入其他工具。你选择模型，并决定它能访问什么、哪些操作需要确认。
 
 比如你可以让它：
 
-- 阅读一个工作区，整理里面的 Markdown 和资料
+- 阅读一个文件夹，整理里面的 Markdown 和资料
 - 搜索公开网页，把结果和来源写回文件
 - 修改本地文件，并在界面里查看 diff
-- 操作网页完成一些需要点击、填写或截图的任务
+- 点击网页、填写表单或截图
 - 通过本地 Skill 和 MCP 组合自己的工作流
 
-> 项目仍在开发中。目前推荐从源码运行，Electron 桌面端也处于开发阶段，还没有正式发布的独立安装包。
+项目仍在开发中，提供 Web 和 Electron 桌面入口。暂时需要从源码运行，还没有独立安装包。
 
-## 功能
+## 模型、工具与工作区
 
-### 模型
+支持 OpenAI、Anthropic、Ollama 和 OpenAI-compatible API。可以添加多个模型，设置默认模型，也可以为不同会话选择模型。
 
-目前支持：
+源码启动时，默认工作区是项目根目录下的 `.workspace`，不是源码目录本身。启动时会自动创建它，但不会搬入旧文件。用侧栏加号添加已有文件夹后，可以让 Agent 读写、搜索文件，并在侧栏预览内容、查看 Git diff。
 
-- OpenAI
-- Anthropic
-- Ollama
-- OpenAI-compatible API
+可用 `MAIGOKITE_WORKSPACE_ROOT` 或配置文件的 `workspace.root` 指定其他目录。默认位置不可写时需要手动指定，不会自动换位置。工作区权限与 Agent 的执行权限分开管理；你可以选择只读、工作区访问或完全访问。需要审批的操作会先显示给你确认，界面也会显示工具调用过程。
 
-可以配置多个模型、设置默认模型，也可以在不同会话中切换。
+浏览器工具使用 Playwright，可以点击、填写表单、获取页面快照和截图。它不会自动继承你日常浏览器中的登录状态，使用前需要配置 Chromium。
 
-### 工作区
+从侧栏“扩展”可以管理本地 `SKILL.md` 和 stdio MCP Server。Skill 告诉 Agent 某类任务应该怎么做，本身不会直接执行代码；MCP 用来接入外部工具。保存配置后点击“应用并检查连接”。有任务运行或审批待处理时，需要先处理完，才能应用新配置。
 
-默认工作区为安装目录下的 `.workspace`，启动时自动创建；源码运行时为项目根目录下的 `.workspace`，不再把源码根目录本身当作工作区。
-`MAIGOKITE_WORKSPACE_ROOT` 或配置文件的 `workspace.root` 可覆盖默认路径。安装目录不可写时请显式指定可写目录，不会自动改用其他位置。
-旧文件不会搬动；若要继续操作原目录，请将其添加为文件夹工作区。数据库和凭证的存放位置不变。
-
-侧栏加号用于添加文件夹，点击工作区名称可直接选择，对话按所属工作区分组。
-Electron 使用系统文件夹选择器；本机 Web 版使用应用内目录浏览器，不必手填绝对路径。
-添加的工作区可通过侧栏或工作区列表的删除按钮移除，需二次确认；磁盘文件不动，对话保留并移到默认工作区。
-运行中、等待审批或尚可恢复的任务须先完成或停止。启动配置的默认工作区不可删除。
-Web 浏览的是 Gateway 所在电脑的目录，Gateway 与 Core 需要使用同一文件系统；此入口不开放远程目录浏览。
-会话右侧的 `···` 菜单支持重命名、移动到其他工作区、
-归档/恢复和确认删除；侧栏“归档对话”可查看历史。已有对话保留在默认工作区，不会自动移动。
-
-Agent 可以在指定工作区中：
-
-- 读取文件
-- 写入和编辑文件
-- 搜索文件名和文件内容
-- 预览文件
-- 查看 Git diff
-
-工作区权限和 Agent 的执行权限是分开的，你可以限制它只读，也可以允许它修改文件。
-
-### 浏览器
-
-内置网页相关工具，包括：
-
-- Web 搜索
-- 页面读取
-- Playwright 浏览器操作
-- 点击和填写表单
-- 页面快照
-- 截图
-
-浏览器默认用于公开网页，不会自动继承你浏览器中的登录状态。
-
-### 权限与审批
-
-目前有三种主要权限模式：
-
-- 只读
-- 工作区访问
-- 完全访问
-
-需要审批的操作会先显示给你确认。
-
-界面中也可以查看 Agent 当前调用了哪些工具，并请求停止正在执行的任务。
-
-### Skill 和 MCP
-
-MaigoKite 支持两种扩展方式。
-
-**Skill** 用来告诉 Agent 某类任务应该怎么做。Skill 是本地声明文件，本身不会直接执行其中的代码。
-
-**MCP** 用来接入外部工具。目前支持本地 stdio MCP Server，协议与子进程通信复用官方 SDK。
-
-从侧栏“扩展”进入管理页：添加 MCP 的启动程序、参数和凭证，或导入/编辑 `SKILL.md`、设置本地技能目录。
-保存后点击“应用并检查连接”生效；有运行中的任务或待处理审批时会拒绝应用，不替换它们正在使用的工具。
-Core 重启沿用上次生效配置；“恢复已有连接”可在待审批时重新注入 MCP 凭证，不应用新编辑。批准 MCP 调用前也会尝试恢复所需连接，失败不消费审批。
-配置与实际加载状态分开显示，停用或移除不会删除本地源目录。详细边界见 [配置指南](docs/user-guide/Configuration.md#8-技能与-mcp)。
+工作区管理、权限和扩展设置的具体规则见 [配置指南](docs/user-guide/Configuration.md)。
 
 ## 运行
 
 ### 环境要求
 
-需要：
-
 - Go 1.22+
 - Python 3.11+
-- Node.js 18+ / npm
+- Node.js 22.22.2+（22.x）、24.15.0+（24.x）或 26+ / npm
 - ripgrep (`rg`)
 
-推荐安装 [uv](https://github.com/astral-sh/uv)。
-
-更完整的环境说明见：
-
-[开发指南](docs/development/DevelopmentGuide.md)
+推荐安装 [uv](https://github.com/astral-sh/uv)，以便按锁文件安装 Python 依赖。请在运行应用的机器上安装依赖，不要复制其他机器的 `.venv` 或 `node_modules`。详细环境要求见 [开发指南](docs/development/DevelopmentGuide.md)。
 
 ### Linux
 
-在仓库根目录初始化，然后选择 Web 或桌面，二者不要同时启动：
+在仓库根目录，首次使用时安装依赖，再构建并启动桌面：
 
 ```bash
-bash scripts/setup.sh
-bash scripts/start.sh web            # Web 开发：Core + Gateway + Vite
-# 或：bash scripts/start.sh desktop  # 桌面开发：Electron + Core + Gateway + Vite
+bash scripts/setup.sh                # 首次使用，或更新依赖后执行
+bash scripts/build.sh desktop
+bash scripts/start.sh desktop built
 ```
 
-先构建、后启动已有产物：
+如果只使用 Web，在执行 setup 后改用：
 
 ```bash
-bash scripts/build.sh all            # 也可只选 web 或 desktop
+bash scripts/build.sh web
 bash scripts/start.sh web built
-# 或：bash scripts/start.sh desktop built
 ```
 
 ### Windows
 
-使用 PowerShell，无需 WSL、Bash 或 Make；在仓库根目录：
+使用 PowerShell，在仓库根目录执行，无需 WSL、Bash 或 Make：
 
 ```powershell
-.\scripts\setup.ps1
-.\scripts\start.ps1 web              # 或 desktop
+.\scripts\setup.ps1                  # 首次使用，或更新依赖后执行
+.\scripts\build.ps1 desktop
+.\scripts\start.ps1 desktop built
 ```
 
-先构建、后启动已有产物：
+如果只使用 Web，在执行 setup 后改用：
 
 ```powershell
-.\scripts\build.ps1 all               # 也可只选 web 或 desktop
-.\scripts\start.ps1 desktop built     # 或 web built
+.\scripts\build.ps1 web
+.\scripts\start.ps1 web built
 ```
 
-PowerShell 若按本机策略禁止脚本，可在确认源码可信后使用进程级命令，例如
-`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1 web`，无需永久修改系统执行策略。
+Agent 的命令工具也支持 Windows PowerShell：默认优先使用 PowerShell 7，没有时选择系统 5.1，可显式指定版本。两版的中文命令传输统一处理，但文件编码默认值仍不同。Windows 暂无受限进程沙箱，执行命令需单次明确授权或用户开启完全访问。使用方式与尚待实机验收的边界见[配置指南](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
 
-Web 开发地址为 `http://127.0.0.1:5173`，构建产物本地预览为 `http://127.0.0.1:4173`；Gateway/Core 分别使用 8080/8081。
-桌面 `built` 模式直接加载本地 HTML，不启动 Vite。Web `built` 使用 Vite preview，只用于本机，不是公网生产部署方案。
+Web 和桌面入口二选一，不要同时启动。日常使用只需执行最后一条启动命令，不用每次重装或构建。修改源码后重新构建；需要热更新开发时，省略 `built`，使用 `start.sh web|desktop` 或 `start.ps1 web|desktop`。
 
-两平台共用 `scripts/local.cjs`，所有命令均不依赖 Makefile。`setup` 默认安装到根 `.venv`，也支持 `UV_PROJECT_ENVIRONMENT`；优先复用 uv 锁文件，没有 uv 时使用 pip。
-Core 解释器选择顺序为 `MAIGOKITE_PYTHON` → 项目环境 → 已激活环境 → uv → 系统 Python / Windows `py -3`，无效的显式覆盖直接报错。
-开发启动会先编译 Gateway（桌面还编译 Electron）；`built` 不自动编译，缺少产物会明确报错。两者默认使用 `config/config.dev.yaml` 和同一份开发数据，可用 `MAIGOKITE_CONFIG` 指定配置，端口仍需保持上述约定。
+Web `built` 地址为 `http://127.0.0.1:4173`，开发模式地址为 `http://127.0.0.1:5173`。桌面 `built` 直接打开本地界面。两种入口都只用于本机，不要直接把端口暴露到公网。
 
-`Ctrl+C` 停止本次启动的整套服务；任一组件失败也会停止其余组件。关闭浏览器标签页不会停止服务。桌面关闭窗口隐藏到托盘，托盘“退出”才停止整套服务。
-启动器通过持有的管道通知 Core/Gateway 退出，正常退出先等待清理，再对超时的自有进程强制结束；不会按进程名清理其他实例。端口占用时直接报错，不会连接旧 Core。**请先退出旧启动方式遗留的实例再运行新入口。**
+`Ctrl+C` 停止本次启动的整套服务。关闭浏览器标签页不会停止服务；桌面关闭窗口会隐藏到托盘，用托盘“退出”关闭整套服务。若提示端口占用，请先退出旧实例；脚本不会替你结束其他进程或连接旧 Core。
 
-这些是源码构建/启动脚本：仍需本机 Python 环境、Node 和项目依赖，不是自带 Runtime 的安装包。具体限制见 [构建与发布指南](docs/deployment/ReleaseGuide.md)。
+如果 Electron 报 `Electron failed to install correctly`，先更新仓库，再运行 `bash scripts/setup.sh electron`；Windows 使用 `.\scripts\setup.ps1 electron`。无需重装 Go/Python 或反复构建。原因及处理步骤见 [开发指南](docs/development/DevelopmentGuide.md#electron-installation编译成功但运行时缺失)。
+
+这些命令仍依赖本机开发环境，不会生成自带 Python 等运行资源的独立安装包。发布限制见 [构建与发布指南](docs/deployment/ReleaseGuide.md)。
 
 ### 浏览器工具
 
-浏览器工具需要 Chromium。
-
-可以安装 Playwright Chromium，也可以在配置中指定：
+浏览器工具需要 Chromium。可以安装 Playwright Chromium，也可以在配置中指定已有 Chrome / Chromium 的可执行文件：
 
 ```text
 browser.executable_path
 ```
 
-默认留空，使用 Playwright 管理的 Chromium，不再假定本机安装了某个固定路径的 Chrome。使用已有 Chrome / Chromium 时，填写该机器上真实的可执行文件路径。
-
-详细配置见：
-
-[配置指南](docs/user-guide/Configuration.md)
+默认留空时使用 Playwright 管理的 Chromium，不会自动寻找固定路径的 Chrome。安装与配置见 [开发指南](docs/development/DevelopmentGuide.md#路径与解释器) 和 [配置指南](docs/user-guide/Configuration.md)。
 
 ## 第一次使用
 
-启动后，先到 **设置 → 模型** 添加一个模型服务。
+启动后，先到 **设置 → 模型** 添加模型服务。填写 API 地址、模型 ID，以及服务要求的 API Key。测试连接后保存，选择默认模型，再确认工作区路径和权限模式。
 
-需要填写的内容通常包括：
-
-- API 地址
-- 模型 ID
-- API Key（如果需要）
-
-测试连接后保存，并选择一个默认模型。
-
-然后确认工作区路径和权限模式，就可以直接开始使用。
-
-例如：
+例如，将本项目目录添加为工作区后，可以输入：
 
 ```text
 读取 README.md，告诉我这个项目现在主要在做什么。
@@ -198,54 +109,35 @@ browser.executable_path
 查一下这个项目依赖的几个库最近有什么重要变化，把结果整理到 notes.md。
 ```
 
-不同模型对 Tool Calling 的支持情况不同。API 可以正常连接，并不一定意味着这个模型能够完整运行 Agent 工具。
+不同模型对 Tool Calling 的支持不同。API 能连接，并不一定意味着这个模型能完成工具调用。
 
 ## 数据
 
-MaigoKite 会把会话、任务、审批和运行事件保存在本地 SQLite 中。
+会话、任务、审批和运行事件保存在本地 SQLite 中。API Key 使用操作系统凭证存储，普通配置接口不会返回明文密钥。
 
-模型请求是否离开本机，取决于你配置的模型服务。
-
-例如：
+“本地优先”不等于离线运行：
 
 - Ollama 可以完全运行在本机
 - OpenAI / Anthropic 等服务会向对应 API 发送模型请求
 - Web 搜索会访问配置的搜索服务
 - MCP 是否访问网络取决于对应 MCP Server
 
-所以这里的“本地优先”主要指数据、工作区和 Agent 控制权留在你自己的环境里，而不是强制所有组件离线运行。
-
-API Key 使用操作系统凭证存储，普通配置接口不会返回明文密钥。
-
-项目统一使用 **MaigoKite** 标识：数据目录为 `~/.maigokite`，环境变量前缀为
-`MAIGOKITE_`，Python 命令为 `maigokite-agent`，不保留旧名称别名或自动迁移。
-Go 使用本地模块路径 `maigokite/gateway`，不依赖 GitHub 仓库地址。
-项目文件夹可自行改名；历史快照仅保留旧设计，不作为当前配置依据。
+数据目录为 `~/.maigokite`，环境变量使用 `MAIGOKITE_` 前缀，Python 命令为 `maigokite-agent`。旧名称不提供别名或自动迁移；项目文件夹可以自行改名。
 
 ## 当前状态
 
-项目还没有进入稳定发布阶段。
+项目还没有进入稳定发布阶段。使用前请留意这些限制：
 
-执行内核统一使用 LangChain `create_agent` + LangGraph；普通聊天、`/tool`、审批、
-提问、取消和文件任务恢复共用这一条路径。旧 Runtime 和切换开关已移除，无需额外启用。
-
-历史聊天、任务和审批数据保留；没有 LangGraph checkpoint 的历史待审批任务不能继续执行，
-可以拒绝或取消，再发起新任务。当前切换按要求暂未运行回归，不代表已经完成发布验收。
-
-变更与历史验证记录：[RuntimeMigration.md](docs/development/RuntimeMigration.md)
-
-目前还有一些已知限制：
-
-- 单 Runtime 切换和新 UI 尚待后续回归验证
-- 任务停止和恢复不是所有情况下都能继续原来的执行位置
+- 新执行内核和新 UI 仍有待回归验证的部分
+- 任务停止或失败后，不是所有情况都能从原位置恢复
 - 远程 MCP 操作不一定能被本地取消立即终止
 - 浏览器会话不能跨 Core 重启恢复
-- Memory 目前主要是手工管理，还没有自动检索并注入会话
-- 子 Agent、持久工作流和手机远程访问还没有完成
+- Memory 主要用于手工管理，还没有自动检索并注入会话
+- 子 Agent、持久工作流和手机远程访问还没有完整交付
 
-当前进度以这里为准：
+历史聊天、任务和审批数据会保留，但缺少 LangGraph checkpoint 的历史待审批任务不能继续执行。可以拒绝或取消，再发起新任务。
 
-[Roadmap.md](docs/project/Roadmap.md)
+功能进度见 [Roadmap](docs/project/Roadmap.md)，变更记录见 [更新日志](docs/project/Changelog.md)。源码可运行不代表已经通过发布验收。
 
 ## 项目结构
 
@@ -270,34 +162,13 @@ bash scripts/run_tests.sh
 bash scripts/build.sh all
 ```
 
-开发环境和项目结构见：
+开发环境、协议生成和贡献约束见 [开发指南](docs/development/DevelopmentGuide.md)；测试范围见 [测试与验收](docs/testing/TestPlan.md)。
 
-[DevelopmentGuide.md](docs/development/DevelopmentGuide.md)
-
-测试范围见：
-
-[TestPlan.md](docs/testing/TestPlan.md)
-
-桌面构建和发布状态见：
-
-[ReleaseGuide.md](docs/deployment/ReleaseGuide.md)
-
-如果准备提交 Issue 或 PR，尽量附上复现步骤、实际行为、预期行为和必要的脱敏日志。
-
-不要提交 API Key、个人数据、运行数据库或构建产物。
+提交 Issue 或 PR 时，请附上复现步骤、实际行为、预期行为和必要的脱敏日志。不要提交 API Key、个人数据、运行数据库或构建产物。
 
 ## 文档
 
-- [文档索引](docs/README.md)
-- [Roadmap](docs/project/Roadmap.md)
-- [系统设计](docs/design/SystemDesign.md)
-- [Agent Runtime](docs/design/AgentRuntime.md)
-- [前端设计](docs/design/FrontendDesign.md)
-- [UI 设计](docs/design/agent-ui-design.md)
-- [MCP](docs/agent-capabilities/mcp/mcp-integration.md)
-- [日志与诊断](docs/ops-security/Observability.md)
-
-根目录中的 `prd.md` 和 `project.md` 是早期设计材料，部分内容已经过时。
+模型、权限、工作区和扩展设置见 [配置指南](docs/user-guide/Configuration.md)。遇到问题可查看 [安装与首次使用](docs/user-guide/Installation.md) 和 [日志与诊断](docs/ops-security/Observability.md)。架构与其他文档从 [文档索引](docs/README.md) 进入。
 
 ## License
 
