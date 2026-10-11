@@ -14,6 +14,7 @@ import { presentationNodes, pendingItem, pendingOrder } from '@/utils/rail-prese
 import { remainingMessages } from '@/stores/session-projection'
 import { revealRailNode } from '@/utils/rail-navigation'
 import { pickMygoQuote } from '@/config/mygo-quotes'
+import { paperLight, takeWelcomeIntroduction } from '@/utils/welcome-presentation'
 import { api, type PermissionMode, type ResponseMode } from '@/api/client'
 import UserMessage from '@/components/chat-area/UserMessage.vue'
 import AgentMessage from '@/components/chat-area/AgentMessage.vue'
@@ -24,6 +25,7 @@ import InkLoader from '@/components/common/InkLoader.vue'
 import WelcomeSheet from '@/components/chat-area/WelcomeSheet.vue'
 import PendingReminder from '@/components/chat-area/PendingReminder.vue'
 import QueuedMessages from '@/components/chat-area/QueuedMessages.vue'
+import AppIcon from '@/components/common/AppIcon.vue'
 const route = useRoute(),
   router = useRouter(),
   session = useSessionStore(),
@@ -85,12 +87,18 @@ function loadEarlier() {
       void session.refreshTaskDetails(sessionId.value, item.turn.id)
 }
 const welcomeQuote = ref('')
+const firstWelcome = ref(false)
+const lightPeriod = ref(paperLight(new Date().getHours()))
 // Route reuse includes newly created empty sessions. Typing and stream updates
 // must not reroll a quote while the same welcome screen is visible.
 watch(
   () => (timeline.value.length ? null : sessionId.value),
   (id) => {
-    if (id !== null) welcomeQuote.value = pickMygoQuote()
+    if (id !== null) {
+      welcomeQuote.value = pickMygoQuote()
+      firstWelcome.value = takeWelcomeIntroduction()
+      lightPeriod.value = paperLight(new Date().getHours())
+    }
   },
   { immediate: true },
 )
@@ -120,7 +128,7 @@ const { following, onScroll, resume } = useAutoFollow(scroll, () => {
     turn?.timeline.length,
     turn?.steps[turn.steps.length - 1]?.status,
     turn?.status,
-    turn?.inputs?.map(input => `${input.id}:${input.status}`).join(','),
+    turn?.inputs?.map((input) => `${input.id}:${input.status}`).join(','),
   ].join('|')
 })
 const greeting = computed(() => {
@@ -326,256 +334,266 @@ watch(
     class="chat-page inkline-preview"
     :class="{ empty: !timeline.length }"
   >
-    <div class="conversation">
-      <div
-        ref="scroll"
-        class="message-list"
-        @scroll.passive="onScroll"
-      >
-        <WelcomeSheet
-          v-if="!turns.length && !unprojectedMessages.length"
-          class="welcome-state"
-          :date="
-            new Date().toLocaleDateString($i18n.locale, {
-              month: 'long',
-              day: 'numeric',
-              weekday: 'long',
-            })
-          "
-          :greeting="
-            $t('{0}，{1}', [
-              greeting,
-              ui.appearance.greetingName === '你' ? $t('你') : ui.appearance.greetingName,
-            ])
-          "
-          :quote="welcomeQuote"
-          @draft="composer?.restoreDraft($event)"
-        >
-          <nav
-            v-if="unfinished.length"
-            class="unfinished"
-          >
-            <span>{{ $t('上次没做完的事') }}</span><router-link
-              v-for="turn in unfinished"
-              :key="turn.id"
-              :to="'/chat/' + turn.sessionId"
-            >
-              {{ turn.userText }}
-            </router-link>
-          </nav>
-        </WelcomeSheet>
+    <!-- Stable wrapper and one InputBox: a paper composition, not a second composer. -->
+    <div
+      class="chat-body"
+      :class="{ workpaper: !timeline.length, 'first-welcome': !timeline.length && firstWelcome }"
+      :data-light="lightPeriod"
+    >
+      <div class="conversation">
         <div
-          v-else
-          class="messages-inner"
+          ref="scroll"
+          class="message-list"
+          @scroll.passive="onScroll"
         >
-          <p
-            v-if="session.historyTruncated[sessionId]"
-            class="chat-error"
-            role="status"
+          <WelcomeSheet
+            v-if="!turns.length && !unprojectedMessages.length"
+            :key="'welcome-' + sessionId"
+            class="welcome-state"
+            :greeting="
+              $t('{0}，{1}', [
+                greeting,
+                ui.appearance.greetingName === '你' ? $t('你') : ui.appearance.greetingName,
+              ])
+            "
+            :quote="welcomeQuote"
+            @draft="composer?.restoreDraft($event)"
           >
-            {{ $t('较早的记录未完整加载。') }}
-          </p>
-          <button
-            v-if="timeline.length > visibleCount"
-            class="earlier"
-            @click="loadEarlier"
-          >
-            {{ $t('再看前面的内容') }}
-          </button>
-          <section
-            v-for="item in visibleTimeline"
-            :key="item.key"
-            class="turn"
-          >
-            <template v-if="item.message">
-              <UserMessage
-                v-if="item.message.role === 'user'"
-                :content="item.message.content"
-              /><AgentMessage
-                v-else
-                :content="item.message.content"
-                :assistant-name="settings.profile.assistantName"
-              />
-            </template>
-            <template v-else-if="item.turn">
-              <UserMessage
-                v-if="item.turn.userText"
-                :content="item.turn.userText"
-              />
-              <RailTrack
-                :turn="item.turn"
-                :can-resend="!session.isSending && !session.activeSession?.archived && !sending"
-                :resend-input="(id) => session.resendInput(sessionId, item.turn!.id, id)"
+            <nav
+              v-if="unfinished.length"
+              class="unfinished"
+            >
+              <span>{{ $t('上次没做完的事') }}</span><router-link
+                v-for="turn in unfinished"
+                :key="turn.id"
+                :to="'/chat/' + turn.sessionId"
               >
-                <AgentMessage
-                  v-if="item.turn.text"
-                  :content="item.turn.text"
+                {{ turn.userText }}
+              </router-link>
+            </nav>
+          </WelcomeSheet>
+          <div
+            v-else
+            class="messages-inner"
+          >
+            <p
+              v-if="session.historyTruncated[sessionId]"
+              class="chat-error"
+              role="status"
+            >
+              {{ $t('较早的记录未完整加载。') }}
+            </p>
+            <button
+              v-if="timeline.length > visibleCount"
+              class="earlier"
+              @click="loadEarlier"
+            >
+              {{ $t('再看前面的内容') }}
+            </button>
+            <section
+              v-for="item in visibleTimeline"
+              :key="item.key"
+              class="turn"
+            >
+              <template v-if="item.message">
+                <UserMessage
+                  v-if="item.message.role === 'user'"
+                  :content="item.message.content"
+                /><AgentMessage
+                  v-else
+                  :content="item.message.content"
                   :assistant-name="settings.profile.assistantName"
-                  :is-streaming="item.turn.status === 'running'"
-                /><InkLoader
-                  v-else-if="item.turn.status === 'running'"
                 />
-              </RailTrack>
-              <p
-                v-if="item.turn.inputsError"
-                class="chat-error"
-                role="alert"
-              >
-                {{ item.turn.inputsError
-                }}<button
-                  class="text-button"
-                  @click="session.refreshTaskDetails(sessionId, item.turn.id)"
+              </template>
+              <template v-else-if="item.turn">
+                <UserMessage
+                  v-if="item.turn.userText"
+                  :content="item.turn.userText"
+                />
+                <RailTrack
+                  :turn="item.turn"
+                  :can-resend="!session.isSending && !session.activeSession?.archived && !sending"
+                  :resend-input="(id) => session.resendInput(sessionId, item.turn!.id, id)"
                 >
-                  {{ $t('重试') }}
-                </button>
-              </p>
-            </template>
-          </section>
+                  <AgentMessage
+                    v-if="item.turn.text"
+                    :content="item.turn.text"
+                    :assistant-name="settings.profile.assistantName"
+                    :is-streaming="item.turn.status === 'running'"
+                  /><InkLoader v-else-if="item.turn.status === 'running'" />
+                </RailTrack>
+                <p
+                  v-if="item.turn.inputsError"
+                  class="chat-error"
+                  role="alert"
+                >
+                  {{ item.turn.inputsError
+                  }}<button
+                    class="text-button"
+                    @click="session.refreshTaskDetails(sessionId, item.turn.id)"
+                  >
+                    {{ $t('重试') }}
+                  </button>
+                </p>
+              </template>
+            </section>
+          </div>
         </div>
-      </div>
-      <RailMinimap
-        :nodes="nodes"
-        :scroll-root="scroll"
-        @jump="jump"
-      />
-      <button
-        v-if="!following"
-        class="follow-button"
-        @click="resume"
-      >
-        ↓ {{ session.isSending ? $t('查看最新进展') : $t('回到最新消息') }}
-      </button>
-    </div>
-    <p
-      v-if="session.error"
-      class="chat-error"
-      role="alert"
-    >
-      {{ session.error }}
-    </p>
-    <div
-      v-if="submission?.uncertain"
-      class="queued-messages"
-      role="status"
-    >
-      <p>{{ $t('尚未确认提交：{0}', [submission.content]) }}</p>
-      <button @click="session.confirmSubmission(sessionId)">
-        {{ $t('确认提交结果') }}
-      </button>
-    </div>
-    <div
-      v-if="interrupted"
-      class="queued-messages"
-      role="status"
-    >
-      <p>{{ $t('任务已中断，未自动重试。') }}</p>
-      <template v-if="session.capabilities.task_resume">
+        <RailMinimap
+          :nodes="nodes"
+          :scroll-root="scroll"
+          @jump="jump"
+        />
         <button
-          :disabled="
-            !session.canResumeTask(sessionId) || session.resumingTaskIds.includes(interrupted.id)
-          "
-          @click="session.resumeInterruptedTask(sessionId)"
+          v-if="!following"
+          class="follow-button"
+          @click="resume"
         >
-          {{
-            session.resumingTaskIds.includes(interrupted.id) ? $t('正在确认恢复…') : $t('继续任务')
-          }}
+          ↓ {{ session.isSending ? $t('查看最新进展') : $t('回到最新消息') }}
         </button>
-        <p>{{ $t('仅可继续文件读写任务。') }}</p>
-      </template>
-    </div>
-    <div
-      v-for="input in uncertainInputs"
-      :key="input.key"
-      class="queued-messages"
-      role="status"
-    >
-      <p>{{ $t('尚未确认补充：{0}', [input.content]) }}</p>
-      <button
-        class="text-button"
-        @click="confirmInput(input.taskId)"
+      </div>
+      <p
+        v-if="session.error"
+        class="chat-error"
+        role="alert"
       >
-        {{ $t('确认提交结果') }}
-      </button>
-    </div>
-    <p
-      v-if="session.inputErrors[sessionId] && uncertainInputs.length"
-      class="chat-error"
-      role="alert"
-    >
-      {{ session.inputErrors[sessionId] }}
-    </p>
-    <QueuedMessages
-      :key="sessionId"
-      :items="queued"
-      :paused="Boolean(session.queuedPaused[sessionId])"
-      :guide-reason="guideReason"
-      :can-continue="!session.isSending && !submission && !session.activeSession?.archived"
-      :guide="(id) => session.guideQueued(sessionId, id)"
-      @edit="(id, content) => session.editQueued(sessionId, id, content)"
-      @remove="session.removeQueued(sessionId, $event)"
-      @continue="session.resumeQueued(sessionId)"
-    />
-    <div
-      v-if="session.activeSession?.archived"
-      class="archived-notice"
-    >
-      <span>{{ $t('此对话已归档，可查看历史记录。') }}</span>
-      <button
-        class="secondary-button"
-        :disabled="restoring"
-        :aria-busy="restoring || undefined"
-        @click="restore"
+        {{ session.error }}
+      </p>
+      <div
+        v-if="submission?.uncertain"
+        class="queued-messages"
+        role="status"
       >
-        {{ restoring ? $t('正在恢复…') : $t('恢复对话') }}
-      </button>
+        <p>{{ $t('尚未确认提交：{0}', [submission.content]) }}</p>
+        <button @click="session.confirmSubmission(sessionId)">
+          {{ $t('确认提交结果') }}
+        </button>
+      </div>
+      <div
+        v-if="interrupted"
+        class="queued-messages"
+        role="status"
+      >
+        <p>{{ $t('任务已中断，未自动重试。') }}</p>
+        <template v-if="session.capabilities.task_resume">
+          <button
+            :disabled="
+              !session.canResumeTask(sessionId) || session.resumingTaskIds.includes(interrupted.id)
+            "
+            @click="session.resumeInterruptedTask(sessionId)"
+          >
+            {{
+              session.resumingTaskIds.includes(interrupted.id)
+                ? $t('正在确认恢复…')
+                : $t('继续任务')
+            }}
+          </button>
+          <p>{{ $t('仅可继续文件读写任务。') }}</p>
+        </template>
+      </div>
+      <div
+        v-for="input in uncertainInputs"
+        :key="input.key"
+        class="queued-messages"
+        role="status"
+      >
+        <p>{{ $t('尚未确认补充：{0}', [input.content]) }}</p>
+        <button
+          class="text-button"
+          @click="confirmInput(input.taskId)"
+        >
+          {{ $t('确认提交结果') }}
+        </button>
+      </div>
+      <p
+        v-if="session.inputErrors[sessionId] && uncertainInputs.length"
+        class="chat-error"
+        role="alert"
+      >
+        {{ session.inputErrors[sessionId] }}
+      </p>
+      <QueuedMessages
+        :key="sessionId"
+        :items="queued"
+        :paused="Boolean(session.queuedPaused[sessionId])"
+        :guide-reason="guideReason"
+        :can-continue="!session.isSending && !submission && !session.activeSession?.archived"
+        :guide="(id) => session.guideQueued(sessionId, id)"
+        @edit="(id, content) => session.editQueued(sessionId, id, content)"
+        @remove="session.removeQueued(sessionId, $event)"
+        @continue="session.resumeQueued(sessionId)"
+      />
+      <div
+        v-if="session.activeSession?.archived"
+        class="archived-notice"
+      >
+        <span>{{ $t('此对话已归档，可查看历史记录。') }}</span>
+        <button
+          class="secondary-button"
+          :disabled="restoring"
+          :aria-busy="restoring || undefined"
+          @click="restore"
+        >
+          {{ restoring ? $t('正在恢复…') : $t('恢复对话') }}
+        </button>
+      </div>
+      <PendingReminder
+        :items="pending"
+        :scroll-root="scroll"
+        @locate="locate"
+      />
+      <InputBox
+        v-if="!session.activeSession?.archived"
+        ref="composer"
+        :session-id="sessionId"
+        :waiting="pending.length > 0"
+        :queued-count="queued.length"
+        :guide-reason="guideReason"
+        :submit="send"
+        :assistant-name="settings.profile.assistantName"
+        :is-sending="session.isSending"
+        :is-submitting="sending"
+        :is-stopping="session.isStopping"
+        :model-id="
+          sessionId
+            ? session.activeSession?.model_id || settings.defaultModelId
+            : draftModel || settings.defaultModelId
+        "
+        :model-options="settings.modelProfiles"
+        :response-mode="
+          sessionId ? session.activeSession?.response_mode || 'balanced' : draftResponse
+        "
+        :permission-mode="session.activeSession?.permission_mode || mode"
+        :last-message="lastMessage"
+        :subagents-supported="session.capabilities.subagents === true"
+        :subagent-models-supported="session.capabilities.subagent_model_selection === true"
+        :subagent-model-ids="
+          sessionId ? (session.activeSession?.subagent_model_ids ?? []) : draftSubagentModels
+        "
+        :max-subagent-calls="
+          sessionId ? (session.activeSession?.max_subagent_calls ?? 0) : draftSubagents
+        "
+        :max-concurrent-subagents="
+          sessionId ? (session.activeSession?.max_concurrent_subagents ?? 1) : draftConcurrent
+        "
+        :saving-subagents="savingSubagents"
+        @subagents-change="subagents"
+        @send="send"
+        @cancel="session.cancelActiveTask"
+        @permission-mode-change="permission"
+        @model-change="model"
+        @response-mode-change="response"
+      />
+      <footer
+        v-if="!timeline.length"
+        class="workpaper-signature"
+      >
+        <span><AppIcon :size="24" />{{ settings.profile.assistantName }}</span>
+        <router-link to="/overview">
+          {{ $t('工作记录') }}<span aria-hidden="true">↗</span>
+        </router-link>
+      </footer>
     </div>
-    <PendingReminder
-      :items="pending"
-      :scroll-root="scroll"
-      @locate="locate"
-    />
-    <InputBox
-      v-if="!session.activeSession?.archived"
-      ref="composer"
-      :session-id="sessionId"
-      :waiting="pending.length > 0"
-      :queued-count="queued.length"
-      :guide-reason="guideReason"
-      :submit="send"
-      :assistant-name="settings.profile.assistantName"
-      :is-sending="session.isSending"
-      :is-submitting="sending"
-      :is-stopping="session.isStopping"
-      :model-id="
-        sessionId
-          ? session.activeSession?.model_id || settings.defaultModelId
-          : draftModel || settings.defaultModelId
-      "
-      :model-options="settings.modelProfiles"
-      :response-mode="
-        sessionId ? session.activeSession?.response_mode || 'balanced' : draftResponse
-      "
-      :permission-mode="session.activeSession?.permission_mode || mode"
-      :last-message="lastMessage"
-      :subagents-supported="session.capabilities.subagents === true"
-      :subagent-models-supported="session.capabilities.subagent_model_selection === true"
-      :subagent-model-ids="
-        sessionId ? (session.activeSession?.subagent_model_ids ?? []) : draftSubagentModels
-      "
-      :max-subagent-calls="
-        sessionId ? (session.activeSession?.max_subagent_calls ?? 0) : draftSubagents
-      "
-      :max-concurrent-subagents="
-        sessionId ? (session.activeSession?.max_concurrent_subagents ?? 1) : draftConcurrent
-      "
-      :saving-subagents="savingSubagents"
-      @subagents-change="subagents"
-      @send="send"
-      @cancel="session.cancelActiveTask"
-      @permission-mode-change="permission"
-      @model-change="model"
-      @response-mode-change="response"
-    />
   </div>
 </template>
 <style scoped lang="scss">

@@ -115,11 +115,12 @@ export function useModelSettings() {
   )
 
   watch(
-    () => [modelSettingsFingerprint(draft), draft.name, apiKey.value],
+    () => [modelSettingsFingerprint(draft), draft.name, apiKey.value, manualModelId.value, ...selectedModels.value],
     () => {
-      settings.validation = null
+      settings.invalidateModelValidation()
       settings.error = null
     },
+    { flush: 'sync' },
   )
 
   watch(
@@ -133,7 +134,10 @@ export function useModelSettings() {
     },
     { flush: 'sync' },
   )
-  onScopeDispose(cancelDiscovery)
+  onScopeDispose(() => {
+    cancelDiscovery()
+    settings.invalidateModelValidation()
+  })
 
   watch(() => [draft.provider, draft.baseUrl], clearModelSelection, { flush: 'sync' })
 

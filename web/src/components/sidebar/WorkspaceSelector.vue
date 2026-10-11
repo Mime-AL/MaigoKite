@@ -6,7 +6,7 @@ import { useDialog } from '@/composables/useDialog'
 import { desktopEffects } from '@/composables/useElectron'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import InkButton from '@/components/common/InkButton.vue'
-defineProps<{ collapsed: boolean }>()
+defineProps<{ collapsed: boolean; presentationTrigger?: boolean }>()
 const workspace = useWorkspaceStore(),
   router = useRouter()
 const open = ref(false),
@@ -66,21 +66,51 @@ function close() {
 }
 </script>
 <template>
-  <div class="workspace-selector">
-    <span v-if="!collapsed" class="workspace-label"
-      >{{ $t('工作区') }}<small>{{ workspace.folders.length }}</small></span
-    >
+  <div
+    class="workspace-selector"
+    :class="{ 'presentation-trigger': presentationTrigger }"
+  >
+    <span
+      v-if="!collapsed && !presentationTrigger"
+      class="workspace-label"
+    >{{ $t('工作区') }}<small>{{ workspace.folders.length }}</small></span>
     <button
       class="icon-button"
-      :aria-label="collapsed ? $t('选择工作区') : $t('添加文件夹工作区')"
-      :title="collapsed ? workspace.current?.name || $t('选择工作区') : $t('添加文件夹工作区')"
+      :aria-label="
+        presentationTrigger
+          ? $t('切换工作区')
+          : collapsed
+            ? $t('选择工作区')
+            : $t('添加文件夹工作区')
+      "
+      :title="
+        presentationTrigger
+          ? $t('切换工作区')
+          : collapsed
+            ? workspace.current?.name || $t('选择工作区')
+            : $t('添加文件夹工作区')
+      "
       :disabled="choosing || busy"
       :aria-busy="choosing || busy || undefined"
-      @click="collapsed ? openSelector() : choose()"
+      @click="presentationTrigger || collapsed ? openSelector() : choose()"
     >
-      <IconSymbol :name="collapsed ? 'folder' : 'plus'" :size="16" />
+      <template v-if="presentationTrigger">
+        {{ $t('切换工作区') }}<IconSymbol
+          name="chevron"
+          :size="14"
+        />
+      </template>
+      <IconSymbol
+        v-else
+        :name="collapsed ? 'folder' : 'plus'"
+        :size="16"
+      />
     </button>
-    <p v-if="workspace.error && !collapsed" class="empty-copy" role="alert">
+    <p
+      v-if="workspace.error && !collapsed"
+      class="empty-copy"
+      role="alert"
+    >
       {{ workspace.error }}
     </p>
     <Teleport to="body">
@@ -93,8 +123,7 @@ function close() {
       >
         <section>
           <header>
-            <strong>{{ $t('工作区') }}</strong
-            ><button
+            <strong>{{ $t('工作区') }}</strong><button
               class="icon-button"
               :disabled="busy || choosing"
               :aria-label="$t('关闭')"
@@ -103,18 +132,20 @@ function close() {
               ×
             </button>
           </header>
-          <label
-            >{{ $t('切换已有工作区')
-            }}<select
-              :value="workspace.selectedId"
-              :disabled="busy || choosing || workspace.loading"
-              @change="select(($event.target as HTMLSelectElement).value)"
-            >
-              <option v-for="folder in workspace.folders" :key="folder.id" :value="folder.id">
-                {{ folder.id ? folder.name : $t('默认工作区') }}
-              </option>
-            </select></label
+          <label>{{ $t('切换已有工作区')
+          }}<select
+            :value="workspace.selectedId"
+            :disabled="busy || choosing || workspace.loading"
+            @change="select(($event.target as HTMLSelectElement).value)"
           >
+            <option
+              v-for="folder in workspace.folders"
+              :key="folder.id"
+              :value="folder.id"
+            >
+              {{ folder.id ? folder.name : $t('默认工作区') }}
+            </option>
+          </select></label>
           <form @submit.prevent="add">
             <button
               v-if="desktopEffects"
@@ -124,33 +155,45 @@ function close() {
               :aria-busy="choosing || undefined"
               @click="choose"
             >
-              <IconSymbol name="folder" :size="16" />{{
+              <IconSymbol
+                name="folder"
+                :size="16"
+              />{{
                 choosing ? $t('正在选择…') : $t('选择文件夹')
               }}
             </button>
-            <label
-              >{{ $t('文件夹路径')
-              }}<input
-                v-model="root"
-                maxlength="4096"
-                :placeholder="$t('服务所在设备上的绝对路径')"
-                required
-                :disabled="busy || choosing"
-            /></label>
-            <label
-              >{{ $t('工作区名称')
-              }}<input
-                v-model="name"
-                maxlength="120"
-                :placeholder="$t('默认使用文件夹名称')"
-                :disabled="busy || choosing"
-            /></label>
+            <label>{{ $t('文件夹路径')
+            }}<input
+              v-model="root"
+              maxlength="4096"
+              :placeholder="$t('服务所在设备上的绝对路径')"
+              required
+              :disabled="busy || choosing"
+            ></label>
+            <label>{{ $t('工作区名称')
+            }}<input
+              v-model="name"
+              maxlength="120"
+              :placeholder="$t('默认使用文件夹名称')"
+              :disabled="busy || choosing"
+            ></label>
             <p class="empty-copy">
               {{ $t('新对话和文件操作会使用所选文件夹；已有对话不会自动移动。') }}
             </p>
-            <p v-if="error" role="alert" class="error-banner">{{ error }}</p>
+            <p
+              v-if="error"
+              role="alert"
+              class="error-banner"
+            >
+              {{ error }}
+            </p>
             <footer>
-              <InkButton :disabled="busy || choosing" @click="close">{{ $t('取消') }}</InkButton>
+              <InkButton
+                :disabled="busy || choosing"
+                @click="close"
+              >
+                {{ $t('取消') }}
+              </InkButton>
               <button
                 class="primary-button"
                 :disabled="busy || choosing || !root.trim()"
@@ -166,6 +209,16 @@ function close() {
   </div>
 </template>
 <style scoped lang="scss">
+.presentation-trigger {
+  flex: none !important;
+}
+.workspace-selector.presentation-trigger > .icon-button {
+  width: auto;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  font-size: var(--type-caption);
+  white-space: nowrap;
+}
 .workspace-selector {
   display: flex;
   flex-wrap: wrap;

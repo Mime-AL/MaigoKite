@@ -50,6 +50,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   let profileRequest: Promise<void> | null = null
   let runtimeRequest = 0
+  let validationRequest = 0
 
   async function loadPreferences() {
     if (profileLoaded.value) return
@@ -276,25 +277,34 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function validateChatModel(cfg: ChatModelSettings, apiKey = '') {
+    const request = ++validationRequest
     validating.value = true
     error.value = null
     success.value = null
     validation.value = null
     try {
       const result = await api.validateChatModel(cfg, apiKey)
+      if (request !== validationRequest) return false
       validation.value = { ok: result.ok, message: result.ok ? t("连接成功：{0}", [result.model]) : result.message }
       return result.ok
     } catch (reason) {
+      if (request !== validationRequest) return false
       const message = reason instanceof Error ? reason.message : String(reason)
       validation.value = { ok: false, message }
       return false
     } finally {
-      validating.value = false
+      if (request === validationRequest) validating.value = false
     }
   }
 
-  function clearModelFeedback() {
+  function invalidateModelValidation() {
+    validationRequest++
+    validating.value = false
     validation.value = null
+  }
+
+  function clearModelFeedback() {
+    invalidateModelValidation()
     error.value = null
     success.value = null
   }
@@ -373,6 +383,7 @@ export const useSettingsStore = defineStore('settings', () => {
     removeModelProfile,
     removeModelProfiles,
     validateChatModel,
+    invalidateModelValidation,
     clearModelFeedback,
     saveCredential,
     deleteCredential,

@@ -104,6 +104,7 @@ export type GatewayEvent = {
   | { type: 'memory_added'; memoryId: string; text: string }
   | { type: 'job_update'; jobId: string; status: string; logTail: string }
   | { type: 'turn_resumed' }
+  | { type: 'turn_waiting' }
   | { type: 'turn_end'; summary?: TurnSummary; status?: 'completed' | 'failed' | 'cancelled' }
   | { type: 'error'; message: string }
 )

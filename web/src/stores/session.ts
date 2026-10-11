@@ -165,6 +165,11 @@ export const useSessionStore = defineStore('session', () => {
       )
     }
     if (!covered && !staleState && event.type === 'task.resumed') mark(id, task)
+    if (!covered && !staleState && event.type === 'task.waiting_approval') {
+      mark(id, task)
+      const known = tasks.value[id]?.find((item) => item.id === task)
+      if (known) known.status = 'waiting_approval'
+    }
     if (!covered && event.type === 'message.delta') {
       deltas.push({ id, event, replay })
       if (!frame) frame = requestAnimationFrame(flushDeltas)

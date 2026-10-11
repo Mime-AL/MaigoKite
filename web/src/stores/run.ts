@@ -287,6 +287,7 @@ export const useRunStore = defineStore('run', () => {
       !staleState &&
       [
         'turn_resumed',
+        'turn_waiting',
         'await',
         'await_resolved',
         'question_answered',
@@ -309,6 +310,12 @@ export const useRunStore = defineStore('run', () => {
         turn.error = undefined
         turn.endedAt = undefined
         turn.summary = undefined
+        break
+      case 'turn_waiting':
+        // The status receipt precedes the versioned approval payload. Show the
+        // wait immediately, but never invent an approval or its authorization.
+        if (!staleState && !['completed', 'failed', 'cancelled'].includes(turn.status))
+          turn.status = 'waiting'
         break
       case 'text_delta':
         turn.text += event.text

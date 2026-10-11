@@ -48,7 +48,10 @@ export class EventSocket {
         return
       }
       if (this.recovering) this.queued.push(event)
-      else this.deliver(event, false)
+      else {
+        try { this.deliver(event, false) }
+        catch { this.replayFailed(generation) }
+      }
     })
     this.socket = socket
     socket.onopen = () => {
@@ -102,39 +105,47 @@ export class EventSocket {
         for (const event of events.slice().sort((a, b) => a.sequence - b.sequence)) this.deliver(event, true)
         if (events.length < 1000 || this.lastSeq === before) break
       }
+      // Buffered projections are part of recovery too. Leave the failed item
+      // queued and do not report online until every projection has succeeded.
+      this.queued.sort((a, b) => a.sequence - b.sequence)
+      while (this.queued.length) {
+        this.deliver(this.queued[0], false)
+        this.queued.shift()
+      }
       completed = true
       if (this.subscribed && this.socket?.readyState === 1) {
         this.attempts = 0
         this.options.connection(true)
       }
     } catch {
-      if (!this.stopped && generation === this.generation) {
-        this.subscribed = false
-        this.options.connection(false)
-        // Don't release newer live deltas over a missing history segment.
-        // Reconnect and replay from the last confirmed durable cursor.
-        this.socket?.close()
-      }
+      this.replayFailed(generation)
     } finally {
       if (!this.stopped && generation === this.generation) {
         // close() is asynchronous; messages already queued by the browser must
         // still be buffered until the replacement connection replays the gap.
         this.recovering = !completed
-        const pending = this.queued.splice(0)
-        if (completed)
-          for (const event of pending.sort((a, b) => a.sequence - b.sequence)) this.deliver(event, false)
       }
     }
+  }
+  private replayFailed(generation: number) {
+    if (this.stopped || generation !== this.generation) return
+    this.subscribed = false
+    this.recovering = true
+    this.options.connection(false)
+    // Only successfully projected receipts are acknowledged; reconnect can
+    // replay a failed item instead of leaving the chat permanently thinking.
+    this.socket?.close()
   }
   private deliver(event: AgentEvent, replay: boolean) {
     if (!event || typeof event.type !== 'string' || !event.payload || typeof event.payload !== 'object') return
     // Both live paths now preserve durable IDs. Keep the history cursor tied
     // to HTTP replay: a higher live sequence alone does not prove no gap exists.
-    if (replay) this.lastSeq = Math.max(this.lastSeq, event.sequence || 0)
     const key = event.event_id || `${event.task_id}:${event.sequence}:${event.type}`
-    if (this.seen.has(key)) return
-    this.seen.add(key)
-    this.options.receive(event, replay)
+    if (!this.seen.has(key)) {
+      this.options.receive(event, replay)
+      this.seen.add(key)
+    }
+    if (replay) this.lastSeq = Math.max(this.lastSeq, event.sequence || 0)
   }
   stop() {
     this.stopped = true

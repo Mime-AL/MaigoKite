@@ -1,51 +1,79 @@
 <script setup lang="ts">
 import { i18n, t } from '@/i18n'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
-import { useSettingsStore } from '@/stores/settings'
+import { useRunStore } from '@/stores/run'
+import { useInboxStore } from '@/stores/inbox'
+import { useWorkspaceStore } from '@/stores/workspace'
+import type { AwaitItem } from '@/api/events'
+import { pendingItem, pendingOrder } from '@/utils/rail-presentation'
+import { approvalDescription } from '@/utils/tool-presentation'
+import { knownSessionStatus } from '@/utils/work-records'
 import IconSymbol from '@/components/common/IconSymbol.vue'
-
-const sessionStore = useSessionStore()
-const settingsStore = useSettingsStore()
-const router = useRouter()
-const isCreating = ref(false)
-
-const greeting = computed(() => {
-  const hour = new Date().getHours()
-  if (hour < 11) return t("早上好")
-  if (hour < 18) return t("下午好")
-  return t("晚上好")
-})
-
-const todayLabel = computed(() =>
-  new Intl.DateTimeFormat(i18n.global.locale.value, {
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  }).format(new Date()),
+import InkLoader from '@/components/common/InkLoader.vue'
+import Pulse from '@/components/shell/Pulse.vue'
+import WorkspaceSelector from '@/components/sidebar/WorkspaceSelector.vue'
+const session = useSessionStore(),
+  run = useRunStore(),
+  inbox = useInboxStore()
+const workspace = useWorkspaceStore(),
+  router = useRouter()
+const creating = ref(false),
+  ready = ref(false)
+const pending = computed(() => inbox.items.filter(pendingItem).sort(pendingOrder))
+const records = computed(() =>
+  session.sessions
+    .filter((item) => !item.archived)
+    .slice()
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+    .map((item) => ({
+      ...item,
+      status: knownSessionStatus(run.turns[item.id] || [], session.runningTaskIds[item.id] || []),
+    })),
 )
-
-onMounted(() => {
-  void sessionStore.loadSessions()
-})
-
-async function createNewSession() {
-  if (isCreating.value) return
-  isCreating.value = true
-  try {
-    const session = await sessionStore.createSession('新对话')
-    await router.push(`/chat/${session.id}`)
-  } catch {
-    // Store 已向界面暴露可恢复的错误状态。
-  } finally {
-    isCreating.value = false
-  }
+const active = computed(() =>
+  records.value.filter((item) =>
+    ['running', 'waiting', 'waiting_approval', 'pending'].includes(item.status || ''),
+  ),
+)
+const recent = computed(() => records.value.slice(0, 12))
+const statusLabels: Record<string, string> = {
+  running: '运行中',
+  pending: '等待开始',
+  waiting: '等你处理',
+  waiting_approval: '等你处理',
+  completed: '已完成',
+  succeeded: '已完成',
+  failed: '执行失败',
+  cancelled: '已停止',
+  interrupted: '已中断',
+  timed_out: '已超时',
 }
-
-function formatUpdatedAt(value: string) {
+function statusLabel(value?: string) {
+  return t(value ? statusLabels[value] || '状态尚未读取' : '状态尚未读取')
+}
+function folder(id?: string) {
+  return workspace.folders.find((item) => item.id === (id || ''))?.name || t('未选择工作区')
+}
+function operation(id: string) {
+  const turn = run.turns[id]?.at(-1)
+  return (
+    turn?.steps.find((step) => step.status === 'running')?.title ||
+    statusLabel(turn?.status || 'running')
+  )
+}
+function pendingCopy(item: AwaitItem) {
+  if (item.mode === 'question')
+    return { action: item.title || t('Agent 在等你回答'), target: t('待回答') }
+  return approvalDescription(
+    item,
+    session.approvals[item.sessionId]?.find((record) => record.id === item.id),
+  )
+}
+function updated(value: string) {
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return t("刚刚")
+  if (Number.isNaN(date.getTime())) return t('刚刚')
   return new Intl.DateTimeFormat(i18n.global.locale.value, {
     month: 'short',
     day: 'numeric',
@@ -53,88 +81,211 @@ function formatUpdatedAt(value: string) {
     minute: '2-digit',
   }).format(date)
 }
+async function refresh() {
+  if (session.isLoading) return
+  ready.value = false
+  await session.loadSessions()
+  ready.value = !session.isLoading && !session.error
+}
+watch(
+  () => session.isLoading,
+  (loading, previous) => {
+    if (previous && !loading) ready.value = !session.error
+  },
+)
+watch([ready, () => session.sessions.length, () => session.error], () => {
+  // Never redirect on loading/error or merely because all conversations are archived.
+  if (ready.value && !session.isLoading && !session.error && !session.sessions.length)
+    void router.replace('/chat')
+})
+onMounted(() => {
+  void refresh()
+})
+async function create() {
+  if (creating.value) return
+  creating.value = true
+  try {
+    const item = await session.createSession('新对话')
+    await router.push('/chat/' + item.id)
+  } catch {
+    /* The existing store owns submission errors. */
+  } finally {
+    creating.value = false
+  }
+}
 </script>
-
 <template>
   <main class="page-shell overview">
-    <section class="hero">
-      <div>
-        <p class="page-eyebrow">{{ todayLabel }}</p>
-        <h1 class="page-title">{{ greeting }}</h1>
-        <p class="page-subtitle">
-          {{ $t('{0} · 个人助手', [settingsStore.profile.assistantName]) }}</p>
-      </div>
-      <button class="primary-button" type="button" :disabled="isCreating" @click="createNewSession">
-        <IconSymbol name="compose" :size="17" />
-        {{ isCreating ? $t('正在创建') : $t('新建对话') }}
+    <header class="record-heading">
+      <h1>{{ $t('工作记录') }}</h1>
+      <button
+        class="record-new"
+        :disabled="creating"
+        :aria-busy="creating || undefined"
+        @click="create"
+      >
+        <IconSymbol
+          name="compose"
+          :size="18"
+        />{{ creating ? $t('正在创建') : $t('新建对话') }}
       </button>
+    </header>
+    <p
+      v-if="session.error"
+      class="record-error"
+      role="alert"
+    >
+      {{ session.error
+      }}<button
+        class="secondary-button"
+        :disabled="session.isLoading"
+        @click="refresh"
+      >
+        {{ $t('重试') }}
+      </button>
+    </p>
+    <div
+      v-if="session.isLoading && !session.sessions.length"
+      class="record-loading"
+    >
+      <InkLoader /><InkLoader /><InkLoader />
+    </div>
+    <section
+      v-if="pending.length"
+      class="record-section record-pending"
+    >
+      <header>
+        <h2>{{ $t('等你处理') }}</h2>
+        <small>{{ pending.length }}</small>
+      </header>
+      <router-link
+        v-for="item in pending"
+        :key="item.id"
+        class="record-row"
+        :to="{ path: '/chat/' + item.sessionId, query: { await: item.id } }"
+      >
+        <Pulse
+          state="waiting"
+          :size="14"
+        /><span class="record-copy"><strong>{{ pendingCopy(item).action }}</strong>
+          <small>{{
+            session.sessions.find((entry) => entry.id === item.sessionId)?.title ||
+              $t('未命名对话')
+          }}
+            · {{ pendingCopy(item).target }}</small></span><IconSymbol
+          name="chevron"
+          :size="14"
+        />
+      </router-link>
     </section>
-
-    <p v-if="sessionStore.error" class="error-banner"><IconSymbol name="alert" :size="16" />{{ sessionStore.error }}</p>
-
-    <section class="metrics" :aria-label="$t('工作区摘要')">
-      <article class="metric-card glass-card">
-        <span class="metric-icon blue"><IconSymbol name="review" :size="20" /></span>
-        <div>
-          <strong>{{ sessionStore.sessions.length }}</strong
-          ><span>{{ $t('对话') }}</span>
-        </div>
-      </article>
-      <article class="metric-card glass-card">
-        <span class="metric-icon green"><IconSymbol name="shield" :size="20" /></span>
-        <div><strong>{{ $t('本地') }}</strong><span>{{ $t('工作区') }}</span></div>
-      </article>
+    <p
+      v-if="inbox.error"
+      class="record-error"
+      role="alert"
+    >
+      {{ inbox.error
+      }}<button
+        class="secondary-button"
+        @click="inbox.refresh"
+      >
+        {{ $t('重试') }}
+      </button>
+    </p>
+    <section
+      v-if="active.length"
+      class="record-section"
+    >
+      <header>
+        <h2>{{ $t('运行中的对话') }}</h2>
+      </header>
+      <router-link
+        v-for="item in active"
+        :key="item.id"
+        class="record-row"
+        :to="'/chat/' + item.id"
+      >
+        <Pulse
+          :state="run.pulse(item.id)"
+          :size="14"
+        /><span class="record-copy"><strong>{{ item.title || $t('未命名对话') }}</strong><small>{{ operation(item.id) }}</small></span><span class="record-status">{{ statusLabel(item.status) }}</span>
+      </router-link>
     </section>
-
-    <section class="content-grid">
-      <div class="recent-panel glass-card">
-        <header class="panel-header">
-          <div>
-            <h2>{{ $t('最近对话') }}</h2>
-          </div>
-          <button class="icon-button" type="button" :title="$t('新建对话')" @click="createNewSession">
-            <IconSymbol name="plus" :size="18" />
-          </button>
-        </header>
-
-        <div v-if="sessionStore.isLoading" class="panel-empty">{{ $t('正在同步对话…') }}</div>
-        <div v-else-if="sessionStore.sessions.length" class="session-list">
-          <router-link
-            v-for="session in sessionStore.sessions.slice(0, 6)"
-            :key="session.id"
-            :to="`/chat/${session.id}`"
-            class="session-row"
-          >
-            <span class="session-icon"><IconSymbol name="review" :size="17" /></span>
-            <span class="session-copy">
-              <strong>{{ session.title || $t('未命名对话') }}</strong>
-              <small>{{ $t('{0} 条消息 · {1}', [session.message_count, formatUpdatedAt(session.updated_at)]) }}</small>
-            </span>
-            <IconSymbol name="chevron" :size="15" />
-          </router-link>
-        </div>
-        <div v-else class="panel-empty rich-empty">
-          <span><IconSymbol name="compose" :size="23" /></span>
-          <strong>{{ $t('暂无对话') }}</strong>
-        </div>
-      </div>
-
-      <aside class="shortcuts">
-        <router-link to="/audit" class="shortcut glass-card">
-          <span class="shortcut-icon green"><IconSymbol name="shield" :size="19" /></span>
-          <div><strong>{{ $t('审计日志') }}</strong></div>
-          <IconSymbol name="chevron" :size="15" />
-        </router-link>
-        <router-link to="/settings" class="shortcut glass-card">
-          <span class="shortcut-icon gray"><IconSymbol name="settings" :size="19" /></span>
-          <div><strong>{{ $t('称呼与模型') }}</strong></div>
-          <IconSymbol name="chevron" :size="15" />
-        </router-link>
-      </aside>
+    <section
+      v-if="session.sessions.length"
+      class="record-section"
+    >
+      <header>
+        <h2>{{ $t('最近对话') }}</h2>
+        <button
+          class="icon-button"
+          :aria-label="$t('刷新会话')"
+          :disabled="session.isLoading"
+          @click="refresh"
+        >
+          <IconSymbol
+            name="refresh"
+            :size="16"
+          />
+        </button>
+      </header>
+      <router-link
+        v-for="item in recent"
+        :key="item.id"
+        class="record-row"
+        :to="'/chat/' + item.id"
+      >
+        <IconSymbol
+          name="review"
+          :size="18"
+        /><span class="record-copy"><strong>{{ item.title || $t('未命名对话') }}</strong><small>{{ folder(item.folder_id) }} ·
+          <time :datetime="item.updated_at">{{ updated(item.updated_at) }}</time></small></span><span class="record-status">{{ statusLabel(item.status) }}</span>
+      </router-link>
+      <p
+        v-if="!recent.length"
+        class="record-archived"
+      >
+        {{ $t('对话已归档，可从侧栏查看。') }}
+      </p>
+    </section>
+    <section class="record-section workspace-record">
+      <header>
+        <h2>{{ $t('当前工作区') }}</h2>
+        <WorkspaceSelector
+          collapsed
+          presentation-trigger
+        />
+      </header>
+      <strong>{{ workspace.current?.name || $t('未选择工作区') }}</strong>
+      <p
+        v-if="workspace.current?.root_path"
+        class="workspace-path"
+      >
+        {{ workspace.current.root_path }}
+      </p>
+      <p
+        v-else
+        class="record-archived"
+      >
+        {{
+          workspace.loading ? $t('正在读取工作区…') : $t('选择一个文件夹，文件操作会在这里进行。')
+        }}
+      </p>
+      <p
+        v-if="workspace.error"
+        class="record-error"
+        role="alert"
+      >
+        {{ workspace.error
+        }}<button
+          class="secondary-button"
+          @click="workspace.load"
+        >
+          {{ $t('重试') }}
+        </button>
+      </p>
     </section>
   </main>
 </template>
-
 <style scoped lang="scss">
 @use '@/styles/overview';
 </style>

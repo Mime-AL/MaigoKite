@@ -25,9 +25,98 @@
 }
 .chat-page.empty {
   overflow: auto;
-  justify-content: center;
-  background:
-    radial-gradient(ellipse at top right, var(--preview-light), var(--transparent)), var(--paper);
+  justify-content: flex-start;
+  align-items: center;
+  padding: var(--workpaper-top) var(--space-8) var(--space-9);
+}
+.chat-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+.workpaper {
+  --paper-light: var(--workpaper-light-morning);
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  width: min(var(--workpaper-width), 100%);
+  margin: 0 auto;
+  padding: var(--space-8) var(--workpaper-inset) var(--space-7);
+  border: var(--hairline) solid var(--workpaper-edge);
+  border-radius: var(--workpaper-frame-radius);
+  background: var(--paper-light);
+  box-shadow: var(--elevation-sheet);
+  animation: paper-fade var(--duration) var(--ease-out) both;
+}
+.workpaper[data-light='noon'] {
+  --paper-light: var(--workpaper-light-noon);
+}
+.workpaper[data-light='evening'] {
+  --paper-light: var(--workpaper-light-evening);
+}
+.workpaper[data-light='night'] {
+  --paper-light: var(--workpaper-light-night);
+}
+.workpaper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--noise);
+  opacity: var(--noise-paper-opacity);
+}
+.workpaper::after {
+  content: '';
+  position: absolute;
+  inset: auto var(--workpaper-flap) calc(-1 * var(--workpaper-flap));
+  z-index: -2;
+  height: var(--workpaper-flap);
+  border: var(--hairline) solid var(--rule);
+  border-radius: inherit;
+  background: var(--paper-2);
+}
+.workpaper.first-welcome {
+  transform-origin: top;
+  animation: workpaper-open var(--motion-arrive) var(--ease-out) both;
+}
+.workpaper:focus-within {
+  animation: none;
+}
+:global(html[data-texture='false']) .workpaper::before {
+  display: none;
+}
+.workpaper-signature {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-7);
+  padding-top: var(--space-6);
+  font-size: var(--type-caption);
+  color: var(--ink-2);
+}
+.workpaper-signature > span,
+.workpaper-signature a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.workpaper-signature a {
+  @include mixins.text-action;
+  color: var(--ink-2);
+}
+@keyframes workpaper-open {
+  from {
+    transform: translateY(var(--enter-offset)) scaleY(var(--workpaper-open-scale));
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scaleY(1);
+    opacity: 1;
+  }
 }
 .chat-page.empty .conversation {
   flex: none;
@@ -39,9 +128,25 @@
   overflow: visible;
 }
 .chat-page.empty :deep(.composer-wrap) {
-  margin-top: 0;
-  padding-bottom: var(--space-9);
-  animation: paper-arrive var(--motion-arrive) var(--ease-out) var(--motion-stagger) both;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+.workpaper :deep(.composer) {
+  border-radius: var(--radius-sm);
+  background: var(--workpaper-input);
+  box-shadow: var(--elevation-inset);
+  min-height: var(--workpaper-input-height);
+}
+.workpaper :deep(.composer textarea) {
+  min-height: var(--space-9);
+}
+.workpaper.first-welcome :deep(.composer-wrap) {
+  animation: paper-arrive var(--motion-panel) var(--ease-out) calc(var(--motion-stagger) * 4) both;
+}
+.workpaper:focus-within :deep(.composer-wrap) {
+  animation: none;
 }
 .conversation {
   position: relative;
@@ -64,7 +169,7 @@
   contain: style;
 }
 .welcome-state {
-  max-width: var(--content-width);
+  max-width: none;
   margin: 0 auto;
 }
 .unfinished {
@@ -147,8 +252,32 @@
   border: 0;
 }
 @include breakpoints.sidebar-overlay {
+  .chat-page.empty {
+    padding: var(--space-7) var(--space-5) var(--space-8);
+  }
+  .workpaper {
+    --workpaper-inset: var(--space-5);
+    padding-top: var(--space-7);
+  }
   .messages-inner {
     padding-inline: var(--space-4);
+  }
+}
+@include breakpoints.drawer-overlay {
+  .workpaper {
+    --workpaper-inset: var(--space-8);
+  }
+}
+@include breakpoints.sidebar-overlay {
+  .workpaper {
+    --workpaper-inset: var(--space-5);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workpaper,
+  .workpaper.first-welcome,
+  .workpaper.first-welcome :deep(.composer-wrap) {
+    animation: paper-fade var(--motion-reduced) var(--ease-out) both !important;
   }
 }
 

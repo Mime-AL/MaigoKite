@@ -20,7 +20,7 @@ const routes: RouteRecordRaw[] = [
         path: 'overview',
         name: 'Overview',
         component: () => import('@/views/Overview.vue'),
-        meta: { title: '概览' },
+        meta: { title: '工作记录' },
       },
       {
         path: 'chat/:id?',

@@ -121,6 +121,7 @@ export function mapGatewayEvent(event: AgentEvent): GatewayEvent[] {
     ]
   }
   if (event.type === 'task.resumed') return [{ ...base, type: 'turn_resumed' }]
+  if (event.type === 'task.waiting_approval') return [{ ...base, type: 'turn_waiting' }]
   if (event.type === 'message.delta')
     return [{ ...base, type: 'text_delta', text: text(p.content) }]
   if (event.type === 'reasoning.started') return [{ ...base, type: 'thinking_started' }]

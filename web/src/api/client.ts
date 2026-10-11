@@ -841,13 +841,17 @@ export const api = {
       `${base}${path}/events?conversation_id=${encodeURIComponent(conversationId)}`,
     )
     socket.onmessage = ({ data }) => {
+      let event: unknown
       try {
-        const event: unknown = JSON.parse(String(data))
-        if (event && typeof event === 'object' && 'type' in event && 'payload' in event)
-          onEvent(event as AgentEvent)
+        event = JSON.parse(String(data))
       } catch {
         /* A malformed frame must not interrupt reconnection/replay. */
+        return
       }
+      // Projection failures belong to EventSocket's recovery boundary, not the
+      // JSON parser. Swallowing them here can silently lose a terminal receipt.
+      if (event && typeof event === 'object' && 'type' in event && 'payload' in event)
+        onEvent(event as AgentEvent)
     }
     return socket
   },
