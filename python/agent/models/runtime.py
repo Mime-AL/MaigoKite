@@ -15,7 +15,14 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
 from agent.config_manager import ConfigManager
-from agent.models.native_model import build_chat_model, close_chat_models, normalize_openai_compatible_base_url
+from agent.models.context_capacity import CAPACITY_POLICY, DEFAULT_ROUTE_CONTEXT_WINDOW
+from agent.models.model_catalog import ModelCatalog
+from agent.models.native_model import (
+    _is_local_endpoint,
+    build_chat_model,
+    close_chat_models,
+    normalize_openai_compatible_base_url,
+)
 from agent.models.thinking import ThinkingControl, cloud_thinking, serving_thinking
 from agent.repository import SQLiteRepository
 
@@ -124,6 +131,7 @@ class ChatModelRuntime:
         self._native_models: dict[tuple[str, str, str], tuple[ChatModelSettings, BaseChatModel]] = {}
         self._retired_models: list[BaseChatModel] = []
         self._metadata_client: httpx.AsyncClient | None = None
+        self._model_catalog: ModelCatalog | None = None
 
     def _defaults(self) -> ChatModelSettings:
         raw = self._config.get("models.chat", {})
@@ -266,9 +274,113 @@ class ChatModelRuntime:
             await close_chat_models(models)
         finally:
             self._credentials.clear()
+            if self._model_catalog is not None:
+                await self._model_catalog.close()
             if self._metadata_client is not None:
                 await self._metadata_client.aclose()
                 self._metadata_client = None
+            self._model_catalog = None
+
+    def _metadata_http_client(self) -> httpx.AsyncClient:
+        if self._metadata_client is None:
+            # Public metadata should respect the user's internet proxy. Local
+            # provider transports retain their separate proxy-bypass behavior.
+            self._metadata_client = httpx.AsyncClient(timeout=4, follow_redirects=False)
+        return self._metadata_client
+
+    def _route_capacity_metadata(self, settings: ChatModelSettings) -> dict[str, Any]:
+        """Optional YAML defaults keyed by protocol + exact normalized endpoint."""
+        routes = self._config.get("models.routes", [])
+        if not isinstance(routes, list):
+            raise ValueError("models.routes must be a list")
+        configured = None
+        identities: set[tuple[str, str]] = set()
+        for item in routes:
+            if not isinstance(item, dict):
+                raise ValueError("each models.routes entry must be an object")
+            # Reuse existing URL/provider validation; no second config schema.
+            route = ChatModelSettings.from_dict({**item, "model": "route-default"})
+            route.validate()
+            if not route.base_url:
+                raise ValueError("models.routes entries require an explicit base_url")
+            identity = (route.provider, route.base_url)
+            if identity in identities:
+                raise ValueError("models.routes contains a duplicate provider/base_url")
+            identities.add(identity)
+            capacity = item.get("default_context_window")
+            if type(capacity) is not int or not 1 <= capacity <= 9007199254740991:
+                raise ValueError("default_context_window must be a positive safe integer")
+            if identity == (settings.provider, settings.base_url):
+                configured = capacity
+        # Self-hosted services can load much smaller windows than model docs.
+        # They get no speculative cloud fallback, unless the user declares one.
+        local = settings.provider == "ollama" or _is_local_endpoint(settings.base_url)
+        return {
+            "maigokite_route_context_window": configured if configured is not None else
+                None if local else DEFAULT_ROUTE_CONTEXT_WINDOW,
+            "maigokite_route_capacity_source": "route_config" if configured is not None else "route_default",
+        }
+
+    def _capacity_route_settings(self, settings: ChatModelSettings, model: BaseChatModel) -> ChatModelSettings:
+        # A blank UI URL may still use an SDK environment override. Read the
+        # already-owned client's URL, not a duplicate HTTP client or protocol.
+        if settings.base_url or settings.provider == "ollama":
+            return settings
+        endpoint = (getattr(model, "openai_api_base", None) or getattr(model, "anthropic_api_url", None)
+                    or getattr(getattr(model, "root_async_client", None), "base_url", None))
+        if not endpoint:
+            return settings
+        routed = replace(settings, base_url=normalize_openai_compatible_base_url(settings.provider, endpoint))
+        routed.validate()
+        return routed
+
+    async def _catalog_metadata(
+        self, workspace_id: str, settings: ChatModelSettings, model_key: str,
+        previous: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Keep only this profile's public capacity facts in the existing store."""
+        if self._model_catalog is None:
+            self._model_catalog = ModelCatalog(self._metadata_http_client())
+        catalog = await self._model_catalog.find(settings.provider, settings.base_url, settings.model)
+        route = self._model_catalog.route(settings.provider, settings.base_url)
+        key = f"models.chat.capacity.{settings.id}"
+        if catalog is not None:
+            saved = {
+                "model_key": model_key, "context_window": catalog.context_window,
+                "input_limit": catalog.input_limit, "checked_at": self._model_catalog.checked_at,
+                "capacity_policy": CAPACITY_POLICY, "catalog_route": route,
+            }
+            if (previous is None or previous.get("maigokite_catalog_checked_at") != saved["checked_at"]
+                    or previous.get("maigokite_catalog_context_window") != saved["context_window"]
+                    or previous.get("maigokite_catalog_input_limit") != saved["input_limit"]):
+                await self._repository.save_workspace_setting(workspace_id, key, saved)
+        else:
+            saved = await self._repository.get_workspace_setting(workspace_id, key) if route is not None else None
+        result: dict[str, Any] = {
+            "maigokite_catalog_status": "known" if catalog is not None else
+                "model_not_found" if self._model_catalog.status == "known" else self._model_catalog.status,
+            "maigokite_sdk_profile_allowed": route == settings.provider and route in {"openai", "anthropic"},
+            "maigokite_catalog_context_window": None,
+            "maigokite_catalog_input_limit": None,
+            "maigokite_catalog_checked_at": None,
+        }
+        # Old persisted cross-vendor matches must not survive a restart or an
+        # unsuccessful lookup. Only this route's versioned facts may be reused.
+        if (route is None or not isinstance(saved, dict) or saved.get("model_key") != model_key
+                or saved.get("capacity_policy") != CAPACITY_POLICY or saved.get("catalog_route") != route):
+            return result
+        capacity = saved.get("context_window")
+        if type(capacity) is not int or not 0 < capacity <= 9007199254740991:
+            return result
+        input_limit = saved.get("input_limit")
+        result.update({
+            "maigokite_catalog_context_window": capacity,
+            "maigokite_catalog_input_limit": input_limit if type(input_limit) is int and input_limit > 0 else None,
+            "maigokite_catalog_checked_at": saved.get("checked_at"),
+        })
+        if catalog is None and self._model_catalog.status == "known":
+            result["maigokite_catalog_status"] = "cached"
+        return result
 
     def _model_options(self, settings: ChatModelSettings, api_key: str = "") -> dict[str, Any]:
         settings.validate()
@@ -310,6 +422,7 @@ class ChatModelRuntime:
     ) -> tuple[str, BaseChatModel]:
         """Return the Core-owned native model used by the LangGraph runtime."""
         settings = await self.get_profile(workspace_id, model_id)
+        route_metadata = self._route_capacity_metadata(settings)
         # Deprecated response_mode is accepted for old clients but has no effect.
         # Thinking effort must never be emulated by truncating the output budget.
         if response_mode not in {"fast", "balanced", "thorough"}:
@@ -321,24 +434,54 @@ class ChatModelRuntime:
         cached = self._native_models.get(cache_key)
         if cached and cached[0] == settings:
             model = cached[1]
+            route_settings = self._capacity_route_settings(settings, model)
+            model.metadata = {**(getattr(model, "metadata", None) or {}),
+                              **self._route_capacity_metadata(route_settings)}
+            if settings.context_window is None and settings.provider != "ollama":
+                # A transient first lookup must not make this Core-owned model
+                # unknown forever. The catalog owns TTL/backoff; reuse its client.
+                metadata = getattr(model, "metadata", None) or {}
+                model.metadata = {**metadata, **await self._catalog_metadata(
+                    workspace_id, route_settings, metadata.get("maigokite_model_key", ""), metadata,
+                )}
         else:
             options = self._model_options(settings, self._profile_key(workspace_id, settings))
             options.update(thinking_options)
             model = (self._model_factory or build_chat_model)(**options)
-            # Public Runnable metadata stays out of provider request parameters.
-            # Bind catalog capacity to this profile, never to its display name.
-            model.metadata = {
-                **(getattr(model, "metadata", None) or {}),
-                "maigokite_model_id": settings.id,
-                "maigokite_model_key": json.dumps(
-                    [settings.provider, settings.base_url, settings.model, settings.context_window],
-                    ensure_ascii=False, separators=(",", ":"),
-                ),
-                "maigokite_context_window": settings.context_window,
-            }
-            if cached:
-                self._retired_models.append(cached[1])
-            self._native_models[cache_key] = (settings, model)
+            try:
+                route_settings = self._capacity_route_settings(settings, model)
+                # Keep the UI configuration identity, but look up capacity on
+                # the actual SDK route, including environment URL overrides.
+                model.metadata = {
+                    **(getattr(model, "metadata", None) or {}),
+                    "maigokite_model_id": settings.id,
+                    "maigokite_provider": settings.provider,
+                    "maigokite_base_url": settings.base_url,
+                    "maigokite_model_key": json.dumps(
+                        [settings.provider, settings.base_url, settings.model, settings.context_window],
+                        ensure_ascii=False, separators=(",", ":"),
+                    ),
+                    "maigokite_context_window": settings.context_window,
+                    **(self._route_capacity_metadata(route_settings) if route_settings != settings else route_metadata),
+                }
+                # Ollama reads its own SDK metadata without an internet lookup.
+                if settings.context_window is None and settings.provider != "ollama":
+                    model.metadata.update(await self._catalog_metadata(
+                        workspace_id, route_settings, model.metadata["maigokite_model_key"],
+                    ))
+            except BaseException:
+                await close_chat_models([model])
+                raise
+            # Metadata lookup yields. Another caller may have installed this
+            # same model meanwhile; keep every created client's lifecycle owned.
+            current = self._native_models.get(cache_key)
+            if current and current[0] == settings:
+                self._retired_models.append(model)
+                model = current[1]
+            else:
+                if current:
+                    self._retired_models.append(current[1])
+                self._native_models[cache_key] = (settings, model)
         # Credential replacement retires the old provider even when settings are
         # identical. Do not reuse a compiled graph holding that obsolete client.
         return f"{workspace_id}:{settings.id}:{hash(settings)}:{id(model)}", model
@@ -348,9 +491,7 @@ class ChatModelRuntime:
         if settings.provider in {"openai", "anthropic"}:
             _, model = await self.get_langchain_model(workspace_id, settings.id)
             return cloud_thinking(settings.provider, settings.model, model)
-        if self._metadata_client is None:
-            self._metadata_client = httpx.AsyncClient(timeout=3, trust_env=False, follow_redirects=False)
-        return await serving_thinking(self._metadata_client, settings.provider, settings.base_url,
+        return await serving_thinking(self._metadata_http_client(), settings.provider, settings.base_url,
                                       settings.model, self._profile_key(workspace_id, settings))
 
     async def validate_thinking(self, workspace_id: str, model_id: str, thinking: str) -> None:

@@ -38,6 +38,17 @@ func (h *WorkspaceFolderHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, folder)
 }
 
+func (h *WorkspaceFolderHandler) Delete(c *gin.Context) {
+	err := h.client.DeleteWorkspaceFolder(c.Request.Context(), &agentv1.WorkspaceFolderDeleteRequest{
+		WorkspaceId: c.Param("workspaceID"), FolderId: c.Param("folderID"), PrincipalId: c.GetString("principal_id"),
+	})
+	if err != nil {
+		grpcError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // Resolve registered IDs in Core; never accept an arbitrary root in file-preview queries.
 func (h *WorkspaceFolderHandler) Files(fallback *WorkspaceHandler, action func(*WorkspaceHandler, *gin.Context)) gin.HandlerFunc {
 	return func(c *gin.Context) {

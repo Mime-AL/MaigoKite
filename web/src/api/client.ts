@@ -59,6 +59,15 @@ export interface WorkspaceFolder {
   root_path: string
 }
 
+export interface WorkspaceFolderListing {
+  path: string
+  parent: string
+  home: string
+  root: string
+  entries: { name: string; path: string }[]
+  truncated: boolean
+}
+
 export interface ChatMessage {
   id: string
   conversation_id: string
@@ -731,12 +740,19 @@ export const api = {
     const body = await request<{ folders?: WorkspaceFolder[] }>(`${path}/folders`)
     return (body.folders || []).map((folder) => ({ ...folder, id: folder.id || '' }))
   },
+  browseWorkspaceFolders(location = '', showHidden = false, signal?: AbortSignal): Promise<WorkspaceFolderListing> {
+    const query = new URLSearchParams({ path: location, show_hidden: String(showHidden) })
+    return request(`${path}/folders/browse?${query}`, { signal })
+  },
   async createWorkspaceFolder(rootPath: string, name = ''): Promise<WorkspaceFolder> {
     const folder = await request<WorkspaceFolder>(`${path}/folders`, {
       method: 'POST',
       body: JSON.stringify({ root_path: rootPath, name }),
     })
     return { ...folder, id: folder.id || '' }
+  },
+  deleteWorkspaceFolder(folderId: string): Promise<void> {
+    return request(`${path}/folders/${encodeURIComponent(folderId)}`, { method: 'DELETE' })
   },
   getConversation(id: string): Promise<Conversation> {
     return request(`${path}/conversations/${encodeURIComponent(id)}`)

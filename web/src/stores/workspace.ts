@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, type WorkspaceFolder } from '@/api/client'
+import { t } from '@/i18n'
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   const folders = ref<WorkspaceFolder[]>([]),
@@ -25,6 +26,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
   const current = computed(() => folders.value.find((folder) => folder.id === selectedId.value))
   let pending: Promise<void> | undefined
+  const removedIds = new Set<string>()
+  function wasRemoved(id: string): boolean { return removedIds.has(id) }
   function isExpanded(id: string): boolean {
     return expandedFolders.value[id] ?? id === selectedId.value
   }
@@ -54,7 +57,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     error.value = ''
     pending = (async () => {
       try {
-        folders.value = await api.listWorkspaceFolders()
+        folders.value = (await api.listWorkspaceFolders()).filter(folder => !removedIds.has(folder.id))
         if (!folders.value.some((folder) => folder.id === selectedId.value)) select('')
       } catch (reason) {
         error.value = reason instanceof Error ? reason.message : String(reason)
@@ -71,6 +74,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     select(folder.id)
     return folder
   }
+  async function remove(id: string) {
+    if (!id) throw new Error(t('默认工作区不能删除。'))
+    await api.deleteWorkspaceFolder(id)
+    // Ignore pre-deletion list responses that arrive after the DELETE succeeds.
+    removedIds.add(id)
+    folders.value = folders.value.filter(folder => folder.id !== id)
+    if (selectedId.value === id) select('')
+    const next = { ...expandedFolders.value }
+    delete next[id]
+    expandedFolders.value = next
+    try {
+      localStorage.setItem(expansionKey, JSON.stringify(next))
+    } catch {
+      /* Storage is optional. */
+    }
+  }
   return {
     folders,
     loading,
@@ -81,6 +100,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     select,
     load,
     add,
+    remove,
+    wasRemoved,
     isExpanded,
     setExpanded,
     toggleExpanded,

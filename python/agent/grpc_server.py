@@ -335,6 +335,21 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         return agent_pb2.WorkspaceFolder(**item)
 
+    async def DeleteWorkspaceFolder(self, request, context):
+        try:
+            await self._core.delete_workspace_folder(
+                request.workspace_id or "personal", request.folder_id, request.principal_id,
+            )
+        except PermissionError as exc:
+            await context.abort(grpc.StatusCode.PERMISSION_DENIED, str(exc))
+        except KeyError:
+            await context.abort(grpc.StatusCode.NOT_FOUND, "工作区不存在。")
+        except ConversationBusyError as exc:
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+        except ValueError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+        return agent_pb2.Empty()
+
     async def ListMessages(self, request, context):
         try:
             items = await self._core.list_messages(request.conversation_id, request.workspace_id or "personal")

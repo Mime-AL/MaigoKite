@@ -1,7 +1,9 @@
-import { app, BrowserWindow, globalShortcut, Menu, screen, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, Menu, screen, shell, Tray } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { createConnection } from 'node:net'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { createRuntimeEnvironment } from './runtime-env'
 import { registerIPC } from './ipc'
@@ -21,6 +23,9 @@ let quitting = false,
   shortcut = ''
 let pulseState: PulseState = 'idle'
 const children: ChildProcess[] = []
+const runtimeStartup = new AbortController()
+let runtimeFailure = '',
+  runtimeShutdown: Promise<void> | null = null
 const indexPath = path.resolve(__dirname, '../dist/index.html')
 const appIconPath = path.resolve(
   __dirname,
@@ -41,32 +46,89 @@ function projectRoot() {
 function workspaceRoot() {
   return process.env.MAIGOKITE_WORKSPACE_ROOT || (app.isPackaged ? process.cwd() : projectRoot())
 }
-function startProcess(command: string, args: string[], cwd: string) {
+function reportRuntimeFailure(message: string) {
+  if (quitting || runtimeFailure) return
+  runtimeFailure = message
+  runtimeStartup.abort(new Error(message))
+  console.error(`[MaigoKite] ${message}`)
+  mainWindow?.webContents.send('runtime:error', message)
+  void stopRuntime()
+  dialog.showErrorBox(t('应用服务无法启动'), message)
+}
+function startProcess(name: string, command: string, args: string[], cwd: string, configPath?: string) {
   const env = createRuntimeEnvironment()
   env.MAIGOKITE_WORKSPACE_ROOT = workspaceRoot()
-  const child = spawn(command, args, { cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'], env })
-  child.stdout?.on('data', () => undefined)
-  child.stderr?.on('data', () => undefined)
-  child.on('error', () =>
-    mainWindow?.webContents.send('runtime:error', t('应用服务启动失败，请重新打开应用。')),
+  if (configPath) env.MAIGOKITE_CONFIG = configPath
+  console.info(`[MaigoKite] Starting ${name}`)
+  // A process group also owns the executable spawned by `go run`.
+  const child = spawn(command, args, {
+    cwd,
+    shell: false,
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env,
+  })
+  // Forward logs; `close` waits for inherited pipes, including the Gateway child.
+  child.stdout?.on('data', (chunk: Buffer) => process.stdout.write(chunk))
+  child.stderr?.on('data', (chunk: Buffer) => process.stderr.write(chunk))
+  child.on('error', (error) =>
+    reportRuntimeFailure(t('{0} 启动失败：{1}', [name, error.message])),
   )
+  child.on('exit', (code, signal) => {
+    if (!quitting && !runtimeShutdown)
+      reportRuntimeFailure(t('{0} 已退出（{1}）。请查看终端日志后重新启动。', [name, signal || String(code)]))
+  })
+  child.once('close', () => {
+    const index = children.indexOf(child)
+    if (index >= 0) children.splice(index, 1)
+  })
   children.push(child)
 }
-function startRuntime() {
+async function waitForPort(port: number, name: string) {
+  const signal = runtimeStartup.signal,
+    deadline = Date.now() + 90_000
+  while (Date.now() < deadline) {
+    signal.throwIfAborted()
+    const ready = await new Promise<boolean>((resolve) => {
+      const socket = createConnection({ host: '127.0.0.1', port })
+      function finish(connected: boolean) {
+        signal.removeEventListener('abort', abort)
+        socket.destroy()
+        resolve(connected)
+      }
+      const abort = () => finish(false)
+      signal.addEventListener('abort', abort, { once: true })
+      socket.once('connect', () => finish(true))
+      socket.once('error', () => finish(false))
+      socket.setTimeout(1_000, () => finish(false))
+      if (signal.aborted) abort()
+    })
+    signal.throwIfAborted()
+    if (ready) return
+    await delay(250, undefined, { signal })
+  }
+  throw new Error(t('{0} 启动超时（端口 {1}）。请查看终端日志。', [name, port]))
+}
+async function startRuntime() {
   if (process.env.MAIGOKITE_EXTERNAL_RUNTIME === '1' || process.env.VITE_MOCK === '1') return
   const root = projectRoot()
   if (app.isPackaged) {
     startProcess(
+      'Core',
       path.join(process.resourcesPath, 'bin', 'agent-core'),
       ['run'],
       process.resourcesPath,
     )
-    startProcess(path.join(process.resourcesPath, 'bin', 'gateway'), [], process.resourcesPath)
+    await waitForPort(8081, 'Core')
+    startProcess('Gateway', path.join(process.resourcesPath, 'bin', 'gateway'), [], process.resourcesPath)
   } else {
-    const projectPython = path.join(root, '.venv', 'bin', 'python')
+    const projectPython = process.platform === 'win32'
+      ? path.join(root, '.venv', 'Scripts', 'python.exe')
+      : path.join(root, '.venv', 'bin', 'python')
     const python =
       process.env.MAIGOKITE_PYTHON || (existsSync(projectPython) ? projectPython : 'python3')
     startProcess(
+      'Core',
       python,
       [
         path.join(root, 'python', 'main.py'),
@@ -78,11 +140,45 @@ function startRuntime() {
       ],
       root,
     )
-    startProcess('go', ['run', './cmd/gateway'], path.join(root, 'gateway'))
+    await waitForPort(8081, 'Core')
+    startProcess(
+      'Gateway', 'go', ['run', './cmd/gateway'], path.join(root, 'gateway'),
+      path.join(root, 'config', 'config.dev.yaml'),
+    )
   }
+  // The Gateway listens only after connecting to Core. Avoid failed initial UI requests.
+  await waitForPort(8080, 'Gateway')
+  console.info('[MaigoKite] Core and Gateway are ready')
 }
-function stopRuntime() {
-  for (const child of children.splice(0)) if (!child.killed) child.kill('SIGTERM')
+function stopRuntime(): Promise<void> {
+  if (runtimeShutdown) return runtimeShutdown
+  runtimeStartup.abort()
+  runtimeShutdown = Promise.all(children.splice(0).map((child) => new Promise<void>((resolve) => {
+    const pid = child.pid
+    if (!pid) {
+      resolve()
+      return
+    }
+    function terminate(processId: number, signal: NodeJS.Signals) {
+      try {
+        if (process.platform === 'win32') {
+          const killer = spawn('taskkill', ['/PID', String(processId), '/T', '/F'], {
+            shell: false, stdio: 'ignore', env: createRuntimeEnvironment(),
+          })
+          killer.once('error', () => child.kill(signal))
+        } else process.kill(-processId, signal)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') console.error('[MaigoKite] Runtime shutdown:', error)
+      }
+    }
+    const timeout = setTimeout(() => terminate(pid, 'SIGKILL'), 10_000)
+    child.once('close', () => {
+      clearTimeout(timeout)
+      resolve()
+    })
+    terminate(pid, 'SIGTERM')
+  }))).then(() => undefined)
+  return runtimeShutdown
 }
 export function isAllowedNavigation(target: string, development: boolean) {
   try {
@@ -241,7 +337,7 @@ function updateTrayMenu() {
     ]),
   )
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (process.platform === 'darwin') app.dock?.setIcon(appIconPath)
   try {
     const value: unknown = JSON.parse(
@@ -261,7 +357,8 @@ app.whenReady().then(() => {
     setAppearance,
     pulse: setPulse,
   })
-  startRuntime()
+  await startRuntime()
+  if (quitting) return
   createWindow()
   createTray()
   try {
@@ -273,9 +370,18 @@ app.whenReady().then(() => {
     if (!mainWindow) createWindow()
     mainWindow?.show()
   })
+}).catch(async (error: unknown) => {
+  reportRuntimeFailure(error instanceof Error ? error.message : String(error))
+  await stopRuntime()
+  if (quitting) app.quit()
+  else app.exit(1)
 })
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  if (quitting) return
+  event.preventDefault()
   quitting = true
   globalShortcut.unregisterAll()
-  stopRuntime()
+  void stopRuntime().finally(() => app.quit())
 })
+process.once('SIGINT', () => app.quit())
+process.once('SIGTERM', () => app.quit())

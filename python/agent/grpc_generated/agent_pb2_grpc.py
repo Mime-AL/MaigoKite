@@ -339,6 +339,11 @@ class AgentServiceStub:
                 request_serializer=agent__pb2.ResumeTaskRequest.SerializeToString,
                 response_deserializer=agent__pb2.AgentEvent.FromString,
                 _registered_method=True)
+        self.DeleteWorkspaceFolder = channel.unary_unary(
+                '/maigokite.agent.v1.AgentService/DeleteWorkspaceFolder',
+                request_serializer=agent__pb2.WorkspaceFolderDeleteRequest.SerializeToString,
+                response_deserializer=agent__pb2.Empty.FromString,
+                _registered_method=True)
 
 
 class AgentServiceServicer:
@@ -710,6 +715,12 @@ class AgentServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def DeleteWorkspaceFolder(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AgentServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -1018,6 +1029,11 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     request_deserializer=agent__pb2.ResumeTaskRequest.FromString,
                     response_serializer=agent__pb2.AgentEvent.SerializeToString,
             ),
+            'DeleteWorkspaceFolder': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteWorkspaceFolder,
+                    request_deserializer=agent__pb2.WorkspaceFolderDeleteRequest.FromString,
+                    response_serializer=agent__pb2.Empty.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'maigokite.agent.v1.AgentService', rpc_method_handlers)
@@ -1046,6 +1062,33 @@ class AgentService:
             '/maigokite.agent.v1.AgentService/ProcessMessage',
             agent__pb2.ProcessMessageRequest.SerializeToString,
             agent__pb2.AgentEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteWorkspaceFolder(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/maigokite.agent.v1.AgentService/DeleteWorkspaceFolder',
+            agent__pb2.WorkspaceFolderDeleteRequest.SerializeToString,
+            agent__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,

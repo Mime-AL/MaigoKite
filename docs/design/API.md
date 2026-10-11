@@ -45,10 +45,16 @@ deadline
 
 ```text
 GET  /workspaces/{workspace_id}/folders
+GET  /workspaces/{workspace_id}/folders/browse
 POST /workspaces/{workspace_id}/folders
+DELETE /workspaces/{workspace_id}/folders/{folder_id}
 ```
 
 POST 仅所有者可用，接受 `root_path` 与可选 `name`，由 Core 校验并登记规范化的实际目录，同目录重复添加返回已有记录。GET 返回 `id / name / root_path`，空 ID 表示启动配置的默认目录。模型、凭证、个人记忆仍以 `workspace_id` 为范围，不以 `folder_id` 隔离。
+
+`DELETE folders/{folder_id}` 仅 owner 可用，Gateway/Core 均检查身份；成功返回 204。只删除文件夹登记，不读取或删除磁盘文件、消息、任务、checkpoint、模型或记忆。关联对话（含归档）在同一 SQLite 事务中移至默认目录，撤销原目录下的复用审批授权，并写入 `workspace_folder.deleted` 审计；之后的文件操作使用默认目录。默认空 ID 不可删除（400），不存在或不属于当前个人范围的登记为 404。存在未结束任务、仍在清理的 Runtime run、运行进程或最新可恢复 interrupted 任务时返回 409；整项操作失败，不部分迁移。磁盘目录已消失不影响移除登记。界面提供二次确认并同步已载入对话的目录归属，迟到的旧列表不重新显示被移除的工作区。
+
+`folders/browse` 为本机 Web 文件夹选择器提供目录列表，要求 owner 且请求直接连接地址为 loopback（不信任转发头来判定本机）。可选 `path` 为已有绝对目录，省略时从网关进程用户的主目录开始；`show_hidden=true` 包含点开头目录。响应为 `{path, parent, home, root, entries: [{name, path}], truncated}`，根目录的 parent 为空。只枚举目录，不返回文件或读取内容；每次最多扫描 5000 项、返回 500 个文件夹，不缓存响应。注册路径仍调用上述 POST，由 Core 做最终校验。它不是工作区文件预览接口，也不是远程设备文件选择协议；Gateway/Core 必须共享文件系统，反向代理不应将此本机专用入口公开到远程。
 
 手机访问为规划中，范围以 [手机远程访问](RemoteAccess.md) 为准。配对设备关联同一个个人主体；首版复用会话、任务、审批和 UI Event DTO，仅开放明确列出的远程资源。配对、会话和撤销的具体契约在实施时补充，本文不将它们列成已存在的端点。
 
@@ -306,7 +312,7 @@ Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能�
 
 **计划与上下文。** 计划直接复用 LangChain `TodoListMiddleware / write_todos`；`plan.updated.items` 是 `{content, status}` 数组，status 为 `pending / in_progress / completed`，只作用于当前任务，不是工作区 TODO。`context.updated` 提供 `call_id / model_name / estimated_input_tokens / input_budget_tokens / measurement`；本地估算为 `estimate`，显式超限回执提供的输入计数为 `provider`，沿用 `estimated_input_tokens` 字段兼容现有消费者，不表示计费成功。`model_context_window / context_percent` 在容量已知时有值，否则为 null，绝不把产品预算冒充模型窗口。
 
-容量附加字段：`capacity_source` 为 `lmstudio.loaded_instance / model_profile / provider_metadata / provider_error / null`，分别表示实际加载实例、已保存的模型目录容量或 SDK 资料、服务端模型目录、本次拒绝回执和未知。目录容量是资料上限，不冒充实际加载窗口。`capacity_status` 为 `known / unknown / metadata_unavailable / unsupported_metadata / unauthorized / not_loaded / model_not_found / ambiguous_instance`；`capacity_checked_at` 为 UTC 观测时间。`output_reserved_tokens / safety_margin_tokens / compaction_trigger_tokens` 分别是输出预留、估算余量和自动压缩阈值，均不是已消耗 token。`purpose` 区分 `response / summary`。压缩前和正式调用前均可发布，预检的 `context_*` call ID 不是模型调用次数，只有 `model.call.started` 才代表请求开始；不能对多个 `context.updated` 求和。模型真实计费计数继续通过既有 `model.usage` 提供。
+容量附加字段：`capacity_source` 包括 `lmstudio.loaded_instance / ollama.loaded_instance / ollama.model_info / model_profile / provider_metadata / provider_error / models.dev / sdk_profile / route_config / route_default / null`，分别表示加载实例、Ollama 模型资料、显式模型覆盖、当前服务资料、拒绝回执、当前路由目录/SDK 资料、YAML 路由默认值、内置路由假定值和未知。目录是资料上限，不冒充实际加载窗口；未知远端路由默认容量为 262,144，`route_default` 对应 `capacity_status=assumed`，不是实测。`capacity_status` 还可为 `known / cached / unknown / model_catalog_unavailable / metadata_unavailable / unsupported_metadata / unauthorized / not_loaded / model_not_found / ambiguous_instance`；`capacity_checked_at` 为 UTC 解析/观测时间。`output_reserved_tokens / safety_margin_tokens / compaction_trigger_tokens` 分别是输出预留、估算余量和自动压缩阈值，均不是已消耗 token。`purpose` 区分 `response / summary`。压缩前和正式调用前均可发布，预检的 `context_*` call ID 不是模型调用次数，只有 `model.call.started` 才代表请求开始；不能对多个 `context.updated` 求和。模型真实计费计数继续通过既有 `model.usage` 提供。
 
 容量未知时不按产品默认预算触发模型压力压缩，也不发布伪造阈值。明确的服务端超限错误可以
 触发一次强制原生摘要，再重试一次；只在尚无可见 Token、历史实际缩减且当前输入保留时进行。
@@ -316,7 +322,7 @@ Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能�
 固定指令和工具定义本身超预算的失败带 `reason=fixed_overhead_exceeded`，显示输入预算不足，
 不称为历史摘要失败。现有 `context.max_tokens` 只作未知容量下恢复工作的预算，不能声明服务端窗口。
 
-模型配置增加可选 `context_window`（正的安全整数；省略/0 表示未知），从设置页获取的目录按精确模型 ID 保存，经既有 REST / protobuf / Repository 传递，无数据库增列。换服务或换模型不能沿用另一模型的容量。兼容 Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取精确模型项的 `context_window / context_length / contextWindow / max_model_len`；只有本地服务才尝试 LM Studio 加载实例接口，不再把该路径套到所有云厂商。已保存的目录容量可作资料回退，无元数据时保持未知；不使用硬编码模型表、输出限制或默认产品预算兜底。`context.updated` 附加 `model_id / model_key`：后者为 `[provider, normalized_base_url, model, context_window_or_null]` 的紧凑 JSON，仅用于配置关联，不含密钥。前端同时匹配配置 ID 与该关联值；旧事件缺少关联值时不把历史容量套到当前配置，新请求发布新的观测。
+模型配置使用可选 `context_window`（正的安全整数；省略/0 表示没有模型覆盖），从设置页获取的服务目录按精确模型 ID 保存，经既有 REST / protobuf / Repository 传递，无数据库增列。换服务或换模型不能沿用另一模型的容量。Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取精确模型项的 `context_window / context_length / contextWindow / max_model_len`；只有本地 OpenAI-compatible 服务才尝试 LM Studio 加载实例接口。models.dev/SDK 资料只适用于已识别的当前路由，不跨厂商匹配模型 ID；自定义 Anthropic/OpenAI 协议地址不等于官方路由。无资料的远端接入使用 `models.routes[].default_context_window`，未配置时采用 262,144 的 `assumed` 回退，本地/Ollama 无默认云端回退。输出上限与旧产品预算仍不冒充窗口。持久容量记录增加内部 `capacity_policy / catalog_route`，旧跨厂商缓存失效；前端缓存换版本，历史目录容量不得覆盖新路由观测，用量保留。`context.updated` 保持 `model_id / model_key`：后者为 `[provider, normalized_base_url, model, context_window_or_null]` 的紧凑 JSON，仅用于配置关联，不含密钥。前端同时匹配配置 ID 与该关联值；旧事件缺少关联值时不把历史容量套到当前配置，新请求发布新的观测。路由配置由现有 YAML 读取，不新增 REST/protobuf 字段或设置系统。
 
 压缩状态通过 `context.compaction.started / failed / skipped` 与既有 `context.compacted` 发布。started 带 `before_tokens / input_budget_tokens / model_context_window / measurement`；failed 带 `message / error_type / model_context_window` 且保留原历史；skipped 的 `reason=no_compressible_history` 不代表完成压缩。前端按事件投影独立压缩状态，不从普通“思考中”推断；窗口仪表保留 measurement、容量来源、获取状态与观测时间，未知窗口只显示已有 Token 计数/估算、不绘制占用比例。聊天过程与底部显示压缩失败原因，关闭窗口用量显示不隐藏失败反馈。本次前端接入未运行测试或真实服务验收，后端没有手动压缩接口，界面不提供该按钮。
 

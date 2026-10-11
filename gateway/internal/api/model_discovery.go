@@ -43,7 +43,11 @@ type modelCatalogEntry struct {
 	ContextWindow      int64  `json:"context_window"`
 	ContextWindowCamel int64  `json:"contextWindow"`
 	MaxModelLength     int64  `json:"max_model_len"`
-	Details            struct {
+	MaxInputTokens     int64  `json:"max_input_tokens"`
+	Limit              struct {
+		Context int64 `json:"context"`
+	} `json:"limit"`
+	Details struct {
 		Family            string `json:"family"`
 		ParameterSize     string `json:"parameter_size"`
 		QuantizationLevel string `json:"quantization_level"`
@@ -318,7 +322,7 @@ func catalogCandidates(payload modelCatalogPayload) ([]discoveredModel, error) {
 			name = id
 		}
 		var contextWindow int64
-		for _, capacity := range []int64{item.ContextWindow, item.ContextLength, item.ContextWindowCamel, item.MaxModelLength} {
+		for _, capacity := range []int64{item.ContextWindow, item.ContextLength, item.ContextWindowCamel, item.MaxModelLength, item.Limit.Context, item.MaxInputTokens} {
 			if capacity > 0 && capacity <= 9007199254740991 {
 				contextWindow = capacity
 				break

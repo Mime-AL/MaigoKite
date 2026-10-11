@@ -64,6 +64,7 @@ service AgentService {
   rpc ReloadExtensions(ExtensionReloadRequest) returns (ExtensionSettings);
   rpc Health(Empty) returns (HealthResponse);
   rpc ResumeTask(ResumeTaskRequest) returns (stream AgentEvent);
+  rpc DeleteWorkspaceFolder(WorkspaceFolderDeleteRequest) returns (Empty);
 }
 
 message Empty {}
@@ -444,4 +445,7 @@ message SkillList { repeated Skill skills = 1; }
 message ResumeTaskRequest {
   string workspace_id = 1; string task_id = 2;
   string principal_id = 3; int32 version = 4;
+}
+message WorkspaceFolderDeleteRequest {
+  string workspace_id = 1; string folder_id = 2; string principal_id = 3;
 }

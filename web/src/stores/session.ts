@@ -243,13 +243,20 @@ export const useSessionStore = defineStore('session', () => {
     streams.set(id, stream)
     stream.start()
   }
+  function retainedWorkspace(conversation: Conversation): Conversation {
+    return conversation.folder_id && workspace.wasRemoved(conversation.folder_id)
+      ? { ...conversation, folder_id: '' } : conversation
+  }
+  function moveWorkspaceSessionsToDefault(folderId: string) {
+    sessions.value = sessions.value.map(item => item.folder_id === folderId ? { ...item, folder_id: '' } : item)
+  }
   async function loadSessions() {
     if (isLoading.value) return
     isLoading.value = true
     error.value = null
     try {
       await workspace.load()
-      sessions.value = (await api.listConversations()).filter(
+      sessions.value = (await api.listConversations()).map(retainedWorkspace).filter(
         (item) => !deletedSessions.has(item.id),
       )
       const current = activeSession.value
@@ -266,7 +273,7 @@ export const useSessionStore = defineStore('session', () => {
   }
   async function createSession(title: string, folderId = workspace.selectedId) {
     try {
-      const item = await api.createConversation({ title, folder_id: folderId })
+      const item = retainedWorkspace(await api.createConversation({ title, folder_id: folderId }))
       showArchived.value = false
       sessions.value.unshift(item)
       await switchSession(item.id)
@@ -277,7 +284,7 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
   async function forkSession(id: string, key: string, messageId = '') {
-    const item = await api.forkConversation(id, key, messageId)
+    const item = retainedWorkspace(await api.forkConversation(id, key, messageId))
     if (!sessions.value.some((entry) => entry.id === item.id)) sessions.value.unshift(item)
     showArchived.value = false
     return item
@@ -289,7 +296,7 @@ export const useSessionStore = defineStore('session', () => {
     error.value = null
     let conversation: Conversation
     try {
-      conversation = await api.getConversation(id)
+      conversation = retainedWorkspace(await api.getConversation(id))
     } catch (reason) {
       if (current === generation) {
         activeSessionId.value = null
@@ -912,7 +919,7 @@ export const useSessionStore = defineStore('session', () => {
     id: string,
     patch: { title?: string; archived?: boolean; folder_id?: string },
   ) {
-    const item = await api.updateConversationSettings(id, patch)
+    const item = retainedWorkspace(await api.updateConversationSettings(id, patch))
     const index = sessions.value.findIndex((session) => session.id === id)
     if (index >= 0) sessions.value[index] = item
     if (activeSessionId.value === id) workspace.select(item.folder_id || '')
@@ -985,6 +992,7 @@ export const useSessionStore = defineStore('session', () => {
     forkSession,
     manageSession,
     deleteSession,
+    moveWorkspaceSessionsToDefault,
     switchSession,
     watchSession,
     refreshEvents,

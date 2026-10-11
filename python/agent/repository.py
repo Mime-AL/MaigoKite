@@ -496,6 +496,48 @@ class SQLiteRepository:
         assert row is not None
         return dict(row)
 
+    async def delete_workspace_folder(self, workspace_id: str, folder_id: str, actor: str) -> None:
+        """Unregister a folder and retain its conversations in the default folder.
+
+        Validate and write under the same lock/transaction as task admission.
+        No filesystem operation or checkpoint deletion belongs to this action.
+        """
+        if not folder_id:
+            raise ValueError("默认工作区不能删除。")
+        async with self._lock:
+            with self._db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                self._require_folder(workspace_id, folder_id)
+                conversations = db.execute(
+                    "SELECT id FROM conversations WHERE workspace_id=? AND folder_id=?",
+                    (workspace_id, folder_id),
+                ).fetchall()
+                for row in conversations:
+                    try:
+                        self._require_idle_conversation(workspace_id, row["id"])
+                    except ConversationBusyError:
+                        raise ConversationBusyError("工作区中有未结束的任务，请完成或停止后再删除。") from None
+                    latest = db.execute(
+                        """SELECT status FROM tasks WHERE workspace_id=? AND conversation_id=?
+                           ORDER BY created_at DESC,rowid DESC LIMIT 1""",
+                        (workspace_id, row["id"]),
+                    ).fetchone()
+                    if latest is not None and latest["status"] == "interrupted":
+                        raise ConversationBusyError("工作区中有可恢复的任务，请完成或停止后再删除。")
+                for row in conversations:
+                    self._revoke_authorizations(workspace_id, row["id"])
+                now = _now()
+                db.execute(
+                    """UPDATE conversations SET folder_id='',updated_at=?
+                       WHERE workspace_id=? AND folder_id=?""", (now, workspace_id, folder_id),
+                )
+                db.execute("DELETE FROM workspace_folders WHERE workspace_id=? AND id=?", (workspace_id, folder_id))
+                db.execute(
+                    "INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)",
+                    (f"audit_{uuid.uuid4().hex}", workspace_id, actor, "workspace_folder.deleted", folder_id,
+                     "success", json.dumps({"retained_conversations": len(conversations), "destination_folder_id": ""}), now),
+                )
+
     async def delete_conversation(self, workspace_id: str, conversation_id: str) -> list[str]:
         async with self._lock:
             self._require_idle_conversation(workspace_id, conversation_id)

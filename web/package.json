@@ -18,7 +18,7 @@
     "test:ui": "vitest --ui",
     "lint": "eslint . --ext .vue,.ts,.tsx --fix",
     "format": "prettier --write src/",
-    "electron:dev": "npm run electron:compile && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "npm run electron:compile && concurrently --kill-others --success first \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:compile": "vite build --config electron.vite.config.ts && vite build --config electron.vite.config.ts --mode preload",
     "electron:build": "npm run build && electron-builder",
     "electron:preview": "npm run build && electron .",

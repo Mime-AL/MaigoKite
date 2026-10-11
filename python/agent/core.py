@@ -698,6 +698,26 @@ class AgentCore:
             raise ValueError("工作区名称不能超过 120 个字符。")
         return await self.repository.create_workspace_folder(workspace_id, name, str(root))
 
+    async def delete_workspace_folder(
+        self, workspace_id: str, folder_id: str, principal_id: str = "local-user",
+    ) -> None:
+        if await self.repository.check_workspace_access(workspace_id, principal_id) != "owner":
+            raise PermissionError("只有工作区所有者可以删除工作区。")
+        if not folder_id:
+            raise ValueError("默认工作区不能删除。")
+        # Read the registration, not the directory: a missing disk folder must
+        # remain removable from the app. Terminal projections may still be cleaning up.
+        await self.repository.get_workspace_folder(workspace_id, folder_id)
+        for conversation in await self.repository.list_conversations(workspace_id):
+            if conversation.get("folder_id") == folder_id:
+                if any(job["live"] for job in await self.list_jobs(workspace_id, str(conversation["id"]))):
+                    raise ConversationBusyError("工作区中有运行中的进程，请停止后再删除。")
+                try:
+                    self._require_inactive_conversation(str(conversation["id"]))
+                except ConversationBusyError:
+                    raise ConversationBusyError("工作区中有未结束的任务，请完成或停止后再删除。") from None
+        await self.repository.delete_workspace_folder(workspace_id, folder_id, principal_id)
+
     async def list_messages(self, conversation_id: str, workspace_id: str = "personal") -> list[dict[str, Any]]:
         await self.repository.get_conversation(workspace_id, conversation_id)
         return await self.repository.list_messages(conversation_id)

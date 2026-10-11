@@ -97,6 +97,10 @@ func (c *AgentClient) GetWorkspaceFolder(ctx context.Context, workspaceID, folde
 func (c *AgentClient) CreateWorkspaceFolder(ctx context.Context, req *agentv1.WorkspaceFolderRequest) (*agentv1.WorkspaceFolder, error) {
 	return c.client.CreateWorkspaceFolder(ctx, req)
 }
+func (c *AgentClient) DeleteWorkspaceFolder(ctx context.Context, req *agentv1.WorkspaceFolderDeleteRequest) error {
+	_, err := c.client.DeleteWorkspaceFolder(ctx, req)
+	return err
+}
 func (c *AgentClient) DeleteConversation(ctx context.Context, req *agentv1.ConversationRequest) error {
 	_, err := c.client.DeleteConversation(ctx, req)
 	return err

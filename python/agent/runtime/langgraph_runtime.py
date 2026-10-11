@@ -353,7 +353,19 @@ class LangGraphRuntime:
             )
             for spec in self.tool_specs
         }
-        planning = TodoListMiddleware()
+        # Official middleware still owns the plan and write_todos schema. Its
+        # long default tutorial need not consume every small-window request.
+        planning = TodoListMiddleware(
+            system_prompt=(
+                "Use write_todos for complex work or an explicitly requested plan, not simple chat. "
+                "Keep steps concise and update their real status; never mark unfinished work completed. "
+                "Read files in bounded pages and prefer targeted searches over large raw outputs."
+            ),
+            tool_description=(
+                "Replace the current task plan with concise steps and their actual status: "
+                "pending, in_progress or completed. Use only when a plan is helpful."
+            ),
+        )
         summarizer = SafeSummarizationMiddleware(
             model=model,
             input_budget=self.context_max_tokens,

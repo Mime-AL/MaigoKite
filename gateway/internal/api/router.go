@@ -71,7 +71,9 @@ func (r *Router) routes() {
 	workspaces.Use(r.requireWorkspaceAccess())
 	folders := &WorkspaceFolderHandler{client: r.client}
 	workspaces.GET("/folders", folders.List)
+	workspaces.GET("/folders/browse", r.requireWorkspaceOwner(), folders.Browse)
 	workspaces.POST("/folders", r.requireWorkspaceOwner(), folders.Create)
+	workspaces.DELETE("/folders/:folderID", r.requireWorkspaceOwner(), folders.Delete)
 	credentialManager := credentialstore.NewManager(credentialstore.NewOSStore())
 	s := &SessionHandler{client: r.client, mgr: credentialManager}
 	m := &MessageHandler{client: r.client, hub: r.hub, mgr: credentialManager}

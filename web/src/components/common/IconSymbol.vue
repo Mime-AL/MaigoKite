@@ -46,6 +46,7 @@ const paths: Record<string, string> = {
   expand: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
   restore: 'M9 3v6H3m12-6v6h6M9 21v-6H3m12 6v-6h6',
   close: 'm6 6 12 12M18 6 6 18',
+  trash: 'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7',
   files:
     'M5 3.5h8l2 2H19a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5Z',
   folder:

@@ -80,6 +80,7 @@ const (
 	AgentService_ReloadExtensions_FullMethodName             = "/maigokite.agent.v1.AgentService/ReloadExtensions"
 	AgentService_Health_FullMethodName                       = "/maigokite.agent.v1.AgentService/Health"
 	AgentService_ResumeTask_FullMethodName                   = "/maigokite.agent.v1.AgentService/ResumeTask"
+	AgentService_DeleteWorkspaceFolder_FullMethodName        = "/maigokite.agent.v1.AgentService/DeleteWorkspaceFolder"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -147,6 +148,7 @@ type AgentServiceClient interface {
 	ReloadExtensions(ctx context.Context, in *ExtensionReloadRequest, opts ...grpc.CallOption) (*ExtensionSettings, error)
 	Health(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*HealthResponse, error)
 	ResumeTask(ctx context.Context, in *ResumeTaskRequest, opts ...grpc.CallOption) (AgentService_ResumeTaskClient, error)
+	DeleteWorkspaceFolder(ctx context.Context, in *WorkspaceFolderDeleteRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type agentServiceClient struct {
@@ -859,6 +861,16 @@ func (x *agentServiceResumeTaskClient) Recv() (*AgentEvent, error) {
 	return m, nil
 }
 
+func (c *agentServiceClient) DeleteWorkspaceFolder(ctx context.Context, in *WorkspaceFolderDeleteRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, AgentService_DeleteWorkspaceFolder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility
@@ -924,6 +936,7 @@ type AgentServiceServer interface {
 	ReloadExtensions(context.Context, *ExtensionReloadRequest) (*ExtensionSettings, error)
 	Health(context.Context, *Empty) (*HealthResponse, error)
 	ResumeTask(*ResumeTaskRequest, AgentService_ResumeTaskServer) error
+	DeleteWorkspaceFolder(context.Context, *WorkspaceFolderDeleteRequest) (*Empty, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -1113,6 +1126,9 @@ func (UnimplementedAgentServiceServer) Health(context.Context, *Empty) (*HealthR
 }
 func (UnimplementedAgentServiceServer) ResumeTask(*ResumeTaskRequest, AgentService_ResumeTaskServer) error {
 	return status.Errorf(codes.Unimplemented, "method ResumeTask not implemented")
+}
+func (UnimplementedAgentServiceServer) DeleteWorkspaceFolder(context.Context, *WorkspaceFolderDeleteRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteWorkspaceFolder not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 
@@ -2237,6 +2253,24 @@ func (x *agentServiceResumeTaskServer) Send(m *AgentEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _AgentService_DeleteWorkspaceFolder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkspaceFolderDeleteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).DeleteWorkspaceFolder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_DeleteWorkspaceFolder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).DeleteWorkspaceFolder(ctx, req.(*WorkspaceFolderDeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2471,6 +2505,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Health",
 			Handler:    _AgentService_Health_Handler,
+		},
+		{
+			MethodName: "DeleteWorkspaceFolder",
+			Handler:    _AgentService_DeleteWorkspaceFolder_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

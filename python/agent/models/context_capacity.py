@@ -1,4 +1,4 @@
-"""Read serving capacity, not a model-name table or a second provider protocol."""
+"""Resolve deployment and declared model capacities without a model-name table."""
 
 from __future__ import annotations
 
@@ -10,12 +10,20 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from anthropic import APIError as AnthropicAPIError
 from anthropic import BadRequestError as AnthropicBadRequestError
+from ollama import AsyncClient as OllamaAsyncClient
+from ollama import ResponseError as OllamaResponseError
 from openai import APIError
 from pydantic import SecretStr
 
 from agent.models.compatible_reasoning import ReasoningChatOpenAI
 from agent.models.native_model import _is_local_endpoint
+
+
+# DSH's configurable route fallback, not a claim about any named model.
+DEFAULT_ROUTE_CONTEXT_WINDOW = 262_144
+CAPACITY_POLICY = "route-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,12 +43,52 @@ def profile_capacity(model: Any) -> ContextCapacity:
     tokens = _positive_int(metadata.get("maigokite_context_window"))
     if tokens:
         return ContextCapacity(tokens, "model_profile", "known")
-    # A compatible endpoint can serve a locally loaded model under a cloud
-    # model's name. Its SDK lookup is NOT evidence of that server's capacity.
-    if isinstance(model, ReasoningChatOpenAI):
-        return ContextCapacity()
-    tokens = _positive_int((getattr(model, "profile", None) or {}).get("max_input_tokens"))
-    return ContextCapacity(tokens, "model_profile" if tokens else None, "known" if tokens else "unknown")
+    tokens = _positive_int(metadata.get("maigokite_catalog_context_window"))
+    if tokens:
+        return ContextCapacity(tokens, "models.dev", metadata.get("maigokite_catalog_status", "known"),
+                               metadata.get("maigokite_catalog_checked_at") or datetime.now(UTC).isoformat())
+    # Vendor SDK profiles are not deployment metadata for an arbitrary relay.
+    # Untagged models retain their SDK behavior; Core-owned models must first
+    # establish that this is a known catalog route.
+    if not metadata.get("maigokite_provider") or metadata.get("maigokite_sdk_profile_allowed"):
+        tokens = _positive_int((getattr(model, "profile", None) or {}).get("max_input_tokens"))
+        if tokens:
+            return ContextCapacity(tokens, "sdk_profile", "known")
+    tokens = _positive_int(metadata.get("maigokite_route_context_window"))
+    if tokens:
+        source = metadata.get("maigokite_route_capacity_source", "route_default")
+        return ContextCapacity(tokens, source, "assumed" if source == "route_default" else "known")
+    return ContextCapacity(status=metadata.get("maigokite_catalog_status", "unknown"))
+
+
+async def _ollama_capacity(model: Any) -> ContextCapacity:
+    # Borrow the integration's Core-owned official SDK; never close it here.
+    client = getattr(model, "_async_client", None)
+    if not isinstance(client, OllamaAsyncClient):
+        return ContextCapacity(status="metadata_unavailable")
+    name = str(getattr(model, "model", ""))
+    wire_name = name if ":" in name.rsplit("/", 1)[-1] else f"{name}:latest"
+    try:
+        async with asyncio.timeout(3):
+            running = await client.ps()
+        matches = [item for item in running.models if item.model == wire_name or item.name == wire_name]
+        if len(matches) == 1 and (tokens := _positive_int(matches[0].context_length)):
+            return ContextCapacity(tokens, "ollama.loaded_instance", "known")
+    except (httpx.HTTPError, OllamaResponseError, ConnectionError, TimeoutError):
+        pass  # Older/proxied servers may expose show but not loaded-instance data.
+    try:
+        async with asyncio.timeout(3):
+            details = await client.show(name)
+        info = details.modelinfo or {}
+        architecture = info.get("general.architecture")
+        tokens = _positive_int(info.get(f"{architecture}.context_length")) if isinstance(architecture, str) else None
+        return ContextCapacity(tokens, "ollama.model_info" if tokens else None,
+                               "known" if tokens else "unsupported_metadata")
+    except OllamaResponseError as error:
+        status = "unauthorized" if error.status_code in {401, 403} else "model_not_found" if error.status_code == 404 else "metadata_unavailable"
+        return ContextCapacity(status=status)
+    except (httpx.HTTPError, ConnectionError, TimeoutError):
+        return ContextCapacity(status="metadata_unavailable")
 
 
 def _loaded_capacity(payload: Any, model_name: str) -> ContextCapacity:
@@ -79,23 +127,39 @@ def _loaded_capacity(payload: Any, model_name: str) -> ContextCapacity:
 
 
 def _catalog_capacity(payload: Any, model_name: str) -> ContextCapacity:
-    """Only metadata for the exact configured model ID is evidence of capacity."""
-    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+    """Read declared route capacity without rewriting the callable model ID."""
+    if not isinstance(payload, dict):
         return ContextCapacity(status="unsupported_metadata")
-    matches = [item for item in payload["data"] if isinstance(item, dict) and item.get("id") == model_name]
+    entries = payload.get("data")
+    if not isinstance(entries, list):
+        entries = payload.get("models")
+        if isinstance(entries, dict):
+            # The map key is the gateway alias; a nested id may name its origin.
+            entries = [{**item, "id": key} for key, item in entries.items() if isinstance(item, dict)]
+    if not isinstance(entries, list):
+        return ContextCapacity(status="unsupported_metadata")
+    matches = [item for item in entries if isinstance(item, dict) and item.get("id") == model_name]
     if len(matches) != 1:
         return ContextCapacity(status="model_not_found" if not matches else "unsupported_metadata")
-    for name in ("context_window", "context_length", "contextWindow", "max_model_len"):
-        tokens = _positive_int(matches[0].get(name))
+    entry = matches[0]
+    limit = entry.get("limit")
+    for value in (entry.get("context_window"), entry.get("context_length"), entry.get("contextWindow"),
+                  entry.get("max_model_len"), limit.get("context") if isinstance(limit, dict) else None,
+                  entry.get("max_input_tokens")):
+        tokens = _positive_int(value)
         if tokens:
             return ContextCapacity(tokens, "provider_metadata", "known")
     return ContextCapacity(status="unsupported_metadata")
 
 
-async def _provider_capacity(model: ReasoningChatOpenAI) -> ContextCapacity:
+async def _provider_capacity(model: Any) -> ContextCapacity:
     # Reuse the official SDK's auth/base URL and Core-owned transport. A borrowed
     # client view disables retries; cancelling this lookup cannot close the owner.
-    client = model.root_async_client
+    client = getattr(model, "root_async_client", None)
+    if client is None and (getattr(model, "metadata", None) or {}).get("maigokite_provider") == "anthropic":
+        # The integration owns this official SDK client. Discovery must not
+        # create or close a second transport for an Anthropic-compatible relay.
+        client = getattr(model, "_async_client", None)
     if client is None:
         return ContextCapacity(status="metadata_unavailable")
     try:
@@ -107,8 +171,9 @@ async def _provider_capacity(model: ReasoningChatOpenAI) -> ContextCapacity:
                     body.extend(chunk)
                     if len(body) > 2 * 1024 * 1024:
                         return ContextCapacity(status="unsupported_metadata")
-                return _catalog_capacity(json.loads(body), model.model_name)
-    except APIError as error:
+                name = str(getattr(model, "model_name", None) or getattr(model, "model", ""))
+                return _catalog_capacity(json.loads(body), name)
+    except (APIError, AnthropicAPIError) as error:
         code = getattr(error, "status_code", None)
         status = ("unauthorized" if code in {401, 403}
                   else "unsupported_metadata" if code in {404, 405}
@@ -164,15 +229,24 @@ async def _lmstudio_capacity(model: ReasoningChatOpenAI) -> ContextCapacity:
 
 
 async def resolve_context_capacity(model: Any, previous: ContextCapacity | None = None) -> ContextCapacity:
-    """Loaded window first; exact-model catalog/profile capacity second.
+    """Loaded window, model override, serving metadata, route catalog, fallback.
 
-    Unknown services never inherit an OpenAI model's limits from an alias, and
-    neither output max_tokens nor the product budget is a capacity fallback.
+    Route defaults are explicitly assumed, not observations. Neither output
+    max_tokens nor the legacy product input budget is a capacity fallback.
     """
     fallback = profile_capacity(model)
-    if not isinstance(model, ReasoningChatOpenAI):
+    metadata = getattr(model, "metadata", None) or {}
+    if metadata.get("maigokite_provider") == "ollama":
+        serving = await _ollama_capacity(model)
+        return serving if serving.tokens or not fallback.tokens else replace(fallback, status=serving.status)
+    compatible = isinstance(model, ReasoningChatOpenAI)
+    local = compatible and _is_local_endpoint(model.openai_api_base)
+    # Official API models resolve from the installed catalog, like DSH. Custom
+    # routes can disclose a smaller capacity through their own listing instead.
+    endpoint = metadata.get("maigokite_base_url", "")
+    if not compatible and (fallback.source == "model_profile" or not endpoint and
+                           fallback.source in {"models.dev", "sdk_profile"}):
         return fallback
-    local = _is_local_endpoint(model.openai_api_base)
     # Unsupported/denied probes are cached only for this run/model. Loaded local
     # observations are refreshed each turn so a changed load setting is visible.
     if previous and not local and (previous.status in {"unsupported_metadata", "unauthorized"}
@@ -183,11 +257,18 @@ async def resolve_context_capacity(model: Any, previous: ContextCapacity | None 
         loaded = await _lmstudio_capacity(model)
         if loaded.tokens:
             return loaded
-    if fallback.tokens:
+    # An explicitly configured value is authoritative unless a loaded instance
+    # supplies an observed value. Catalog/SDK declarations still allow a serving
+    # API to report a different deployment-specific capacity.
+    if fallback.tokens and fallback.source == "model_profile":
         return fallback
     catalog = await _provider_capacity(model)
     if catalog.tokens:
         return catalog
+    if fallback.tokens:
+        # Missing serving metadata does not invalidate a route declaration.
+        # An assumed default retains its distinct source/status here.
+        return fallback
     # Keep a local instance's more useful failure reason (not loaded/ambiguous)
     # rather than replacing it with a generic catalog-without-capacity response.
     if loaded is not None and loaded.status in {"not_loaded", "ambiguous_instance", "unauthorized"}:

@@ -7,6 +7,7 @@ import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useInboxStore } from '@/stores/inbox'
 import SessionItem from './SessionItem.vue'
+import WorkspaceDeleteButton from './WorkspaceDeleteButton.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 const props = withDefaults(defineProps<{ query?: string; creating?: boolean }>(), {
   query: '',
@@ -168,6 +169,7 @@ async function selectGroup(id: string) {
         >
           <IconSymbol name="plus" :size="16" />
         </button>
+        <WorkspaceDeleteButton v-if="group.id" :folder="group" :disabled="creating" />
       </header>
       <div
         v-if="workspace.isExpanded(group.id) || searching"

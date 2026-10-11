@@ -3,7 +3,7 @@ import { t } from '@/i18n'
 import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
 import { api } from '@/api/client'
 import type { ContextUsage } from '@/api/events'
-import { matchesModelContext, modelContextKey } from '@/api/model-context'
+import { cachedModelCapacity, matchesModelContext, modelContextKey, preferredModelCapacity, rememberModelCapacity } from '@/api/model-context'
 import type { ModelOption } from '@/config/model-groups'
 import { useRunStore } from '@/stores/run'
 import { useUIStore } from '@/stores/ui'
@@ -38,18 +38,36 @@ async function refreshCapacity() {
   if (!selected || ui.appearance.showContextUsage === false) return
   const controller = new AbortController()
   lookup = controller
-  discovered.value = profileContext(selected, 'checking')
+  const previous = discovered.value || cachedModelCapacity(selected) || profileContext(selected)
+  discovered.value = { ...previous, capacityStatus: 'checking' }
   try {
     // Capacity discovery never generates text or creates a task/client owner.
     const result = await api.getModelContext(selected.id, controller.signal)
-    if (!controller.signal.aborted)
-      discovered.value = matchesModelContext(result, selected) ? result : profileContext(selected, 'metadata_unavailable')
+    if (!controller.signal.aborted) {
+      const resolved = matchesModelContext(result, selected) ? result : profileContext(selected, 'metadata_unavailable')
+      // A successful Core query is authoritative even when it returns unknown.
+      // Do not restore a discarded cross-vendor capacity from local storage.
+      discovered.value = resolved
+      if (resolved.windowTokens) rememberModelCapacity(resolved, selected)
+    }
   } catch {
-    if (!controller.signal.aborted) discovered.value = profileContext(selected, 'metadata_unavailable')
+    if (!controller.signal.aborted) discovered.value = { ...previous, capacityStatus: 'metadata_unavailable' }
   }
 }
 watch(() => [props.model ? modelContextKey(props.model) : '', props.sessionId, ui.appearance.showContextUsage],
-  () => { discovered.value = undefined; void refreshCapacity() }, { immediate: true })
+  () => { discovered.value = props.model ? cachedModelCapacity(props.model) : undefined; void refreshCapacity() }, { immediate: true })
+watch(() => {
+  const value = run.metrics[props.sessionId]?.context
+  return JSON.stringify([props.model ? modelContextKey(props.model) : '', value?.modelKey,
+    value?.windowTokens, value?.capacitySource, value?.capacityCheckedAt])
+}, () => {
+  const selected = props.model, value = run.metrics[props.sessionId]?.context
+  const resolved = discovered.value
+  if (selected && value && (['lmstudio.loaded_instance', 'ollama.loaded_instance', 'provider_error',
+    'provider_metadata', 'model_profile', 'route_config', 'route_default'].includes(value.capacitySource || '') ||
+    (matchesModelContext(resolved, selected) && resolved?.windowTokens === value.windowTokens &&
+      resolved?.capacitySource === value.capacitySource))) rememberModelCapacity(value, selected)
+}, { immediate: true })
 onMounted(() => window.addEventListener('focus', refreshCapacity))
 onBeforeUnmount(() => { lookup?.abort(); window.removeEventListener('focus', refreshCapacity) })
 const context = computed<ContextUsage | undefined>(() => {
@@ -58,16 +76,28 @@ const context = computed<ContextUsage | undefined>(() => {
   const value = run.metrics[props.sessionId]?.context
   const receipt = matchesModelContext(value, selected) ? value : undefined
   const resolved = matchesModelContext(discovered.value, selected) ? discovered.value : undefined
-  const capacity = receipt && resolved
-    ? (Date.parse(receipt.capacityCheckedAt || '') || 0) >= (Date.parse(resolved.capacityCheckedAt || '') || 0)
-      ? receipt : resolved
-    : receipt || resolved || profileContext(selected)
+  // Historical usage remains useful, but its old cross-vendor capacity must
+  // not defeat a fresh route lookup (including an unknown local window).
+  const receiptCapacity = resolved && ['models.dev', 'sdk_profile'].includes(receipt?.capacitySource || '') &&
+    receipt?.windowTokens !== resolved.windowTokens ? undefined : receipt
+  const capacity = preferredModelCapacity([receiptCapacity, resolved, profileContext(selected)]) ||
+    resolved || receiptCapacity || profileContext(selected)
+  const budget = receipt?.windowTokens === capacity.windowTokens ? receipt : undefined
   // Discovery is model-scoped; usage remains exclusively this conversation's.
   return {
     ...capacity,
+    capacityStatus: resolved?.capacityStatus && !['known', 'assumed'].includes(resolved.capacityStatus)
+      ? resolved.capacityStatus
+      : resolved?.windowTokens && resolved.capacitySource !== capacity.capacitySource &&
+        ['lmstudio.loaded_instance', 'ollama.loaded_instance', 'provider_error'].includes(capacity.capacitySource || '')
+        ? 'cached' : capacity.capacityStatus,
     seq: receipt?.seq ?? 0, callId: receipt?.callId || '',
     usedTokens: receipt?.usedTokens ?? null, inputTokens: receipt?.inputTokens ?? null,
     measurement: receipt?.measurement ?? null,
+    inputBudgetTokens: budget?.inputBudgetTokens ?? capacity.inputBudgetTokens,
+    outputReservedTokens: budget?.outputReservedTokens ?? capacity.outputReservedTokens,
+    safetyMarginTokens: budget?.safetyMarginTokens ?? capacity.safetyMarginTokens,
+    compactionTriggerTokens: budget?.compactionTriggerTokens ?? capacity.compactionTriggerTokens,
   }
 })
 const turn = computed(() => (run.turns[props.sessionId] || []).slice(-1)[0])
@@ -206,7 +236,7 @@ const tokenLabel = computed(() =>
         <p v-if="cacheNote" class="stat-note">{{ cacheNote }}</p>
       </StatPopover>
     </template>
-    <InkMeter v-if="ui.appearance.showContextUsage !== false && context" :context="context" @refresh="refreshCapacity" />
+    <InkMeter v-if="ui.appearance.showContextUsage !== false && context" :context="context" :configured-output-tokens="model?.maxTokens" @refresh="refreshCapacity" />
     <CompactionStatus
       v-if="turn && footerCompaction"
       :compaction="footerCompaction"

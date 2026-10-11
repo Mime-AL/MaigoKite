@@ -193,6 +193,23 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       agent_core: { status: 'serving' },
       restart: { pending: false, required_for: [], hot_applied: [], note: '' },
     }
+  else if (parsed.pathname.endsWith('/folders/browse')) {
+    // The existing demo stays isolated from native dialogs and real directories.
+    const current = (parsed.searchParams.get('path') || '/demo').replace(/\/+$/, '') || '/'
+    const prefix = current === '/' ? '/' : current + '/'
+    const children = new Set<string>()
+    for (const folder of folders) {
+      if (folder.root_path.startsWith(prefix)) {
+        const name = folder.root_path.slice(prefix.length).split('/')[0]
+        if (name) children.add(name)
+      }
+    }
+    result = {
+      path: current, parent: current === '/' ? '' : current.slice(0, current.lastIndexOf('/')) || '/',
+      home: '/demo', root: '/', truncated: false,
+      entries: [...children].map(name => ({ name, path: prefix + name })),
+    }
+  }
   else if (parsed.pathname.endsWith('/folders')) {
     if (method === 'POST') {
       const root = String(body.root_path)
@@ -201,6 +218,16 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       if (!existing) folders.push(item)
       result = item
     } else result = { folders }
+  }
+  else if (parsed.pathname.includes('/folders/') && method === 'DELETE') {
+    const index = folders.findIndex(folder => folder.id === id)
+    if (!id || index < 0) throw new Error(t('工作区不存在。'))
+    if (conversations.some(item => item.folder_id === id && tasks.some(task =>
+      task.conversation_id === item.id && ['created', 'queued', 'running', 'waiting_approval', 'retry_wait', 'interrupted'].includes(task.status))))
+      throw new Error(t('工作区中有未结束的任务，请完成或停止后再删除。'))
+    for (const item of conversations) if (item.folder_id === id) item.folder_id = ''
+    folders.splice(index, 1)
+    result = undefined
   }
   else if (parsed.pathname.endsWith('/permissions')) result = { default_mode: body.default_mode || 'workspace' }
   else if (parsed.pathname.includes('/models/actions/validate'))

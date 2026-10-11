@@ -66,7 +66,13 @@ Electron 开发模式在 `web/` 执行：
 npm run electron:dev
 ```
 
-不要同时运行两个会启动同一网关/核心服务的进程监督器。已有外部运行时联调时可用 `MAIGOKITE_EXTERNAL_RUNTIME=1` 避免 Electron 再启动子进程。
+Electron 使用真实的主进程环境，通过既有白名单传递 PATH、HOME、代理和 Go 缓存设置；这些值不会编译到前端。Core 监听 8081 后启动 Gateway，Gateway 监听 8080 后加载界面。两步分别最多等待 90 秒，失败显示原生错误弹窗，后台输出直接保留在启动终端。
+
+开发命令的 Vite 固定在 5173，启用 `--strictPort`，不允许端口冲突时静默改成 5174。Electron 与 Vite 联动退出；桌面启动失败返回非零退出码，不继续留下一个独立开发页面。
+
+不要同时运行两个会启动同一网关/核心服务的进程监督器。已有外部运行时联调时可用 `MAIGOKITE_EXTERNAL_RUNTIME=1` 避免 Electron 再启动子进程。此模式下后端由外部启动者负责，Electron 不会结束它们。
+
+桌面进程退出时清理自己启动的进程；Unix 使用独立进程组，包含 `go run` 创建的 Gateway 子进程，Windows 使用系统 `taskkill /T` 清理进程树。正常退出先请求终止，等待关闭；Unix 超过 10 秒仍未退出时强制结束。窗口关闭默认隐藏到托盘，彻底退出使用托盘菜单或启动终端的 `Ctrl+C`。
 
 配置、生效范围和凭证管理见 [配置指南](../user-guide/Configuration.md)。LangGraph 临时迁移开关 只见 [运行时迁移说明](RuntimeMigration.md)。
 

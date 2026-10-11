@@ -2,7 +2,7 @@ import type { ChatModelProfile, ChatModelProvider } from '@/api/client'
 import { COMPATIBLE_PROVIDER_PRESETS, getModelProvider } from './model-providers'
 
 export type ModelOption = Pick<ChatModelProfile, 'id' | 'name' | 'model'> &
-  Partial<Pick<ChatModelProfile, 'provider' | 'baseUrl' | 'isDefault' | 'contextWindow'>>
+  Partial<Pick<ChatModelProfile, 'provider' | 'baseUrl' | 'isDefault' | 'contextWindow' | 'maxTokens'>>
 
 export interface ModelServiceGroup<T extends ModelOption> {
   id: string

@@ -35,14 +35,34 @@ class ContextBudgetExceeded(ValueError):
         self.reason = reason
 
 
-def _output_reserve(model: Any) -> int:
-    return next((value for name in ("max_tokens", "max_completion_tokens", "num_predict")
-                 if type(value := getattr(model, name, None)) is int and value > 0), 0)
+def _output_field(model: Any) -> str | None:
+    return next((name for name in ("max_tokens", "max_completion_tokens", "num_predict")
+                 if name in getattr(type(model), "model_fields", {})), None)
+
+
+def _minimum_output(model: Any) -> int:
+    # Anthropic's explicit thinking budget must remain below its output cap.
+    # Never disable thinking or change effort just to make a request fit.
+    thinking = getattr(model, "thinking", None)
+    budget = thinking.get("budget_tokens") if isinstance(thinking, dict) else None
+    return budget + 1 if type(budget) is int and budget > 0 else 1
+
+
+def _output_reserve(model: Any, capacity: ContextCapacity | None = None) -> int:
+    requested = next((value for name in ("max_tokens", "max_completion_tokens", "num_predict")
+                      if type(value := getattr(model, name, None)) is int and value > 0), 0)
+    capacity = capacity if capacity is not None else profile_capacity(model)
+    if not requested or capacity.tokens is None:
+        return requested
+    # A request policy, not a model-name table or a saved configuration change.
+    # Keep at least three quarters of a known window available to input before
+    # safety headroom. The SDK copy below sends this very same cap to the server.
+    return min(requested, max(capacity.tokens // 4, _minimum_output(model)))
 
 
 def _safety_margin(capacity: ContextCapacity) -> int:
     # Token counts remain estimates. This is budget headroom, NOT extra usage.
-    if capacity.tokens and capacity.source in {"lmstudio.loaded_instance", "provider_error"}:
+    if capacity.tokens:
         return min(1024, max(128, capacity.tokens // 20))
     return 0
 
@@ -54,7 +74,11 @@ def effective_input_budget(model: Any, configured: int, capacity: ContextCapacit
         return configured
     # The legacy product default must not cap every known deployment at 32k.
     # It sizes recovery work only when there is no capacity evidence.
-    return max(1, capacity.tokens - _output_reserve(model) - _safety_margin(capacity))
+    budget = max(1, capacity.tokens - _output_reserve(model, capacity) - _safety_margin(capacity))
+    metadata = getattr(model, "metadata", None) or {}
+    input_limit = metadata.get("maigokite_catalog_input_limit") if capacity.source == "models.dev" else None
+    # Some catalogs distinguish the combined window from a smaller input cap.
+    return min(budget, input_limit) if type(input_limit) is int and input_limit > 0 else budget
 
 
 def context_payload(model: Any, capacity: ContextCapacity, configured: int) -> dict[str, Any]:
@@ -68,7 +92,7 @@ def context_payload(model: Any, capacity: ContextCapacity, configured: int) -> d
         "model_context_window": capacity.tokens,
         "capacity_source": capacity.source, "capacity_status": capacity.status,
         "capacity_checked_at": capacity.checked_at,
-        "input_budget_tokens": budget, "output_reserved_tokens": _output_reserve(model),
+        "input_budget_tokens": budget, "output_reserved_tokens": _output_reserve(model, capacity),
         "safety_margin_tokens": _safety_margin(capacity),
         "compaction_trigger_tokens": int(budget * 0.8) if budget else None,
     }
@@ -140,7 +164,7 @@ class _SummaryObservation(AsyncCallbackHandler):
         self.error: BaseException | None = None
 
     async def on_chat_model_start(self, serialized: Any, messages: Any, *, run_id: Any, **kwargs: Any) -> None:
-        if any(count_tokens_approximately(batch) > self.input_budget for batch in messages):
+        if any(count_tokens_approximately(batch, use_usage_metadata_scaling=False) > self.input_budget for batch in messages):
             raise ContextBudgetExceeded("摘要请求本身超过输入预算，原始历史未替换。请缩小工具返回或导入范围。")
         await _charge_call(self.context)
         await _emit(self.context, "model.call.started", {"call_id": str(run_id), "purpose": "summary"})
@@ -223,9 +247,9 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
             fixed = [system_message]  # The wrapper already merged system instructions.
         if request_tools is not None:
             tools = request_tools
-        overhead = count_tokens_approximately(fixed, tools=tools)
+        overhead = count_tokens_approximately(fixed, tools=tools, use_usage_metadata_scaling=False)
         input_budget = effective_input_budget(self.model, self.input_budget, capacity)
-        before = count_tokens_approximately(conversation)
+        before = count_tokens_approximately(conversation, use_usage_metadata_scaling=False)
         # Publish even when compaction/admission fails before the model wrapper.
         await _publish_context(context, self.model, capacity, self.input_budget, before + overhead,
                                call_id=f"context_{uuid.uuid4().hex}")
@@ -236,8 +260,9 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         history_budget = input_budget - overhead
         if history_budget <= 0:
             raise ContextBudgetExceeded(
-                f"固定指令和工具定义约 {overhead} tokens，已超过可用输入预算 {input_budget}。"
-                "请减少启用的工具、降低输出上限，或在模型服务中增大实际加载窗口。",
+                f"当前模型的输入预算不足：固定指令和工具定义约 {overhead} tokens，"
+                f"可用输入预算 {input_budget} tokens，尚未计入你的消息。"
+                "这部分不能通过压缩聊天历史缩小；请减少启用的工具，或增大模型服务的实际加载窗口。",
                 reason="fixed_overhead_exceeded",
             )
         if not force and before + overhead < int(input_budget * 0.8):
@@ -256,9 +281,9 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
                                                if item.id in protected_inputs)])
         # Keep the active user turn verbatim. Native middleware owns safe tool-pair
         # partitioning. There is no fixed post-compaction window-filling target.
-        recent = max(count_tokens_approximately(conversation[latest_index:]), min(history_budget // 4, 8000), 1)
+        recent = max(count_tokens_approximately(conversation[latest_index:], use_usage_metadata_scaling=False), min(history_budget // 4, 8000), 1)
         if force:
-            recent = max(count_tokens_approximately(conversation[latest_index:]), 1)
+            recent = max(count_tokens_approximately(conversation[latest_index:], use_usage_metadata_scaling=False), 1)
         observer = _SummaryObservation(context, input_budget, configured=self.input_budget)
         callbacks = self.model.callbacks
         if callbacks is None or isinstance(callbacks, list):
@@ -272,7 +297,8 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         for field in ("max_tokens", "num_predict"):
             if field in type(self.model).model_fields:
                 configured = getattr(self.model, field, None)
-                options[field] = min(upper, configured) if isinstance(configured, int) and configured > 0 else upper
+                limit = min(upper, configured) if isinstance(configured, int) and configured > 0 else upper
+                options[field] = max(_minimum_output(self.model), limit)
                 break
         # Public shallow model copy: only request options/callbacks change. HTTP
         # transports remain Core-owned and shared; no per-summary client creation.
@@ -314,7 +340,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
             raise ContextBudgetExceeded("上下文压缩失败，原始上下文保留在 checkpoint，请稍后重试。")
         if observer.truncated or count_tokens_approximately([HumanMessage(text)]) > upper:
             raise ContextBudgetExceeded("摘要被截断或超过长度上限，原始上下文未替换。")
-        if count_tokens_approximately(replacements[1:]) >= count_tokens_approximately(conversation):
+        if count_tokens_approximately(replacements[1:], use_usage_metadata_scaling=False) >= before:
             raise ContextBudgetExceeded("压缩未能减少上下文，请缩小输入或工具返回范围。")
         retained = replacements[2:]
         latest_user = next((item for item in reversed(conversation) if isinstance(item, HumanMessage)), None)
@@ -323,7 +349,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         included_inputs = {item.id for item in conversation} & protected_inputs
         if not included_inputs.issubset({item.id for item in retained}):
             raise ContextBudgetExceeded("摘要没有保留待纳入的补充输入，原始上下文未替换。")
-        after = count_tokens_approximately([summary, *retained])
+        after = count_tokens_approximately([summary, *retained], use_usage_metadata_scaling=False)
         if after + overhead > input_budget or after >= before:
             raise ContextBudgetExceeded("压缩后仍超过输入预算或未减少上下文，原始历史未替换。")
         await _emit(context, "context.compacted", {
@@ -379,7 +405,7 @@ class ContextBudgetMiddleware(AgentMiddleware):
             messages.insert(0, request.system_message)
         # Historical usage describes the pre-compaction prompt. Scaling this
         # rewritten input by those counters would falsely reject a short summary.
-        estimated = count_tokens_approximately(messages, tools=request.tools)
+        estimated = count_tokens_approximately(messages, tools=request.tools, use_usage_metadata_scaling=False)
         context: Any = request.runtime.context
         capacity = getattr(context, "context_capacity", None)
         # Parent compaction has just fetched the window. Children have no
@@ -407,7 +433,12 @@ class ContextBudgetMiddleware(AgentMiddleware):
             callbacks.add_handler(clock)
         # Public shallow copy keeps Core-owned HTTP clients shared and changes
         # only this invocation's callback list (also safe for concurrent sessions).
-        observed = request.model.model_copy(update={"callbacks": callbacks})
+        options: dict[str, Any] = {"callbacks": callbacks}
+        field = _output_field(request.model)
+        reserve = _output_reserve(request.model, capacity)
+        if field is not None and reserve:
+            options[field] = reserve
+        observed = request.model.model_copy(update=options)
         started_at = time.perf_counter()
         try:
             response = await handler(request.override(model=observed))
