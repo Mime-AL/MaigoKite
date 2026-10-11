@@ -21,9 +21,10 @@ models:
   # routes without capacity metadata assume 262144, not the upstream's window.
   routes: []
 
-# Files shown in the Workspace sidebar. Override with MAIGOKITE_WORKSPACE_ROOT.
+# Empty = <installation directory>/.workspace, created on startup.
+# Explicit paths override this default; MAIGOKITE_WORKSPACE_ROOT takes precedence.
 workspace:
-  root: "."
+  root: ""
 
 # Browser automation is started lazily. Set executable_path when using an
 # existing system Chrome/Chromium instead of Playwright's managed browser.

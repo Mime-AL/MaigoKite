@@ -65,7 +65,7 @@ func (buffer *cappedBuffer) Write(data []byte) (int, error) {
 
 func newWorkspaceHandler(root string) *WorkspaceHandler {
 	if strings.TrimSpace(root) == "" {
-		root = "."
+		root = filepath.Join(os.Getenv("MAIGOKITE_INSTALL_DIR"), ".workspace")
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {

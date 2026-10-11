@@ -169,6 +169,8 @@ func (r *Router) routes() {
 	}))
 	workspaces.GET("/files", folders.Files(workspace, (*WorkspaceHandler).ListFiles))
 	workspaces.GET("/files/content", folders.Files(workspace, (*WorkspaceHandler).ReadFile))
+	workspaces.POST("/files", r.requireWorkspaceOwner(), folders.Files(workspace, (*WorkspaceHandler).CreateEntry))
+	workspaces.POST("/files/open-folder", r.requireWorkspaceOwner(), folders.Files(workspace, (*WorkspaceHandler).OpenFolder))
 	workspaces.GET("/changes", folders.Files(workspace, (*WorkspaceHandler).Changes))
 	workspaces.GET("/changes/diff", folders.Files(workspace, (*WorkspaceHandler).ChangeDiff))
 }

@@ -79,7 +79,7 @@ class AgentCore:
         self.models = ChatModelRuntime(config, self.repository)
         self._context_max_tokens = int(config.get("context.max_tokens", 32000))
         self._registry = ToolRegistry()
-        workspace_root = Path(config.get("workspace.root", Path.cwd())).expanduser().resolve()
+        workspace_root = config.workspace_root
         self._skills = SkillRegistry()
         self._browser: BrowserRuntime | None = None
         if bool(config.get("browser.enabled", True)):
@@ -155,6 +155,13 @@ class AgentCore:
         if self._shutdown_task is not None and not self._shutdown_task.done():
             raise RuntimeError("Agent Core is shutting down")
         self._shutdown_task = None
+        try:
+            self._policy.workspace_root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(
+                f"无法创建工作区目录 {self._policy.workspace_root}；"
+                "请使用可写的安装目录，或通过 MAIGOKITE_WORKSPACE_ROOT 指定工作区。"
+            ) from exc
         await self.repository.open()
         self.event_bus.set_sink(self.repository.append_task_event)
         try:

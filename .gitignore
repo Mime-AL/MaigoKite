@@ -39,6 +39,7 @@ logs/
 
 # Data
 data/
+/.workspace/
 *.db
 *.sqlite
 

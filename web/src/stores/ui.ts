@@ -82,6 +82,8 @@ export const useUIStore = defineStore('ui', () => {
   const layout = useLayoutStore()
   const drawerOpen = ref(false)
   const drawerTab = ref<'changes' | 'jobs' | 'plan' | 'files' | 'pending'>('changes')
+  const filePreviewRequest = ref<{ path: string; folderId: string; serial: number } | null>(null)
+  let filePreviewSerial = 0
   const commandOpen = ref(false),
     shortcutsOpen = ref(false)
   function setAppearance(patch: Partial<Appearance>) {
@@ -97,6 +99,11 @@ export const useUIStore = defineStore('ui', () => {
   function openDrawer(tab = drawerTab.value) {
     drawerTab.value = tab
     drawerOpen.value = true
+  }
+  // A presentation request, not file contents or a second workspace authority.
+  function openFilePreview(path: string, folderId: string) {
+    filePreviewRequest.value = { path, folderId, serial: ++filePreviewSerial }
+    openDrawer('files')
   }
   function closeOverlays() {
     drawerOpen.value = commandOpen.value = shortcutsOpen.value = false
@@ -158,11 +165,13 @@ export const useUIStore = defineStore('ui', () => {
     layout,
     drawerOpen,
     drawerTab,
+    filePreviewRequest,
     commandOpen,
     shortcutsOpen,
     setAppearance,
     setCapsuleShortcut,
     openDrawer,
+    openFilePreview,
     closeOverlays,
   }
 })

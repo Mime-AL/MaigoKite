@@ -32,6 +32,7 @@ const RUNTIME_ENV_ALLOWLIST = [
   'GONOSUMDB',
   'GOTOOLCHAIN',
   'MAIGOKITE_WORKSPACE_ROOT',
+  'MAIGOKITE_INSTALL_DIR',
 ] as const
 
 /** Build the minimal host environment needed by the local runtime and OS keychain. */

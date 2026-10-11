@@ -18,7 +18,7 @@ storage:
   sqlite_path: "~/.maigokite/data/agent-dev.db"
 
 workspace:
-  root: "."
+  root: ""  # Default: <project root>/.workspace; explicit paths are preserved.
 
 browser:
   enabled: true

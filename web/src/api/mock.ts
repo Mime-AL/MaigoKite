@@ -175,6 +175,9 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
     id = decodeURIComponent(parts[parts.length - 1])
   const method = init?.method || 'GET',
     body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {}
+  // Never report a synthetic listing as a successful real filesystem mutation.
+  if (method === 'POST' && (parsed.pathname.endsWith('/files') || parsed.pathname.endsWith('/files/open-folder')))
+    throw new Error(t('当前环境不支持创建文件或打开文件夹。'))
   let result: unknown
   if (url === '/health') result = { status: 'ok', version: 'demo' }
   else if (parsed.pathname.endsWith('/capabilities'))

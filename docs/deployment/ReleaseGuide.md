@@ -21,6 +21,8 @@ Python 构建与安装统一读取根 `pyproject.toml`，依赖锁定使用根 `
 
 ## 2. 个人桌面发布闭环
 
+默认工作区为安装根目录下的 `.workspace`，不得落入 `app.asar`、AppImage 挂载点或 macOS 签名包内部。启动器将安装根目录传给 Core/Gateway；安装位置不可写时明确失败，可显式设置 `MAIGOKITE_WORKSPACE_ROOT`，不自动换目录或提权。源码已接线，仍须纳入各平台安装/升级/卸载验收；升级和卸载不能自动删除其中的用户文件。详细路径和覆盖规则见 [配置指南](../user-guide/Configuration.md#默认工作区)。
+
 ```text
 确定目标平台与版本
 → 契约/测试检查

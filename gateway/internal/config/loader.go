@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"gopkg.in/yaml.v3"
@@ -159,6 +160,7 @@ func Load(path string) (*Config, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
+		cfg.applyEnvOverrides()
 		return cfg, nil
 	}
 
@@ -185,7 +187,7 @@ func DefaultConfig() *Config {
 		},
 		HTTP:      HTTPConfig{Port: 8080},
 		GRPC:      GRPCConfig{Port: 8081, Timeout: 30},
-		Workspace: WorkspaceConfig{Root: "."},
+		Workspace: WorkspaceConfig{Root: ""},
 		Security: SecurityConfig{
 			PromptInjection: PromptInjectionConfig{
 				Enabled: true,
@@ -226,5 +228,10 @@ func (cfg *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("MAIGOKITE_WORKSPACE_ROOT"); v != "" {
 		cfg.Workspace.Root = v
+	}
+	if cfg.Workspace.Root == "" {
+		// Launchers supply a shared absolute install directory. The file/status
+		// handlers also resolve registered roots in Core, the workspace authority.
+		cfg.Workspace.Root = filepath.Join(os.Getenv("MAIGOKITE_INSTALL_DIR"), ".workspace")
 	}
 }

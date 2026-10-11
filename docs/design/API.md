@@ -258,11 +258,20 @@ LM Studio 仅原生 API 暴露的 on/off 尚不映射到兼容接口，返回 `n
 ```text
 GET /workspaces/{workspace_id}/files?path={relative_path}
 GET /workspaces/{workspace_id}/files/content?path={relative_file}
+POST /workspaces/{workspace_id}/files?path={relative_parent}&folder_id={registered_folder_id}
+POST /workspaces/{workspace_id}/files/open-folder?path={relative_folder}&folder_id={registered_folder_id}
 GET /workspaces/{workspace_id}/changes
 GET /workspaces/{workspace_id}/changes/diff?path={relative_file}
 ```
 
-这些接口是受工作区根目录约束的只读投影，拒绝绝对路径、`..` 穿越和逃逸根目录的符号链接。预览限制为 512 KiB，变更列表最多 200 项。差异在用户选中文件后懒加载，限制为 256 KiB；响应同时返回截断状态。`changes` 在非 Git 工作区返回 `git: false`，不执行写入或暂存操作。
+GET 接口是受工作区根目录约束的只读投影，拒绝绝对路径、`..` 穿越和逃逸根目录的符号链接。预览限制为 512 KiB，变更列表最多 200 项。差异在用户选中文件后懒加载，限制为 256 KiB；响应同时返回截断状态。`changes` 在非 Git 工作区返回 `git: false`，不执行写入或暂存操作。文件查询与操作均按 `folder_id` 解析已登记的目录，缺省为默认工作区，不接受调用方指定任意根目录。
+
+POST 接口为用户显式文件操作，限工作区所有者；不作为 Agent 工具、审批续接或自动执行入口：
+
+- `POST /files` 正文为 `{"name":"notes.md","type":"file"}` 或 `{"name":"notes","type":"directory"}`。只在已存在的相对父目录创建一个空文件或文件夹，不递归创建路径、不覆盖、不写正文。成功返回 201 与 `name / path / type / size / modified_at` 文件树条目；同名返回 409 `ALREADY_EXISTS`，非法名称 / 路径返回 400，权限失败返回 403。拒绝路径分隔符、控制字符、保留名称以及 `.git` 路径。复用系统相对目录句柄创建能力，防止校验后替换符号链接或 junction 令写入逃逸；现有 `x/sys` 依赖版本不变。
+- `POST /files/open-folder` 另外要求直接连接地址为本机 loopback。只可打开工作区内已存在目录；Gateway 以固定文件管理器程序加路径参数启动，不经 shell。快速成功返回 204；启动器仍在运行时返回 202 `{"launched":true}`，仅表示启动已接受，不保证窗口已打开；启动或快速退出失败返回 503 `OPEN_FAILED`。Electron 优先使用已有 `openPath` IPC，不调用此接口。
+
+这两项源码已接线，尚未执行运行验收；使用新接口需重启 Gateway。
 
 ### 3.8 GUI 交互与执行检查接口（2026-10-10）
 

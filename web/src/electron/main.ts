@@ -43,8 +43,23 @@ export function secureWebPreferences() {
 function projectRoot() {
   return process.env.MAIGOKITE_PROJECT_ROOT || path.resolve(app.getAppPath(), '..')
 }
-function workspaceRoot() {
-  return process.env.MAIGOKITE_WORKSPACE_ROOT || (app.isPackaged ? process.cwd() : projectRoot())
+function absoluteHostPath(value: string) {
+  if (value === '~') return app.getPath('home')
+  if (value.startsWith('~/') || value.startsWith('~\\'))
+    return path.resolve(app.getPath('home'), value.slice(2))
+  return path.resolve(value)
+}
+function installationRoot() {
+  if (process.env.MAIGOKITE_INSTALL_DIR) return absoluteHostPath(process.env.MAIGOKITE_INSTALL_DIR)
+  if (!app.isPackaged) return path.resolve(projectRoot())
+  // AppImage's executable is mounted read-only; use the original image's directory.
+  if (process.platform === 'linux' && process.env.APPIMAGE)
+    return path.dirname(path.resolve(process.env.APPIMAGE))
+  const executableDirectory = path.dirname(app.getPath('exe'))
+  // Keep user files outside the signed .app bundle, not in Contents/MacOS or app.asar.
+  return process.platform === 'darwin'
+    ? path.resolve(executableDirectory, '../../..')
+    : executableDirectory
 }
 function reportRuntimeFailure(message: string) {
   if (quitting || runtimeFailure) return
@@ -57,7 +72,9 @@ function reportRuntimeFailure(message: string) {
 }
 function startProcess(name: string, command: string, args: string[], cwd: string, configPath?: string) {
   const env = createRuntimeEnvironment()
-  env.MAIGOKITE_WORKSPACE_ROOT = workspaceRoot()
+  env.MAIGOKITE_INSTALL_DIR = installationRoot()
+  if (env.MAIGOKITE_WORKSPACE_ROOT)
+    env.MAIGOKITE_WORKSPACE_ROOT = absoluteHostPath(env.MAIGOKITE_WORKSPACE_ROOT)
   if (configPath) env.MAIGOKITE_CONFIG = configPath
   console.info(`[MaigoKite] Starting ${name}`)
   // A process group also owns the executable spawned by `go run`.
@@ -112,15 +129,22 @@ async function waitForPort(port: number, name: string) {
 async function startRuntime() {
   if (process.env.MAIGOKITE_EXTERNAL_RUNTIME === '1' || process.env.VITE_MOCK === '1') return
   const root = projectRoot()
+  const bundledConfig = path.join(process.resourcesPath, 'config', 'config.prod.yaml')
+  const configPath = process.env.MAIGOKITE_CONFIG
+    ? absoluteHostPath(process.env.MAIGOKITE_CONFIG)
+    : app.isPackaged
+      ? (existsSync(bundledConfig) ? bundledConfig : undefined)
+      : path.join(root, 'config', 'config.dev.yaml')
   if (app.isPackaged) {
     startProcess(
       'Core',
       path.join(process.resourcesPath, 'bin', 'agent-core'),
       ['run'],
       process.resourcesPath,
+      configPath,
     )
     await waitForPort(8081, 'Core')
-    startProcess('Gateway', path.join(process.resourcesPath, 'bin', 'gateway'), [], process.resourcesPath)
+    startProcess('Gateway', path.join(process.resourcesPath, 'bin', 'gateway'), [], process.resourcesPath, configPath)
   } else {
     const projectPython = process.platform === 'win32'
       ? path.join(root, '.venv', 'Scripts', 'python.exe')
@@ -133,17 +157,16 @@ async function startRuntime() {
       [
         path.join(root, 'python', 'main.py'),
         'run',
-        '--config',
-        path.join(root, 'config', 'config.dev.yaml'),
         '--port',
         '8081',
       ],
       root,
+      configPath,
     )
     await waitForPort(8081, 'Core')
     startProcess(
       'Gateway', 'go', ['run', './cmd/gateway'], path.join(root, 'gateway'),
-      path.join(root, 'config', 'config.dev.yaml'),
+      configPath,
     )
   }
   // The Gateway listens only after connecting to Core. Avoid failed initial UI requests.

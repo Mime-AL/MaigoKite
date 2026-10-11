@@ -31,7 +31,8 @@ export function useFileTree() {
   const previewError = ref<string | null>(null)
   const error = ref<string | null>(null)
   let treeRequest = 0,
-    previewRequest = 0
+    previewRequest = 0,
+    revealRequest = 0
 
   function toNode(item: Awaited<ReturnType<typeof api.listWorkspaceFiles>>[number]): FileTreeNode {
     return { ...item, children: item.type === 'directory' ? [] : undefined, loaded: false }
@@ -39,6 +40,7 @@ export function useFileTree() {
 
   /** 加载文件树 */
   async function loadFileTree(rootPath: string) {
+    revealRequest++
     const request = ++treeRequest
     const folderId = workspace.selectedId
     tree.value = []
@@ -94,6 +96,7 @@ export function useFileTree() {
 
   /** 关闭预览并使进行中的读取结果失效。 */
   function closePreview() {
+    revealRequest++
     previewRequest++
     selectedNode.value = null
     selectedContent.value = null
@@ -103,6 +106,7 @@ export function useFileTree() {
 
   /** 选择节点 */
   async function selectNode(node: FileTreeNode) {
+    revealRequest++
     const request = ++previewRequest
     selectedNode.value = node
     selectedContent.value = null
@@ -121,6 +125,24 @@ export function useFileTree() {
     }
   }
 
+  /** Reveal an existing path using the same tree/preview APIs as a user click. */
+  async function revealFile(path: string, type: 'file' | 'directory' = 'file') {
+    const intent = ++revealRequest,
+      request = treeRequest
+    const parts = path.split('/').filter(Boolean)
+    let nodes = tree.value
+    for (let index = 0; index < parts.length - 1; index++) {
+      const parent = nodes.find(node => node.path === parts.slice(0, index + 1).join('/'))
+      if (!parent || parent.type !== 'directory') break
+      if (!parent.expanded) await toggleExpand(parent)
+      if (intent !== revealRequest || request !== treeRequest) return
+      nodes = parent.children || []
+    }
+    if (intent !== revealRequest || request !== treeRequest) return
+    const node = nodes.find(item => item.path === path) || { name: parts.at(-1) || path, path, type }
+    await selectNode(node)
+  }
+
   /** 获取展开的子节点 */
   function getExpandedChildren(node: FileTreeNode): FileTreeNode[] {
     if (node.children && expandedPaths.value.has(node.path)) {
@@ -133,6 +155,7 @@ export function useFileTree() {
   onScopeDispose(() => {
     treeRequest++
     previewRequest++
+    revealRequest++
   })
 
   return {
@@ -147,6 +170,7 @@ export function useFileTree() {
     loadFileTree,
     toggleExpand,
     selectNode,
+    revealFile,
     closePreview,
     getExpandedChildren,
   }

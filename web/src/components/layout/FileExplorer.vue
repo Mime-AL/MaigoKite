@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useLayoutStore } from '@/stores/layout'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useFileTree } from '@/composables/useFileTree'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import FileTree from '../file-explorer/FileTree.vue'
 import FilePreview from '../file-explorer/FilePreview.vue'
-import Toolbar from '../file-explorer/Toolbar.vue'
+import FileActions from '../file-explorer/FileActions.vue'
+import { useUIStore } from '@/stores/ui'
+import type { WorkspaceFileEntry } from '@/api/client'
 import WorkspaceDiff from '../file-explorer/WorkspaceDiff.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
 import ResizeHandle from '@/components/common/ResizeHandle.vue'
@@ -14,6 +16,8 @@ import { usePreviewSplit } from '../file-explorer/usePreviewSplit'
 
 const layoutStore = useLayoutStore()
 const workspace = useWorkspaceStore()
+const ui = useUIStore()
+const explorer = ref<HTMLElement | null>(null)
 withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 const {
   tree,
@@ -26,6 +30,7 @@ const {
   loadFileTree,
   toggleExpand,
   selectNode,
+  revealFile,
   closePreview,
 } = useFileTree()
 const activeTab = ref<'files' | 'changes'>('files')
@@ -33,10 +38,37 @@ const {
   root: splitRoot, dragging: splitDragging, size: treeHeight, minimum: treeMinimum,
   maximum: treeMaximum, defaultSize: defaultTreeHeight, resize: resizeTree, remember: rememberSplit,
 } = usePreviewSplit('file_explorer_tree_ratio')
+const creationParent = computed(() =>
+  selectedNode.value?.type === 'directory'
+    ? selectedNode.value.path
+    : selectedNode.value?.path.split('/').slice(0, -1).join('/') || '',
+)
+let shownRequest = 0
+watch(
+  () => [ui.filePreviewRequest, loading.value] as const,
+  async ([request, treeLoading]) => {
+    if (!request || treeLoading || request.serial === shownRequest || request.folderId !== workspace.selectedId) return
+    shownRequest = request.serial
+    activeTab.value = 'files'
+    await revealFile(request.path)
+    await nextTick()
+    if (ui.filePreviewRequest?.serial !== request.serial || request.folderId !== workspace.selectedId) return
+    Array.from(explorer.value?.querySelectorAll<HTMLElement>('[data-tree-item]') || [])
+      .find(row => row.dataset.treeItem === request.path)?.scrollIntoView({ block: 'nearest' })
+    explorer.value?.querySelector<HTMLButtonElement>('.preview-close')?.focus({ preventScroll: true })
+  },
+  { immediate: true, flush: 'post' },
+)
+async function created(entry: WorkspaceFileEntry) {
+  const folderId = workspace.selectedId
+  await loadFileTree('')
+  if (folderId === workspace.selectedId) await revealFile(entry.path, entry.type)
+}
 </script>
 
 <template>
   <div
+    ref="explorer"
     class="file-explorer"
     :class="{ embedded, collapsed: !embedded && layoutStore.fileExplorerCollapsed }"
   >
@@ -96,9 +128,11 @@ const {
         </button>
       </nav>
       <template v-if="embedded || activeTab === 'files'">
-        <Toolbar
+        <FileActions
           :loading="loading"
+          :parent="creationParent"
           @refresh="loadFileTree('')"
+          @created="created"
         />
         <p
           v-if="error && tree.length"
@@ -187,7 +221,7 @@ const {
       </template>
       <WorkspaceDiff v-else />
       <footer v-if="!embedded">
-        <span>{{ $t('工作区 · 只读预览') }}</span>
+        <span>{{ $t('工作区文件') }}</span>
       </footer>
     </template>
   </div>

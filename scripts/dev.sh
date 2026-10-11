@@ -15,7 +15,15 @@ info()  { echo -e "${GREEN}[DEV]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
 export APP_ENV="development"
-export MAIGOKITE_WORKSPACE_ROOT="${MAIGOKITE_WORKSPACE_ROOT:-$PROJECT_ROOT}"
+# Anchor automatic defaults without overriding an explicit workspace in YAML.
+export MAIGOKITE_INSTALL_DIR="${MAIGOKITE_INSTALL_DIR:-$PROJECT_ROOT}"
+# Child services run from different directories. Resolve relative overrides once.
+if [[ "$MAIGOKITE_INSTALL_DIR" != /* ]]; then
+  export MAIGOKITE_INSTALL_DIR="$PWD/$MAIGOKITE_INSTALL_DIR"
+fi
+if [[ -n "${MAIGOKITE_WORKSPACE_ROOT:-}" && "$MAIGOKITE_WORKSPACE_ROOT" != /* && "$MAIGOKITE_WORKSPACE_ROOT" != '~'* ]]; then
+  export MAIGOKITE_WORKSPACE_ROOT="$PWD/$MAIGOKITE_WORKSPACE_ROOT"
+fi
 
 cleanup() {
   info "Shutting down development servers..."

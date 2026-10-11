@@ -1,0 +1,82 @@
+@use './mixins';
+.text-button {
+  @include mixins.text-action;
+}
+.receipt-details {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--hairline) dashed var(--rule);
+  font-size: var(--text-xs);
+}
+.receipt-file-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.receipt-file-list button,
+.receipt-entry > summary {
+  @include mixins.interactive-row;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--space-8);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  background: var(--transparent);
+  text-align: left;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.receipt-file-list span,
+.receipt-entry > summary > code,
+.receipt-entry > summary > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.receipt-entry > summary {
+  list-style: none;
+}
+.receipt-entry > summary::-webkit-details-marker {
+  display: none;
+}
+.entry-chevron {
+  flex: none;
+  transition: transform var(--motion-fast) var(--ease);
+}
+.receipt-entry[open] > summary > .entry-chevron {
+  transform: rotate(var(--measure-90deg));
+}
+.receipt-entry > summary > code {
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+.receipt-entry[open] {
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+}
+.receipt-entry + .receipt-entry {
+  margin-top: var(--space-1);
+}
+.receipt-details p,
+.receipt-entry > p,
+.receipt-entry > small,
+.receipt-entry > details {
+  margin: var(--space-2) var(--space-3);
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.receipt-entry pre {
+  max-height: var(--code-max-height);
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+}
+.failed-fact,
+.receipt-details .failed-fact {
+  color: var(--seal);
+}

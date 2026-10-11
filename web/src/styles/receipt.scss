@@ -3,7 +3,7 @@
   display: grid;
   grid-template-columns: var(--rail-width) minmax(0, 1fr);
   gap: var(--space-4);
-  margin-block: var(--space-7) var(--space-8);
+  margin-block: var(--space-4) var(--space-5);
   color: var(--ink-2);
   font-size: var(--text-sm);
 }
@@ -33,7 +33,9 @@
   position: relative;
   isolation: isolate;
   max-width: var(--receipt-width);
-  padding: var(--space-5) var(--space-6);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
   border: var(--hairline) solid var(--rule);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: var(--paper-raised, var(--paper));
@@ -80,7 +82,7 @@ header {
 h3 {
   margin: 0;
   color: var(--ink);
-  font: var(--type-subheading) / var(--leading-tight) var(--font-serif);
+  font: var(--text-sm) / var(--leading-tight) var(--font-serif);
 }
 time {
   flex: none;
@@ -88,39 +90,56 @@ time {
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
-.receipt-rule {
-  margin-block: var(--space-4);
-  border-top: var(--hairline) dashed var(--rule);
-}
 .receipt-facts {
-  display: grid;
-  gap: var(--space-3);
-  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
   font-variant-numeric: tabular-nums;
 }
-.receipt-facts > div {
+.receipt-facts > button {
+  @include mixins.interactive-row;
   display: flex;
-  gap: var(--space-4);
-  justify-content: space-between;
-}
-dd {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-4);
-  margin: 0;
-  font-family: var(--font-mono);
-}
-small {
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--space-7);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--transparent);
   color: var(--ink-2);
   font-size: var(--text-xs);
+  cursor: pointer;
 }
-.changes-link {
-  @include mixins.text-action;
-  display: flex;
-  justify-content: space-between;
+.receipt-facts strong {
+  color: var(--ink);
+  font-weight: var(--weight-medium);
+}
+.receipt-facts small {
+  font-size: var(--text-xs);
+}
+.diff-added {
+  color: var(--code-addition-ink);
+}
+.diff-removed {
+  color: var(--code-deletion-ink);
+}
+.receipt-facts > button.active {
+  background: var(--accent-selected);
+  color: var(--accent);
+}
+.receipt-facts > button.failed-fact,
+.receipt-facts > button.failed-fact strong {
+  color: var(--seal);
+}
+.fact-chevron {
+  transition: transform var(--motion-fast) var(--ease);
+}
+.active .fact-chevron {
+  transform: rotate(var(--measure-90deg));
+}
+.receipt-details {
   width: 100%;
-  margin-top: var(--space-5);
-  font-size: var(--text-sm);
 }
 .compact {
   margin-block: var(--space-2) var(--space-7);

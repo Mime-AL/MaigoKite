@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,25 @@ class ConfigManager:
                 return default
             current = current[part]
         return current
+
+    @property
+    def workspace_root(self) -> Path:
+        """Explicit workspace wins; otherwise use the installation's scratch directory.
+
+        Desktop/source launchers supply the same installation root to both services.
+        A standalone source Core uses the project root, never its shell's cwd.
+        """
+        configured = self.get("workspace.root")
+        if configured:
+            return Path(configured).expanduser().resolve()
+        install_dir = os.getenv("MAIGOKITE_INSTALL_DIR")
+        if install_dir:
+            base = Path(install_dir).expanduser()
+        elif getattr(sys, "frozen", False):
+            base = Path(sys.executable).parent
+        else:
+            base = Path(__file__).resolve().parents[2]
+        return (base / ".workspace").resolve()
 
     def set(self, key: str, value: Any) -> None:
         parts = key.split(".")

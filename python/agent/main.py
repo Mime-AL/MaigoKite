@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 import click
 
@@ -36,7 +37,7 @@ def run(prompt: str | None, config: str | None, host: str, port: int, interactiv
 
 
 async def start_agent(prompt: str | None, config_path: str | None, host: str, port: int, interactive: bool) -> None:
-    config = ConfigManager(config_path)
+    config = ConfigManager(config_path or os.getenv("MAIGOKITE_CONFIG"))
     await config.load()
     event_bus = EventBus()
     observability = Observability()

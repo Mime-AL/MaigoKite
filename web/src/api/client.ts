@@ -394,6 +394,7 @@ export interface TaskInput {
 
 export interface TaskInspection {
   task: AgentTask
+  approvals?: Approval[]
   projection: { plan: PlanItem[] | null; truncated: boolean }
   last_sequence: number
 }
@@ -903,6 +904,23 @@ export const api = {
   getWorkspaceFile(relativePath: string, folderId = ''): Promise<WorkspaceFileContent> {
     return request(
       `${path}/files/content?path=${encodeURIComponent(relativePath)}&${folderQuery(folderId)}`,
+    )
+  },
+  createWorkspaceEntry(
+    parent: string,
+    name: string,
+    type: 'file' | 'directory',
+    folderId = '',
+  ): Promise<WorkspaceFileEntry> {
+    return request(`${path}/files?path=${encodeURIComponent(parent)}&${folderQuery(folderId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ name, type }),
+    })
+  },
+  openWorkspaceFolder(relativePath = '', folderId = ''): Promise<void> {
+    return request(
+      `${path}/files/open-folder?path=${encodeURIComponent(relativePath)}&${folderQuery(folderId)}`,
+      { method: 'POST' },
     )
   },
   async listWorkspaceChanges(folderId = ''): Promise<{

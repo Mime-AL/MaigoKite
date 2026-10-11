@@ -19,7 +19,7 @@ storage:
   sqlite_path: "~/.maigokite/data/agent.db"
 
 workspace:
-  root: "."
+  root: ""  # Default: <installation directory>/.workspace.
 
 browser:
   enabled: true

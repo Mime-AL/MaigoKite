@@ -58,6 +58,8 @@ npm ci
 make dev
 ```
 
+Web 与 Electron 开发启动默认使用项目根目录下的 `.workspace`，Core 启动时创建；不再默认暴露整个源码目录。环境变量 `MAIGOKITE_WORKSPACE_ROOT` 或非空 YAML `workspace.root` 优先，旧文件不自动迁移。两个启动入口传递相同的安装根目录，Core 是文件工作区的事实来源。
+
 脚本启动网关、Python gRPC 核心服务和 Vite；优先使用根 `.venv`，否则使用 `MAIGOKITE_PYTHON` 或 python3。当前开发脚本 Vite 监听 `0.0.0.0:5173`，仅用于受信开发网络，不可当作受认证远程访问入口。
 
 Electron 开发模式在 `web/` 执行：
