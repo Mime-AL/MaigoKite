@@ -1,6 +1,6 @@
 # Plan: Prompt Safety Review（提示词安全审查）
 
-> 状态：Phase A–D 已完成，Phase E 验收进行中。KEV 已完成本机 HTTP 联调；LAYA 联调和完整端到端验收仍待执行，进度与证据见 [交付路线与状态](../project/Roadmap.md)。
+> 状态：Phase A–D 已完成，Phase E 验收进行中。KEV 已完成本机 HTTP 联调和二分类概率接入；LAYA 联调和完整端到端验收仍待执行，进度与证据见 [交付路线与状态](../project/Roadmap.md)。
 > 接口契约以 [API 设计](../design/API.md#36-设置模型和凭证引用) 为准，本文件只记录计划与边界。
 
 这是一个增量改造。目标是把安全检查接到模型调用前，先取当前步相对上一轮的提示词增量，再交给独立审查模型打分。分值超过阈值时，任务进入可人工接管的暂停态，前端复用现有继续和恢复交互，让用户决定是否放行。
@@ -57,9 +57,22 @@
 **Execution order**
 - Phase A: 先完成数据契约和持久化层，作为唯一来源。 ✅ 已完成
 - Phase B: 再输出前端可对接的接口、事件和错误码，不改 UI。 ✅ 已完成
-- Phase C: 接 request builder 库、runtime 审查、风险判定和白名单跳过逻辑。
-- Phase D: 处理人工介入所需的任务状态、恢复语义和审计事件。
-- Phase E: 最后补测试和文档。
+- Phase C: 接 request builder 库、runtime 审查、风险判定和白名单跳过逻辑。 ✅ 已完成
+- Phase D: 处理人工介入所需的任务状态、恢复语义和审计事件。 ✅ 已完成
+- Phase E: 最后补测试和文档。 🔄 验收进行中
+
+**Implemented scoring contract**
+
+- `jev_like`/KEV 使用两个 criterion：`safe` 和 `dangerous`；不再使用
+  0–100 共 101 个风险等级 criterion，也不把 KEV 返回的 `score` 当作风险值。
+- 审查器根据返回体的 `legend` 找到 `dangerous` 类别，并读取对应的
+  `probabilities` 值；归一化概率乘以 100 后形成 `risk_score`。
+- 设置 API 和 UI 的 `risk_threshold` 仍是 0–100 整数，运行时保持
+  `risk_score > risk_threshold` 时拦截。
+- 缺少 `dangerous` 概率、概率越界、响应格式错误或决策服务失败时，继续使用
+  保守拦截策略；不会回退到 `score`、旧的 `risk_score` 或关键词规则。
+- 由于 KEV 当前使用约 0.9B 模型，概率只代表模型当前分类信号，不等同于经过
+  校准的真实安全概率；高风险权限和凭证外发仍需要运行时权限边界保护。
 
 **Phase boundaries**
 - 不新增第二套审批系统，直接复用现有 waiting_approval / interrupted 语义。
@@ -81,10 +94,17 @@
 - `docs/agent-capabilities/models/model-routing.md` — 审查模型和请求格式边界。
 
 **Verification**
-1. 先补一组最小单测或集成测试，覆盖三类场景：可信模型跳过、风险超阈值暂停、审查失败默认拦截。
-2. 跑后端相关测试，或至少目标模块的类型和单测，确认新配置和运行时逻辑能通过。
+1. 先补一组最小单测或集成测试，覆盖三类场景：可信模型跳过、风险超阈值暂停、审查失败默认拦截。 ✅ 已完成
+2. 跑后端相关测试，或至少目标模块的类型和单测，确认新配置和运行时逻辑能通过。 ✅ 已完成
 3. 跑前端类型检查或构建，确认设置页新增字段和 API 契约没有断裂。
 4. 手工验证一次完整流程：保存安全配置 -> 触发模型调用 -> 命中审查 -> 人工继续或终止 -> 状态回到正常流转。
+
+当前后端验证结果：
+
+- `python/tests`：12 passed。
+- Python 编译检查和 `git diff --check` 通过。
+- 本机 KEV endpoint：`POST http://127.0.0.1:8009/v1/systemone`。
+- 已验证二分类响应中的 `probabilities` 可转换为 0–100 `risk_score`，并驱动阈值判断。
 
 **Decisions**
 - 审查模型按工作区独立配置，不和主模型共用。
@@ -92,6 +112,8 @@
 - 可信模型白名单按“当前实际调用模型 ID”判断，而不是仅看默认模型。
 - 审查失败采用保守策略，默认暂停并要求人工确认。
 - 这次方案优先复用现有暂停和继续链路，不另造第二套审批系统。
+- KEV 风险值使用 `probabilities["dangerous"] * 100` 的归一化概率映射；不使用
+  KEV 的 `score` 索引值。
 
 **Further Considerations**
 1. 需要明确审查输入是只看“本步增量”，还是还要附带最近一轮上下文摘要；建议先做“增量 + 必要少量上下文”，减少误判。
