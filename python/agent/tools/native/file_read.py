@@ -10,6 +10,7 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from agent.errors import UserFacingError
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
 
@@ -70,7 +71,9 @@ async def _file_read_impl(path: str, encoding: str = "utf-8", max_bytes: int = 1
     truncated = len(chunks) > limit
     payload = bytes(chunks[:limit])
     if b"\x00" in payload:
-        raise ValueError(f"Binary file is not supported: {path}")
+        # Keep this authored diagnostic actionable without exposing a local path
+        # or allowing arbitrary ValueError text through the shared error boundary.
+        raise UserFacingError("不支持读取二进制文件，请选择文本文件或使用支持该格式的工具。")
     try:
         decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
         content = decoder.decode(payload, final=not truncated)

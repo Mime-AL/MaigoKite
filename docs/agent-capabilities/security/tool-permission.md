@@ -52,11 +52,11 @@ API 资源归属检查                  Python ToolPolicy
 
 | 工具能力 | 基础等级 | 动态规则 |
 |---|---|---|
-| file_read/glob/grep | L1 | 敏感或范围外路径升级/拒绝 |
+| file_read/glob/grep | L1 | 工作区外路径升为 L5，受限模式需单次审批；敏感路径在受限模式拒绝 |
 | todo_write/sleep | L2 | 超额资源占用可拒绝 |
 | web_search/web_fetch | L3 | 携带敏感凭证或禁止域名时拒绝 |
 | bash | L3 | 按命令、目录和副作用提升至 L4/L5/hard deny |
-| file_write/file_edit | L4 | 工作区外需要精确参数审批；完全访问无需审批 |
+| file_write/file_edit | L4 | 工作区外升为 L5，需要精确参数单次审批；完全访问无需审批 |
 | external_send/publish | L5 | 必须展示接收方和内容预览 |
 
 技能声明的是 capability 请求。最终等级由受信 ToolPolicy 根据能力和参数决定。未知能力默认拒绝。

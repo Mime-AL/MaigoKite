@@ -46,7 +46,7 @@ from langgraph.types import Command, interrupt
 
 from agent.errors import public_error
 from agent.models.context_capacity import ContextCapacity
-from agent.models.reasoning import visible_reasoning
+from agent.models.reasoning import ThinkTagStream, split_thinking, visible_reasoning
 from agent.repository import ConversationBusyError, SQLiteRepository
 from agent.runtime.context import ContextBudgetMiddleware, SafeSummarizationMiddleware
 from agent.runtime.subagents import CHILD_TAG, ChildContext, DelegateTool, ListSubagentModelsTool, create_readonly_agent
@@ -149,6 +149,7 @@ class _RunContext:
     reasoning_started: bool = False
     reasoning_completed: bool = False
     reasoning_streamed: bool = False
+    text_stream: ThinkTagStream = field(default_factory=ThinkTagStream)
     final_saved: bool = False
     tool_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     event_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -1218,6 +1219,14 @@ class LangGraphRuntime:
                 # message. Streaming updates contain the same text: don't repeat it.
                 if not context.reasoning_streamed and (reasoning := self._reasoning_text(message)):
                     await self._append_reasoning(reasoning, context)
+                await self._project_text_delta("", context, final=True)
+                if not context.text_stream.reasoning_emitted:
+                    _, reasoning = split_thinking(self._raw_message_text(message))
+                    if reasoning:
+                        await self._append_reasoning(reasoning, context, separate=True)
+                # Each model turn has its own leading prefix, including turns
+                # before/after a tool batch. Never carry parsing state across it.
+                context.text_stream = ThinkTagStream()
                 context.reasoning_streamed = False
                 await self._complete_reasoning(context)
                 if message.tool_calls:
@@ -1243,13 +1252,7 @@ class LangGraphRuntime:
             if reasoning:
                 context.reasoning_streamed = True
                 await self._append_reasoning(reasoning, context)
-            content = self._message_text(message)
-            if content:
-                await self._emit(
-                    context,
-                    "message.delta",
-                    {"content": content},
-                )
+            await self._project_text_delta(self._raw_message_text(message), context)
             return
         if isinstance(message, ToolMessage):
             call_id = str(message.tool_call_id or "")
@@ -1695,8 +1698,15 @@ class LangGraphRuntime:
             "authorization_revoked_at": approval.get("authorization_revoked_at", ""),
         }
 
+    @classmethod
+    def _message_text(cls, message: Any) -> str:
+        text = cls._raw_message_text(message)
+        # Tool output is user data, not provider thinking. A file containing a
+        # leading <think> must remain intact in the tool result.
+        return split_thinking(text)[0] if isinstance(message, AIMessage) else text
+
     @staticmethod
-    def _message_text(message: Any) -> str:
+    def _raw_message_text(message: Any) -> str:
         value = getattr(message, "content", message)
         if isinstance(value, str):
             return value
@@ -1714,13 +1724,23 @@ class LangGraphRuntime:
                 parts.append(block["text"])
         return "".join(parts)
 
-    async def _append_reasoning(self, text: str, context: _RunContext) -> None:
+    async def _project_text_delta(self, text: str, context: _RunContext, *, final: bool = False) -> None:
+        separate = not context.text_stream.reasoning_emitted
+        answer, reasoning = context.text_stream.feed(text, final=final)
+        if reasoning:
+            await self._append_reasoning(reasoning, context, separate=separate)
+        if answer:
+            await self._emit(context, "message.delta", {"content": answer})
+
+    async def _append_reasoning(self, text: str, context: _RunContext, *, separate: bool = False) -> None:
         if not context.reasoning_started or context.reasoning_completed:
             await self._emit(context, "reasoning.started", {})
             if context.reasoning_parts:
                 text = "\n\n" + text
             context.reasoning_started = True
             context.reasoning_completed = False
+        elif separate:
+            text = "\n\n" + text
         context.reasoning_parts.append(text)
         await self._emit(context, "reasoning.delta", {"content": text})
 

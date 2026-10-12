@@ -325,6 +325,10 @@ class PermissionManager:
                     "Host execution cannot enforce network isolation. Request network_access=true as well "
                     "for explicit approval, or stay in the workspace sandbox. No command was started.", normalized,
                 )
+        # Leaving the workspace changes the authority being requested, even for
+        # reads. Use the same elevated label for approval, audit and reuse rules.
+        if outside_workspace:
+            risk = RiskLevel.L5
         # Old full_access was workspace-confined. Never let an old config or
         # old client silently authorize host access under the new semantics.
         if effective_mode == "workspace_auto" and (outside_workspace or escalate):

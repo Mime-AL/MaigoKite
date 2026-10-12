@@ -13,6 +13,7 @@ const labels: Record<string, string> = {
   models: '模型',
   tools: '工具',
   permissions: '权限',
+  safety: '安全',
   workspace: '运行状态',
 }
 watch(query, () => {

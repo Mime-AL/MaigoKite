@@ -7,6 +7,7 @@ import SettingsSearch from '@/components/settings/SettingsSearch.vue'
 import ModelSettingsPanel from '@/components/settings/ModelSettingsPanel.vue'
 import ToolSettingsPanel from '@/components/settings/ToolSettingsPanel.vue'
 import PermissionSettingsPanel from '@/components/settings/PermissionSettingsPanel.vue'
+import SafetySettingsPanel from '@/components/settings/SafetySettingsPanel.vue'
 import RuntimeStatusPanel from '@/components/settings/RuntimeStatusPanel.vue'
 import AppearanceSettingsPanel from '@/components/settings/AppearanceSettingsPanel.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
@@ -19,6 +20,7 @@ const tabs = [
   { id: 'models', label: '模型', icon: 'brain', component: ModelSettingsPanel },
   { id: 'tools', label: '工具', icon: 'files', component: ToolSettingsPanel },
   { id: 'permissions', label: '权限', icon: 'shield', component: PermissionSettingsPanel },
+  { id: 'safety', label: '安全', icon: 'key', component: SafetySettingsPanel },
   { id: 'workspace', label: '运行状态', icon: 'activity', component: RuntimeStatusPanel },
 ]
 const active = computed(() => tabs.find((tab) => tab.id === route.query.tab) || tabs[0])
@@ -44,6 +46,10 @@ async function locate(field: SettingsField) {
     ? target
     : target.querySelector<HTMLElement>('input,select,button,summary')
   ;(control || target).focus({ preventScroll: true })
+}
+function panelReady() {
+  const field = settingsFields.find((item) => item.id === route.query.field && item.tab === active.value.id)
+  if (field) void locate(field)
 }
 async function load() {
   if (loading.value) return
@@ -127,11 +133,12 @@ watch(
         class="settings-content"
         :data-highlight="highlighted"
       >
-        <KeepAlive :max="5">
+        <KeepAlive :max="5" exclude="SafetySettingsPanel">
           <component
             :is="active.component"
             :key="active.id"
             :loading="loading"
+            @ready="panelReady"
           />
         </KeepAlive>
       </div>

@@ -157,7 +157,7 @@ export type SafetyRequestFormat = 'jev_like' | 'laya'
 /**
  * Prompt safety review settings (`GET/PATCH settings/safety`).
  * `api_key` is write-only and never returned; `credential_configured` is
- * read-only on write. Contract only — UI adaptation belongs to the web team.
+ * read-only on write. This contract does not imply runtime enforcement.
  */
 export interface SafetySettings {
   enabled: boolean
@@ -170,6 +170,8 @@ export interface SafetySettings {
   risk_threshold: number
   api_key?: string
 }
+
+export type SafetySettingsUpdate = Omit<SafetySettings, 'credential_configured'>
 
 export interface AuditEvent {
   id: string
@@ -643,9 +645,10 @@ export const api = {
       body: JSON.stringify({ service, api_key: apiKey }),
     })
   },
-  deleteCredential(service: string): Promise<void> {
+  deleteCredential(service: string, signal?: AbortSignal): Promise<void> {
     return request(`${path}/credential-references/${encodeURIComponent(service)}`, {
       method: 'DELETE',
+      signal,
     })
   },
   async listMemories(query = '', folderId: string | null = null): Promise<UserMemory[]> {
@@ -740,8 +743,8 @@ export const api = {
       body: JSON.stringify({ text, eof }),
     })
   },
-  async getCapabilities(): Promise<Record<string, boolean>> {
-    const body = await request<{ capabilities: Record<string, boolean> }>(`${path}/capabilities`)
+  async getCapabilities(signal?: AbortSignal): Promise<Record<string, boolean>> {
+    const body = await request<{ capabilities: Record<string, boolean> }>(`${path}/capabilities`, { signal })
     return body.capabilities || {}
   },
   resumeTask(taskId: string, version: number): Promise<MessageReceipt> {
@@ -924,11 +927,11 @@ export const api = {
   updatePermissionSettings(settings: PermissionSettings): Promise<PermissionSettings> {
     return request(`${path}/permissions`, { method: 'PATCH', body: JSON.stringify(settings) })
   },
-  getSafetySettings(): Promise<SafetySettings> {
-    return request(`${path}/settings/safety`)
+  getSafetySettings(signal?: AbortSignal): Promise<SafetySettings> {
+    return request(`${path}/settings/safety`, { signal })
   },
-  updateSafetySettings(settings: SafetySettings): Promise<SafetySettings> {
-    return request(`${path}/settings/safety`, { method: 'PATCH', body: JSON.stringify(settings) })
+  updateSafetySettings(settings: SafetySettingsUpdate, signal?: AbortSignal): Promise<SafetySettings> {
+    return request(`${path}/settings/safety`, { method: 'PATCH', body: JSON.stringify(settings), signal })
   },
   async listAuditEvents(): Promise<AuditEvent[]> {
     const body = await request<{ events: AuditEvent[] }>(`${path}/audit-events`)

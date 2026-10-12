@@ -4,6 +4,64 @@ from __future__ import annotations
 from typing import Any
 
 
+class ThinkTagStream:
+    """Separate leading, provider-emitted <think> blocks from visible text.
+
+    Keep only an undecided prefix or a split closing tag between chunks. Once
+    answer text starts, tags are literal text, including Markdown/code examples.
+    An unclosed thinking block stays reasoning when the model stops mid-output.
+    This is UI projection; provider messages and graph state are not rewritten.
+    """
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self._thinking = False
+        self._answer_started = False
+        self.reasoning_emitted = False
+
+    def feed(self, text: str, *, final: bool = False) -> tuple[str, str]:
+        """Return (answer delta, reasoning delta), retaining split delimiters."""
+        self._pending += text
+        reasoning: list[str] = []
+        while not self._answer_started:
+            if not self._thinking:
+                prefix = self._pending.lstrip()
+                if prefix.startswith("<think>"):
+                    self._pending = prefix[len("<think>"):]
+                    self._thinking = True
+                elif not final and "<think>".startswith(prefix):
+                    break
+                else:
+                    self._answer_started = True
+                    break
+            end = self._pending.find("</think>")
+            if end >= 0:
+                reasoning.append(self._pending[:end])
+                self._pending = self._pending[end + len("</think>"):]
+                self._thinking = False
+                continue
+            # A chunk can end in '<', '</th', etc. Hold that suffix until it
+            # either completes the delimiter or becomes ordinary reasoning text.
+            keep = 0 if final else next(
+                (size for size in range(len("</think>") - 1, 0, -1)
+                 if self._pending.endswith("</think>"[:size])), 0,
+            )
+            reasoning.append(self._pending[:-keep] if keep else self._pending)
+            self._pending = self._pending[-keep:] if keep else ""
+            break
+        answer = self._pending if self._answer_started else ""
+        if self._answer_started:
+            self._pending = ""
+        exposed = "".join(reasoning)
+        self.reasoning_emitted = self.reasoning_emitted or bool(exposed)
+        return answer, exposed
+
+
+def split_thinking(text: str) -> tuple[str, str]:
+    """Apply the same projection to a completed, non-streaming message."""
+    return ThinkTagStream().feed(text, final=True)
+
+
 def visible_reasoning(value: Any) -> str:
     """Ignore signatures/encrypted payloads; never derive reasoning from an answer."""
     if isinstance(value, str):
