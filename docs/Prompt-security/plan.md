@@ -1,6 +1,6 @@
 # Plan: Prompt Safety Review（提示词安全审查）
 
-> 状态：Phase A–D 已完成，Phase E 验收进行中。KEV 已完成本机 HTTP 联调和二分类概率接入；LAYA 联调和完整端到端验收仍待执行，进度与证据见 [交付路线与状态](../project/Roadmap.md)。
+> 状态：Phase A–D 已完成，Phase E 验收进行中。KEV 已完成本机 HTTP 联调和二分类概率接入；LAYA 联调和完整端到端验收仍待执行，进度与证据见 [交付路线与状态](../project/Roadmap.md)。`openai` 结构化输出格式已实现请求构造、降级与解析，单测覆盖通过，并已用本机 LM Studio（`google/gemma-4-12b-qat`，`json_schema` 直连无需降级）完成真实联调：良性提示返回归一化概率 0.0、转换为 0 分并放行；注入提示返回 1.0、转换为 100 分并拦截。
 > 接口契约以 [API 设计](../design/API.md#36-设置模型和凭证引用) 为准，本文件只记录计划与边界。
 
 这是一个增量改造。目标是把安全检查接到模型调用前，先取当前步相对上一轮的提示词增量，再交给独立审查模型打分。分值超过阈值时，任务进入可人工接管的暂停态，前端复用现有继续和恢复交互，让用户决定是否放行。
@@ -8,7 +8,8 @@
 **Workflow**
 1. 先定数据契约，再动 UI 和 runtime *blocking foundation*。
    - 定义安全检查配置对象、DTO、API 返回结构和默认值。
-   - 请求格式只接受 `jev_like` 和 `laya`；kev 是 jev 类的开源实现，归入 `jev_like`，不单独枚举。
+   - 请求格式只接受 `jev_like`、`laya` 和 `openai`；kev 是 jev 类的开源实现，归入 `jev_like`，不单独枚举。
+   - `openai` 表示 OpenAI 兼容 API 的结构化输出：端点取 `decision_base_url` 拼接 `/chat/completions`，`state` 与 `question` 分别作为 system 与 user 消息，通过 `response_format` 约束决策模型只返回固定结构的风险分值与理由。
    - 决策模型请求拆为 `state` 与 `question` 两部分，`state` 进入设置供自定义，留空时用库内置默认值。
    - 确认这些字段按工作区持久化，不随会话临时保存。
    - 明确审查模型配置是否复用现有模型账户体系，还是独立保存端点和密钥。
@@ -22,8 +23,8 @@
 
 3. 接着提取独立请求构造库 *depends on step 1*。
    - 新建请求构造层，把“如何把审查输入拼成请求”从 runtime 中剥离出来。
-   - 库至少提供统一入口和两个实现：`jev_like` 与 `laya`。
-   - 每个实现负责生成 `state` 与 `question` 两段请求；`state` 取用户自定义值，`question` 由库根据审查输入生成。
+   - 库至少提供统一入口和三个实现：`jev_like`、`laya` 与 `openai`。
+   - 每个实现负责生成 `state` 与 `question` 两段请求；`state` 取用户自定义值，`question` 由库根据审查输入生成。`openai` 实现把两者装配为 chat/completions 消息，并附带结构化输出约束。
    - 未来新增格式时，只扩展该库，不把格式逻辑散落到 runtime。
    - 输入只接受标准化的模型元信息、任务和步骤元信息、增量文本和可选上下文；输出结构化请求对象，不直接发网。
    - 产出：审查请求的构造方式独立于运行时执行链。
@@ -38,7 +39,8 @@
 5. 然后实现增量审查 *depends on step 4*。
    - 计算本步新增提示词，只把新增部分送入决策模型；必要时附带最少量上下文，例如上一步模型 ID、step 元信息和上次审查标记。
    - 当前模型 ID 命中可信白名单时直接跳过审查，但仍记录跳过原因。
-   - 决策模型返回 `dangerous` 概率后换算为 0–100 风险值，与阈值比较，决定放行或拦截。
+   - 决策模型返回风险分值后与阈值比较，决定放行或拦截：`jev_like`/`laya` 沿用 `dangerous` 概率；`openai` 也解析 0–1 的归一化 `risk_probability`，统一乘以 100 形成内部风险值，取值分支按格式隔离在审查执行层，不散落到 runtime。
+   - `openai` 请求优先使用 `response_format: json_schema`；服务不支持时降级为 `json_object` 并把 schema 写入提示；仍无结构化输出或字段非法时按返回异常处理。
    - 如果请求构造失败、格式不支持或决策模型返回异常，采用保守策略，默认拦截。
    - 产出：审查结果可以稳定驱动放行和拦截。
 
@@ -77,6 +79,7 @@
 **Phase boundaries**
 - 不新增第二套审批系统，直接复用现有 waiting_approval / interrupted 语义。
 - 不把普通工具审批与提示词审查混在一起，两者在 runtime 上是不同门禁。
+- 结构化输出只属于 `openai` 格式；不改写 `jev_like`/`laya` 的既有服务契约，也不把响应解析逻辑散到 runtime。
 - 原 Phase A、Phase B 只输出接口、事件和契约，不修改 UI。后续已接入安全设置页并完成接口和 GUI 测试；聊天中的审查拦截与恢复仍未交付。
 
 **Relevant files**
@@ -87,6 +90,8 @@
 - `python/agent/safety/request_builders.py` — 新的独立请求构造库入口，统一调度不同格式实现。
 - `python/agent/safety/formats/jev_like.py` — `jev_like` 格式请求构造实现，覆盖 jev 类与开源实现 kev。
 - `python/agent/safety/formats/laya.py` — `laya` 格式请求构造实现。
+- `python/agent/safety/formats/openai.py` — `openai` 格式请求构造实现，装配 chat/completions 消息与结构化输出约束。
+- `python/agent/safety/reviewer.py` — 审查请求发送与响应解析；各格式取值分支和 `openai` 结构化输出降级在此处理。
 - `python/agent/runtime/langgraph_runtime.py` — 最关键的运行时挂钩点，负责模型调用前审查、任务暂停和恢复衔接。
 - `python/agent/core.py` — 若需要把配置纳入核心工作区设置或审计事件，这里通常会接线。
 - `python/agent/repository.py` — 若新增配置表、审查记录或事件持久化字段，这里会涉及。
@@ -95,16 +100,21 @@
 
 **Verification**
 1. 先补一组最小单测或集成测试，覆盖三类场景：可信模型跳过、风险超阈值暂停、审查失败默认拦截。 ✅ 已完成
+   - `openai` 格式已追加两组场景：结构化输出解析与 `response_format` 降级、非法结构化输出保守拦截。 ✅ 已完成（`python/tests/unit/test_safety_openai.py`，24 passed）。
 2. 跑后端相关测试，或至少目标模块的类型和单测，确认新配置和运行时逻辑能通过。 ✅ 已完成
 3. 跑前端类型检查或构建，确认设置页新增字段和 API 契约没有断裂。
 4. 手工验证一次完整流程：保存安全配置 -> 触发模型调用 -> 命中审查 -> 人工继续或终止 -> 状态回到正常流转。
 
 当前后端验证结果：
 
-- `python/tests`：12 passed。
+- `python/tests`：24 passed（新增 `openai` 结构化输出、降级、保守拦截与 `jev_like` 回归用例；按仓库约定测试文件仅本地保留）。
 - Python 编译检查和 `git diff --check` 通过。
 - 本机 KEV endpoint：`POST http://127.0.0.1:8009/v1/systemone`。
 - 已验证二分类响应中的 `probabilities` 可转换为 0–100 `risk_score`，并驱动阈值判断。
+- 本机 LM Studio endpoint：`POST http://127.0.0.1:1234/v1/chat/completions`，模型为
+  `google/gemma-4-12b-qat`；已验证 `risk_probability` 的 0–1 归一化输出可转换为
+  0–100 `risk_score` 并驱动阈值判断。良性样例为 `0.0 → 0`，注入样例为 `1.0 → 100`；
+  两次均未触发 `json_object` 降级。
 
 **Decisions**
 - 审查模型按工作区独立配置，不和主模型共用。
@@ -114,8 +124,10 @@
 - 这次方案优先复用现有暂停和继续链路，不另造第二套审批系统。
 - KEV 风险值使用 `probabilities["dangerous"] * 100` 的归一化概率映射；不使用
   KEV 的 `score` 索引值。
+- `openai` 格式要求决策模型输出包含 0–1 归一化 `risk_probability` 的结构化 JSON；解析失败不回退自由文本打分，沿用保守拦截。
 
 **Further Considerations**
 1. 需要明确审查输入是只看“本步增量”，还是还要附带最近一轮上下文摘要；建议先做“增量 + 必要少量上下文”，减少误判。
 2. 需要确认审查模型 API 的接入协议是否要兼容现有模型提供方列表，还是允许完全独立的审查服务地址。
 3. 需要确认拦截后的用户动作是“继续一次”“整任务放行”还是“对同会话放行”，这会影响恢复态的粒度。
+4. 各 OpenAI 兼容服务对 `response_format` 的支持程度不同（`json_schema` 与 `json_object`），需要明确支持矩阵、降级顺序与验收用服务列表。

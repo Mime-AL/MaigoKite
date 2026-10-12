@@ -11,7 +11,7 @@ from typing import Any
 SAFETY_SETTING_KEY = "safety.policy"
 SAFETY_CREDENTIAL_REFERENCE = "safety.decision_model"
 # jev_like covers the jev request class and its open-source implementation kev.
-SAFETY_FORMATS = ("jev_like", "laya")
+SAFETY_FORMATS = ("jev_like", "laya", "openai")
 MAX_TRUSTED_MODEL_IDS = 32
 MAX_STATE_LENGTH = 4000
 

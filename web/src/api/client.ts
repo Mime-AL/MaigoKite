@@ -152,7 +152,7 @@ export interface PermissionSettings {
   default_mode: PermissionMode
 }
 
-export type SafetyRequestFormat = 'jev_like' | 'laya'
+export type SafetyRequestFormat = 'jev_like' | 'laya' | 'openai'
 
 /**
  * Prompt safety review settings (`GET/PATCH settings/safety`).

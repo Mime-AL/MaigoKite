@@ -222,7 +222,7 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 }
 ```
 
-`request_format` 只接受 `jev_like`、`laya`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举 kev。审查请求由 `state` 和 `question` 两部分组成：`state` 使用设置中的自定义文本，留空时采用请求构造库的默认值；`question` 由该库根据审查输入生成，不在此处配置。
+`request_format` 只接受 `jev_like`、`laya`、`openai`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举 kev；`openai` 为 OpenAI 兼容 API 的结构化输出模式。审查请求由 `state` 和 `question` 两部分组成：`state` 使用设置中的自定义文本，留空时采用请求构造库的默认值；`question` 由该库根据审查输入生成，不在此处配置。
 
 `risk_threshold` 为 0–100 整数；`trusted_model_ids` 最多 32 个，匹配当前实际调用的模型 ID，不匹配默认模型设置。`enabled: true` 时必须提供 `decision_base_url` 与 `decision_model`。当前 PATCH 实现会补齐 DTO 默认值，前端须先读取、再提交完整配置，以保留其他字段；未知字段被拒绝。格式不在枚举内时返回 `SAFETY_FORMAT_UNSUPPORTED`，阈值或白名单越界返回 400 Validation 错误。
 
@@ -230,6 +230,20 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 `probabilities` 中与 `legend` 值 `dangerous` 对应的概率会乘以 100，作为事件和
 运行时使用的 `risk_score`；返回体中的 `score` 不作为风险值读取。因而
 `risk_threshold` 仍保持 0–100 配置语义，`risk_score > risk_threshold` 时拦截。
+
+对于 `openai`，审查请求发送到 `{decision_base_url}/chat/completions`：`state` 作为
+system 消息、`question` 作为 user 消息，`response_format` 优先使用 `json_schema` 约束
+`{"risk_probability": <0–1 数值>, "reason": <字符串>}`。服务以 400/404/415/422 拒绝该模式时，
+自动降级为 `json_object` 并重试一次，schema 说明已写入 system 消息。响应读取
+`choices[0].message.content` 中的 JSON：`risk_probability` 缺失或不在 0–1、`reason`
+缺失、或内容不是可解析 JSON 时，按审查失败保守拦截；解析后的概率乘以 100 形成
+`risk_score`，再按 `risk_score > risk_threshold` 拦截。
+
+已用 LM Studio `http://127.0.0.1:1234/v1` 的
+`google/gemma-4-12b-qat` 完成真实联调：良性提示返回
+`risk_probability: 0.0` 并转换为 `risk_score: 0`、放行；请求读取并外发
+API 密钥的注入提示返回 `risk_probability: 1.0` 并转换为 `risk_score: 100`、
+拦截。两次请求均由 `json_schema` 直接返回，未触发 `json_object` 降级。
 
 `api_key` 只出现在 PATCH 请求中，按 `safety.decision_model` 凭证引用保存；GET 只返回 `credential_configured`，不回传密钥。密钥留空保留既有凭证，保存或离开面板后清除输入中的密钥。更换服务地址时须重新提供密钥或移除旧凭证，避免发送到其他服务。
 

@@ -1,14 +1,15 @@
 """Execute and normalize prompt safety review service calls."""
 from __future__ import annotations
 
-import uuid
+import json
 import logging
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
-from agent.safety.formats.jev_like import DEFAULT_STATE
+from agent.safety.formats.openai import degrade_to_json_object
 from agent.safety.request_builders import SafetyReviewInput, build_review_request
 
 logger = logging.getLogger("maigokite.agent.safety")
@@ -56,9 +57,60 @@ def _find_danger_probability(value: Any) -> float | None:
     return None
 
 
+# 4xx codes that mean "response_format unsupported" for OpenAI-compatible services.
+_OPENAI_DEGRADE_STATUSES = frozenset({400, 404, 415, 422})
+
+
+def _parse_openai_review(body: Any) -> tuple[float, str]:
+    """Read normalized risk probability/reason from structured output."""
+    content: Any = None
+    if isinstance(body, dict):
+        choices = body.get("choices")
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            message = choices[0].get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+    if isinstance(content, list):
+        # Some compatible services return content parts instead of a plain string.
+        content = "".join(
+            part.get("text", "") for part in content
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
+    if not isinstance(content, str) or not content.strip():
+        raise SafetyReviewError("safety review response did not contain structured output")
+    text = content.strip()
+    if text.startswith("```"):
+        # json_object mode lets some services wrap the JSON in a markdown fence.
+        lines = text.splitlines()[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise SafetyReviewError("safety review structured output was not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise SafetyReviewError("safety review structured output was not a JSON object")
+    probability = data.get("risk_probability")
+    if (
+        isinstance(probability, bool)
+        or not isinstance(probability, (int, float))
+        or not 0 <= probability <= 1
+    ):
+        raise SafetyReviewError(
+            "safety review structured output did not contain a risk_probability from 0 to 1"
+        )
+    reason = data.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise SafetyReviewError("safety review structured output did not contain a reason")
+    return float(probability), reason.strip()
+
+
 class SafetyReviewer:
-    def __init__(self, *, timeout: float = 12.0) -> None:
+    def __init__(self, *, timeout: float = 12.0, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.timeout = timeout
+        # Test seam: httpx.MockTransport exercises the full review path offline.
+        self._transport = transport
 
     async def review(
         self,
@@ -73,7 +125,7 @@ class SafetyReviewer:
     ) -> SafetyReviewResult:
         review_id = "safety_" + uuid.uuid4().hex
         payload = build_review_request(
-            request_format, state=state or DEFAULT_STATE,
+            request_format, state=state,
             decision_model=decision_model, review=review,
         )
         endpoint = base_url.rstrip("/")
@@ -82,24 +134,42 @@ class SafetyReviewer:
                 endpoint += "/systemone"
             elif not endpoint.endswith("/v1/systemone"):
                 endpoint += "/v1/systemone"
+        elif request_format == "openai" and not endpoint.endswith("/chat/completions"):
+            endpoint += "/chat/completions"
         headers = {"Authorization": "Bearer " + api_key} if api_key else {}
         try:
-            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, follow_redirects=False, transport=self._transport,
+            ) as client:
                 response = await client.post(endpoint, json=payload, headers=headers)
+                if (
+                    request_format == "openai"
+                    and response.status_code in _OPENAI_DEGRADE_STATUSES
+                    and payload.get("response_format", {}).get("type") == "json_schema"
+                ):
+                    # Structured-output mode rejected: retry once in json_object mode;
+                    # the schema instruction already lives in the system message.
+                    payload = degrade_to_json_object(payload)
+                    response = await client.post(endpoint, json=payload, headers=headers)
                 response.raise_for_status()
                 body = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise SafetyReviewError("safety review service request failed") from exc
-        dangerous_probability = _find_danger_probability(body)
-        if dangerous_probability is None or not 0 <= dangerous_probability <= 1:
-            raise SafetyReviewError(
-                "safety review response did not contain a dangerous probability from 0 to 1"
-            )
-        score = dangerous_probability * 100
+        model_reason = ""
+        if request_format == "openai":
+            probability, model_reason = _parse_openai_review(body)
+            score = probability * 100
+        else:
+            dangerous_probability = _find_danger_probability(body)
+            if dangerous_probability is None or not 0 <= dangerous_probability <= 1:
+                raise SafetyReviewError(
+                    "safety review response did not contain a dangerous probability from 0 to 1"
+                )
+            score = dangerous_probability * 100
         reason = "risk_threshold_exceeded" if score > threshold else "reviewed"
         logger.info(
             "Safety decision: review_id=%s model_id=%s format=%s risk_score=%.2f "
-            "threshold=%d blocked=%s reason=%s",
+            "threshold=%d blocked=%s reason=%s model_reason=%s",
             review_id,
             review.model_id,
             request_format,
@@ -107,6 +177,7 @@ class SafetyReviewer:
             threshold,
             score > threshold,
             reason,
+            model_reason,
         )
         return SafetyReviewResult(
             review_id=review_id, model_id=review.model_id, request_format=request_format,

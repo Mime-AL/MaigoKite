@@ -32,6 +32,8 @@ def build_review_request(
         raise SafetyFormatError(f"unsupported safety request format: {request_format}")
     if request_format == "jev_like":
         from agent.safety.formats.jev_like import build_request
+    elif request_format == "openai":
+        from agent.safety.formats.openai import build_request
     else:
         from agent.safety.formats.laya import build_request
     return build_request(state=state, decision_model=decision_model, review=review)

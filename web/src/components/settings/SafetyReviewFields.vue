@@ -8,13 +8,14 @@ const emit = defineEmits<{ 'update:modelValue': [value: SafetySettings] }>()
 const newId = ref('')
 const formats: { id: SafetyRequestFormat; label: string }[] = [
   { id: 'jev_like', label: 'JEV / KEV' }, { id: 'laya', label: 'LAYA' },
+  { id: 'openai', label: 'OpenAI 兼容' },
 ]
 const canAdd = computed(() => !props.disabled && newId.value.trim().length > 0 && newId.value.trim().length <= 100 &&
   props.modelValue.trusted_model_ids.length < 32 && !props.modelValue.trusted_model_ids.includes(newId.value.trim()))
 function update(patch: Partial<SafetySettings>) { emit('update:modelValue', { ...props.modelValue, ...patch }) }
 function setFormat(event: Event) {
   const value = (event.target as HTMLSelectElement).value
-  if (value === 'jev_like' || value === 'laya') update({ request_format: value })
+  if (value === 'jev_like' || value === 'laya' || value === 'openai') update({ request_format: value })
 }
 function add() {
   if (!canAdd.value) return
