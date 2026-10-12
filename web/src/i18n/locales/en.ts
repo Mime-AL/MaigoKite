@@ -5,6 +5,7 @@ const en: Record<string, string> = {
   选择已配置的模型: 'Choose a configured model',
   减少数值: 'Decrease value',
   增加数值: 'Increase value',
+  '模型已切换为 {0}': 'Model switched to {0}',
   安全: 'Safety',
   提示词安全审查: 'Prompt safety review',
   '当前对话不执行安全审查。': 'Safety review is not performed in conversations.',
