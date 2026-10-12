@@ -1,16 +1,20 @@
 """Python gRPC service; all domain writes delegate to AgentCore."""
 
 from __future__ import annotations
+
 import asyncio
 import json
 import os
 import uuid
 from typing import Any, AsyncIterator
+
 import grpc
+from pydantic import ValidationError
+
+from agent.errors import public_error
 from agent.grpc_generated import agent_pb2, agent_pb2_grpc
 from agent.models.runtime import ChatModelSettings
 from agent.repository import ConversationBusyError, MessageConflictError
-from pydantic import ValidationError
 
 
 class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
@@ -197,7 +201,9 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, "conversation not found")
         except ValueError as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, public_error(exc))
+        except Exception as exc:
+            await context.abort(grpc.StatusCode.INTERNAL, public_error(exc))
         finally:
             self._event_bus.unsubscribe("*", receive)
             # Client disconnect is not task cancellation. The durable task keeps
@@ -599,9 +605,9 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
             try:
                 await task
             except (ValueError, PermissionError) as exc:
-                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, public_error(exc))
             except NotImplementedError as exc:
-                await context.abort(grpc.StatusCode.UNIMPLEMENTED, str(exc))
+                await context.abort(grpc.StatusCode.UNIMPLEMENTED, public_error(exc))
             except KeyError:
                 await context.abort(grpc.StatusCode.NOT_FOUND, "interaction not found")
             except Exception as exc:
@@ -610,8 +616,8 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                     conversation_id=pending["conversation_id"],
                     task_id=pending["task_id"],
                     code="AGENT_ERROR",
-                    message=str(exc),
-                    payload_json=json.dumps({"message": str(exc)}),
+                    message=public_error(exc),
+                    payload_json=json.dumps({"message": public_error(exc)}),
                 )
         finally:
             self._event_bus.unsubscribe("*", receive)
@@ -748,7 +754,7 @@ class AgentServiceServicer(agent_pb2_grpc.AgentServiceServicer):
                 ok=True, message="connection successful", model=request.settings.model
             )
         except Exception as exc:
-            return agent_pb2.ModelValidationResponse(ok=False, message=str(exc), model=request.settings.model)
+            return agent_pb2.ModelValidationResponse(ok=False, message=public_error(exc), model=request.settings.model)
 
     async def SetChatModelCredential(self, request, context):
         await self._core.set_chat_model_credential(

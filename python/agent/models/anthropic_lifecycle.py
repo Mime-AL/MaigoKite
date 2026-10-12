@@ -1,12 +1,12 @@
-"""Response ownership workaround for the locked ChatAnthropic integration.
+"""Close response streams at the invocation boundary for ChatAnthropic 1.4.8.
 
 Cancelling during a LangChain token callback can leave its nested SDK stream
 suspended at yield. Own that response until the public model call exits, not
 until async-generator GC. Encoding, parsing, retries and clients remain upstream.
 
-Only `_acreate` is integration-private here. Remove this shim once upstream
-closes streaming responses at the model invocation boundary and the local
-cancel/disconnect/concurrent-reuse regression passes without it.
+`_acreate` depends on the pinned integration. Remove this workaround once
+upstream closes these streams deterministically and cancellation/disconnect
+checks confirm that concurrent requests keep their shared clients usable.
 """
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from typing import Any
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, AIMessageChunk
-
 
 _responses: ContextVar[AsyncExitStack | None] = ContextVar("anthropic_responses", default=None)
 

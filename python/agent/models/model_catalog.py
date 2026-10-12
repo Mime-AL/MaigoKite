@@ -1,4 +1,4 @@
-"""Thin reader for the maintained models.dev catalog, online and bundled."""
+"""Read models.dev capacity metadata with a bundled fallback for offline use."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
+
+from agent.models.native_model import _is_local_endpoint
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +142,9 @@ class ModelCatalog:
 
     def route(self, provider: str, base_url: str) -> str | None:
         """Identify this endpoint's catalog, never its protocol's upstream vendor."""
+        # Catalog localhost examples cannot identify the user's installed server.
+        if _is_local_endpoint(base_url):
+            return None
         endpoint = _endpoint(base_url)
         routes = [name for name, value in self._endpoints.items() if value == endpoint] if endpoint else []
         # A provider with no URL uses its official SDK default. An explicit

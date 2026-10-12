@@ -10,13 +10,20 @@ from typing import Any, cast
 
 from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 from langchain.agents.middleware.summarization import DEFAULT_SUMMARY_PROMPT
-from langchain.agents.middleware.types import AgentState, ExtendedModelResponse, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import (
+    AgentState,
+    ExtendedModelResponse,
+    ModelRequest,
+    ModelResponse,
+    ToolCallRequest,
+)
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.messages.utils import count_tokens_approximately, merge_message_runs
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.types import Command
 
+from agent.errors import UserFacingError
 from agent.models.context_capacity import (
     ContextCapacity,
     capacity_from_error,
@@ -27,7 +34,7 @@ from agent.models.context_capacity import (
 from agent.models.usage import message_usage
 
 
-class ContextBudgetExceeded(ValueError):
+class ContextBudgetExceeded(UserFacingError):
     """A request needs smaller inputs, not silent loss of its instructions."""
 
     def __init__(self, message: str, *, reason: str = "") -> None:
@@ -79,6 +86,11 @@ def effective_input_budget(model: Any, configured: int, capacity: ContextCapacit
     input_limit = metadata.get("maigokite_catalog_input_limit") if capacity.source == "models.dev" else None
     # Some catalogs distinguish the combined window from a smaller input cap.
     return min(budget, input_limit) if type(input_limit) is int and input_limit > 0 else budget
+
+
+def summary_target_tokens(input_budget: int) -> int:
+    """Leave room for recent evidence while bounding both history and child summaries."""
+    return max(1, min(int(input_budget * 0.10), 6000))
 
 
 def context_payload(model: Any, capacity: ContextCapacity, configured: int) -> dict[str, Any]:
@@ -267,7 +279,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
             )
         if not force and before + overhead < int(input_budget * 0.8):
             return None
-        target = max(1, min(int(input_budget * 0.10), 6000))
+        target = summary_target_tokens(input_budget)
         upper = max(target, min(int(input_budget * 0.15), 8000))
         latest_index = next((i for i in range(len(conversation) - 1, -1, -1)
                              if isinstance(conversation[i], HumanMessage)), 0)
@@ -368,6 +380,22 @@ class ContextBudgetMiddleware(AgentMiddleware):
         self.max_tokens = max_tokens
         self.summarizer = summarizer
 
+    async def awrap_tool_call(self, request: ToolCallRequest, handler: Any) -> Any:
+        context = request.runtime.context
+        if request.tool_call["name"] == "delegate" and self.summarizer is not None and context.result_budget is None:
+            # Resuming an approval can enter ToolNode without a model call in
+            # this process. Recompute estimates from the model configuration;
+            # execution history still comes from ToolRuntime's checkpoint state.
+            model = self.summarizer.model
+            capacity = await resolve_context_capacity(model, context.context_capacity)
+            context.context_capacity = capacity
+            fixed = [SystemMessage(self.summarizer.system_prompt)] if self.summarizer.system_prompt else []
+            overhead = count_tokens_approximately(
+                fixed, tools=self.summarizer.budget_tools, use_usage_metadata_scaling=False,
+            )
+            context.result_budget = (effective_input_budget(model, self.max_tokens, capacity), overhead)
+        return await handler(request)
+
     async def awrap_model_call(
         self,
         request: ModelRequest,
@@ -415,6 +443,9 @@ class ContextBudgetMiddleware(AgentMiddleware):
             if context is not None:
                 context.context_capacity = capacity
         input_budget = effective_input_budget(request.model, self.max_tokens, capacity)
+        if context is not None and hasattr(context, "result_budget"):
+            history = count_tokens_approximately(request.messages, use_usage_metadata_scaling=False)
+            context.result_budget = (input_budget, max(0, estimated - history))
         call_id = f"call_{uuid.uuid4().hex}"
         await _publish_context(context, request.model, capacity, self.max_tokens, estimated, call_id=call_id)
         if capacity.tokens is not None and estimated > input_budget:
@@ -438,6 +469,11 @@ class ContextBudgetMiddleware(AgentMiddleware):
         reserve = _output_reserve(request.model, capacity)
         if field is not None and reserve:
             options[field] = reserve
+        child_limit = getattr(context, "result_token_limit", 0)
+        if field is not None and child_limit >= _minimum_output(request.model):
+            # Apply the cap to this invocation's copy, not a shared model. A
+            # provider thinking minimum must not be silently disabled to fit it.
+            options[field] = min(reserve, child_limit) if reserve else child_limit
         observed = request.model.model_copy(update=options)
         started_at = time.perf_counter()
         try:

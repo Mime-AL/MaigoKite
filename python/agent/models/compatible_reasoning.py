@@ -1,9 +1,8 @@
-"""Thin response-field preservation for OpenAI-compatible Chat Completions.
+"""Preserve gateway reasoning and cache counters omitted by ChatOpenAI 1.4.0.
 
-LangChain still owns HTTP/SSE, retries, tool parsing, usage and cancellation.
-The two conversion overrides follow its maintained DeepSeek integration's
-extension points. Remove them when ChatOpenAI preserves these response fields.
-No request parameters or model-side thinking settings are changed.
+The overrides augment converted messages so UI text and usage retain separate
+fields. Their signatures depend on the pinned integration; remove them when
+the selected provider integration preserves these fields itself.
 """
 from __future__ import annotations
 

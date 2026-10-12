@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent.browser_runtime import BrowserRuntime, BrowserRuntimeUnavailable
+from agent.errors import public_error
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
 
@@ -76,15 +77,15 @@ class BrowserTool(BaseTool):
                     result = await self._session_action(context, arguments, session_id, unrestricted)
         except BrowserRuntimeUnavailable as exc:
             return ToolResult.failure(
-                {"action": action, "error": str(exc)},
+                {"action": action, "error": public_error(exc)},
                 "Browser runtime is unavailable.",
                 error_code="BROWSER_RUNTIME_UNAVAILABLE",
                 user_hint="请检查 Playwright、Chromium 和配置目录；打开登录窗口还需要可用的桌面显示环境。",
             )
         except (KeyError, ValueError) as exc:
             return ToolResult.failure(
-                {"action": action, "error": str(exc)},
-                f"Browser action failed: {exc}",
+                {"action": action, "error": public_error(exc)},
+                public_error(exc),
                 error_code="BROWSER_ACTION_INVALID",
             )
         except Exception as exc:

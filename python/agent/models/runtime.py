@@ -15,17 +15,18 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
 from agent.config_manager import ConfigManager
+from agent.errors import UserFacingError
 from agent.models.context_capacity import CAPACITY_POLICY, DEFAULT_ROUTE_CONTEXT_WINDOW
 from agent.models.model_catalog import ModelCatalog
 from agent.models.native_model import (
     _is_local_endpoint,
     build_chat_model,
     close_chat_models,
-    normalize_openai_compatible_base_url,
+    normalize_base_url,
+    provider_http_options,
 )
 from agent.models.thinking import ThinkingControl, cloud_thinking, serving_thinking
 from agent.repository import SQLiteRepository
-
 
 _PROVIDER_ALIASES = {
     "lm_studio": "openai_compatible",
@@ -60,9 +61,7 @@ class ChatModelSettings:
             name=str(value.get("name", "")).strip(),
             provider=provider,
             model=str(value.get("model", value.get("default", ""))).strip(),
-            base_url=normalize_openai_compatible_base_url(
-                provider, value.get("base_url", value.get("endpoint", ""))
-            ),
+            base_url=normalize_base_url(value.get("base_url", value.get("endpoint", ""))),
             temperature=float(value.get("temperature", 0.7)),
             max_tokens=int(value.get("max_tokens", 4096)),
             timeout_seconds=int(value.get("timeout_seconds", value.get("timeout", 60))),
@@ -73,33 +72,33 @@ class ChatModelSettings:
     def validate(self) -> None:
         if self.provider not in _SUPPORTED_PROVIDERS:
             choices = ", ".join(sorted(_SUPPORTED_PROVIDERS))
-            raise ValueError(f"unsupported chat provider '{self.provider}'; choose one of: {choices}")
+            raise UserFacingError(f"unsupported chat provider; choose one of: {choices}")
         if not self.model:
-            raise ValueError("chat model name is required")
+            raise UserFacingError("chat model name is required")
         if self.id and not re.fullmatch(r"model_[A-Za-z0-9_-]{1,80}", self.id):
-            raise ValueError("model profile id is invalid")
+            raise UserFacingError("model profile id is invalid")
         if len(self.name) > 80:
-            raise ValueError("model profile name must not exceed 80 characters")
+            raise UserFacingError("model profile name must not exceed 80 characters")
         if self.provider == "openai_compatible" and not self.base_url:
-            raise ValueError("openai_compatible provider requires base_url")
+            raise UserFacingError("openai_compatible provider requires base_url")
         if not 0 <= self.temperature <= 2:
-            raise ValueError("temperature must be between 0 and 2")
+            raise UserFacingError("temperature must be between 0 and 2")
         if not 1 <= self.max_tokens <= 65536:
-            raise ValueError("max_tokens must be between 1 and 65536")
+            raise UserFacingError("max_tokens must be between 1 and 65536")
         if not 1 <= self.timeout_seconds <= 600:
-            raise ValueError("timeout_seconds must be between 1 and 600")
+            raise UserFacingError("timeout_seconds must be between 1 and 600")
         if self.context_window is not None and (
             type(self.context_window) is not int or not 1 <= self.context_window <= 9007199254740991
         ):
-            raise ValueError("context_window must be a positive safe integer or omitted")
+            raise UserFacingError("context_window must be a positive safe integer or omitted")
         if self.base_url:
             parsed = urlparse(self.base_url)
             if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-                raise ValueError("base_url must be an absolute HTTP(S) URL")
+                raise UserFacingError("base_url must be an absolute HTTP(S) URL")
             if parsed.username or parsed.password:
-                raise ValueError("base_url must not contain credentials")
+                raise UserFacingError("base_url must not contain credentials")
             if parsed.query or parsed.fragment:
-                raise ValueError("base_url must not contain a query or fragment")
+                raise UserFacingError("base_url must not contain a query or fragment")
 
     @property
     def requires_api_key(self) -> bool:
@@ -207,9 +206,7 @@ class ChatModelRuntime:
             settings,
             id=profile_id,
             name=settings.name.strip() or settings.model,
-            base_url=normalize_openai_compatible_base_url(
-                settings.provider, settings.base_url
-            ),
+            base_url=normalize_base_url(settings.base_url),
         )
         normalized.validate()
         profiles, default_id = await self.list_settings(workspace_id)
@@ -294,6 +291,7 @@ class ChatModelRuntime:
         if not isinstance(routes, list):
             raise ValueError("models.routes must be a list")
         configured = None
+        metadata_api = ""
         identities: set[tuple[str, str]] = set()
         for item in routes:
             if not isinstance(item, dict):
@@ -308,10 +306,15 @@ class ChatModelRuntime:
                 raise ValueError("models.routes contains a duplicate provider/base_url")
             identities.add(identity)
             capacity = item.get("default_context_window")
-            if type(capacity) is not int or not 1 <= capacity <= 9007199254740991:
+            if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 9007199254740991):
                 raise ValueError("default_context_window must be a positive safe integer")
+            serving_api = item.get("metadata_api", "")
+            if (not isinstance(serving_api, str) or serving_api not in {"", "lmstudio"}
+                    or serving_api and route.provider != "openai_compatible"):
+                raise ValueError("metadata_api must be lmstudio on an explicit openai_compatible route")
             if identity == (settings.provider, settings.base_url):
                 configured = capacity
+                metadata_api = serving_api
         # Self-hosted services can load much smaller windows than model docs.
         # They get no speculative cloud fallback, unless the user declares one.
         local = settings.provider == "ollama" or _is_local_endpoint(settings.base_url)
@@ -319,6 +322,7 @@ class ChatModelRuntime:
             "maigokite_route_context_window": configured if configured is not None else
                 None if local else DEFAULT_ROUTE_CONTEXT_WINDOW,
             "maigokite_route_capacity_source": "route_config" if configured is not None else "route_default",
+            "maigokite_metadata_api": metadata_api,
         }
 
     def _capacity_route_settings(self, settings: ChatModelSettings, model: BaseChatModel) -> ChatModelSettings:
@@ -330,7 +334,7 @@ class ChatModelRuntime:
                     or getattr(getattr(model, "root_async_client", None), "base_url", None))
         if not endpoint:
             return settings
-        routed = replace(settings, base_url=normalize_openai_compatible_base_url(settings.provider, endpoint))
+        routed = replace(settings, base_url=normalize_base_url(endpoint))
         routed.validate()
         return routed
 
@@ -384,9 +388,7 @@ class ChatModelRuntime:
 
     def _model_options(self, settings: ChatModelSettings, api_key: str = "") -> dict[str, Any]:
         settings.validate()
-        base_url = normalize_openai_compatible_base_url(
-            settings.provider, settings.base_url
-        )
+        base_url = normalize_base_url(settings.base_url)
         if settings.provider == "openai":
             key = api_key or os.getenv("OPENAI_API_KEY", "")
         elif settings.provider == "anthropic":
@@ -399,7 +401,7 @@ class ChatModelRuntime:
         else:
             key = ""
         if settings.requires_api_key and not key:
-            raise RuntimeError(f"provider '{settings.provider}' requires an API key")
+            raise UserFacingError(f"provider '{settings.provider}' requires an API key")
         return dict(
             provider=settings.provider,
             model=settings.model,
@@ -491,8 +493,15 @@ class ChatModelRuntime:
         if settings.provider in {"openai", "anthropic"}:
             _, model = await self.get_langchain_model(workspace_id, settings.id)
             return cloud_thinking(settings.provider, settings.model, model)
-        return await serving_thinking(self._metadata_http_client(), settings.provider, settings.base_url,
-                                      settings.model, self._profile_key(workspace_id, settings))
+        metadata_api = self._route_capacity_metadata(settings)["maigokite_metadata_api"]
+        if settings.provider != "ollama" and metadata_api != "lmstudio":
+            return ThinkingControl()
+        endpoint = settings.base_url or os.getenv("OLLAMA_HOST") or "http://127.0.0.1:11434"
+        # Discovery has a bounded request scope, separate from active model clients.
+        async with httpx.AsyncClient(timeout=3, **provider_http_options(endpoint, asynchronous=True)) as client:
+            return await serving_thinking(client, settings.provider, endpoint,
+                                          settings.model, self._profile_key(workspace_id, settings),
+                                          metadata_api=metadata_api)
 
     async def validate_thinking(self, workspace_id: str, model_id: str, thinking: str) -> None:
         if thinking:

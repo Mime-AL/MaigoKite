@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from agent.errors import public_error
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 from agent.utils.sandbox import SandboxExecutor, SandboxUnavailableError
 
@@ -107,10 +108,10 @@ class ExecCommandTool(BaseTool):
                 shell=str(arguments.get("shell", "auto")),
             )
         except SandboxUnavailableError as exc:
-            return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
+            return ToolResult.failure({}, public_error(exc), error_code="SANDBOX_UNAVAILABLE",
                                       user_hint="Windows/macOS 暂无受限进程沙箱；Linux 需要 bubblewrap。可审批明确的沙箱外执行请求（包含网络权限），不会自动放行。")
         except FileNotFoundError as exc:
-            return ToolResult.failure({}, str(exc), error_code="COMMAND_UNAVAILABLE",
+            return ToolResult.failure({}, public_error(exc), error_code="COMMAND_UNAVAILABLE",
                                       user_hint="请检查程序安装和 PATH。pwsh 需要 PowerShell 7；powershell 指 Windows PowerShell 5.1。")
 
         parts = [f"Exit code {result.exit_code}"]

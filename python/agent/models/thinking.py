@@ -14,6 +14,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from agent.errors import UserFacingError
+
 
 @dataclass(frozen=True)
 class ThinkingControl:
@@ -32,7 +34,7 @@ class ThinkingControl:
         if not value:
             return {}  # Omit controls: preserve the serving default.
         if value not in self.options or self.kind == "unavailable":
-            raise ValueError("此模型不支持所选思考设置，请刷新模型能力或恢复服务默认。")
+            raise UserFacingError("此模型不支持所选思考设置，请刷新模型能力或恢复服务默认。")
         if self.transport == "ollama":
             return {"reasoning": {"on": True, "off": False}.get(value, value)}
         if self.transport == "anthropic":
@@ -40,7 +42,7 @@ class ThinkingControl:
         if self.transport == "responses":
             return {"use_responses_api": True, "reasoning": {"effort": value},
                     "store": False, "temperature": None}
-        raise ValueError("当前接口尚未接入此思考控制，请恢复服务默认。")
+        raise UserFacingError("当前接口尚未接入此思考控制，请恢复服务默认。")
 
 
 def _control(values: Any, default: Any, source: str, transport: str) -> ThinkingControl:
@@ -89,8 +91,11 @@ def cloud_thinking(provider: str, model_name: str, model: Any) -> ThinkingContro
 
 async def serving_thinking(
     client: httpx.AsyncClient, provider: str, base_url: str, model_name: str, api_key: str,
+    *, metadata_api: str = "",
 ) -> ThinkingControl:
     """Bounded metadata-only request; no generation, loading or guessed model ID."""
+    if provider != "ollama" and not (provider == "openai_compatible" and metadata_api == "lmstudio"):
+        return ThinkingControl()
     base = urlsplit(base_url or ("http://localhost:11434" if provider == "ollama" else ""))
     if base.scheme not in {"http", "https"} or not base.netloc:
         return ThinkingControl()

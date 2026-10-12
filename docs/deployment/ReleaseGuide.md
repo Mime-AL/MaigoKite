@@ -76,7 +76,7 @@ Repository 在启动时执行兼容升级，不使用 Alembic 或独立 Migratio
 
 ## 6. 历史容器与未来远程访问
 
-根目录的 Compose/Dockerfile 是历史配置，服务边界、health、端口和制品尚未对齐，不能用于声明支持 Docker 部署。不要另行维护一份目标 Compose 示例，以免它与实际配置不一致。
+失效的根目录 `Dockerfile`、`docker-compose.yml` 及 `scripts/deploy.sh` 已删除，不提供 Docker 部署入口。当前只使用仓库的 Web/桌面构建启动脚本；不要用历史提交中的容器配置部署当前版本。
 
 未来如需容器部署，再处理构建上下文、非 root 运行、敏感凭证、仅公开网关、gRPC health、数据一致性和进程关闭，并通过真实容器 E2E。个人桌面发布不要求 PostgreSQL、多副本 lease 或 Kubernetes。
 

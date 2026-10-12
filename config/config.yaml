@@ -17,8 +17,9 @@ models:
     temperature: 0.7
     max_tokens: 4096
     timeout_seconds: 60
-  # Optional per-endpoint capacity fallbacks; see Configuration.md. Remote
-  # routes without capacity metadata assume 262144, not the upstream's window.
+  # Per-endpoint capacity defaults and explicit metadata_api (lmstudio).
+  # Unknown remote routes assume 262144; this is not an observed model window.
+  # See Configuration.md; endpoint ports never select a product or API path.
   routes: []
 
 # Empty = <installation directory>/.workspace, created on startup.

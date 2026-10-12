@@ -20,11 +20,15 @@
 
 ## 2. 地址、目录与兼容
 
-OpenAI/Anthropic/compatible 目录使用对应服务的 models 接口，Ollama 使用 tags 接口；地址构造以模型提供方实现为准。当前保留用户已填写的 `/v1`，去除尾部斜杠；OpenAI-compatible 的 1234 端口且空根路径会补 `/v1`。并没有通用 completion/messages 尾部路径去重：请填写接口根而非完整调用端点。自定义反向代理子路径和协议差异仍须连接验证，不能宣称任意 URL 自动兼容。
+OpenAI/Anthropic/compatible 目录使用对应服务的 models 接口，Ollama 使用 tags 接口。基础地址只去除首尾空白和尾斜杠，不按端口识别产品、不自动补 `/v1`，也不剥离 completion/messages 后缀；请填写服务实际提供的 API 根地址。产品预设只提供默认值，不覆盖用户修改。旧配置若缺少 `/v1`，须按实际服务修正，不能仅凭端口自动迁移。
 
 基础地址表示接口根，不代表浏览器页面地址；本地 OpenAI-compatible 常用 `http://127.0.0.1:1234/v1`，模型必须是目录返回 ID。HTTP 200 必须同时具有有效响应结构才算成功。
 
-正式请求复用 LangChain 模型提供方集成和官方 SDK，运行时桥接不重写模型协议。客户端所有权、绕过系统代理、取消与凭证轮换见 [智能体运行时设计](../../design/AgentRuntime.md)。支持协议不等于每个真实服务都已通过工具循环验收。
+正式请求复用 LangChain 模型提供方集成和官方 SDK。OpenAI/compatible 与 Ollama 生成请求只有 loopback 地址自动直连；私网和公网遵循 HTTPX 环境代理与 `NO_PROXY`，保留环境 CA 配置。网络位置不代表产品身份。客户端所有权、取消与凭证轮换见 [智能体运行时设计](../../design/AgentRuntime.md)。支持协议不等于每个真实服务都已通过工具循环验收。
+
+LM Studio 专属加载窗口和思考能力查询仅对 `models.routes` 中明确配置 `metadata_api: lmstudio` 的协议/地址组合启用；通用 compatible 不请求其专属接口。本地地址不匹配公开目录中的 localhost 样例。配置方法见 [配置说明](../../user-guide/Configuration.md)。
+
+返回字段适配及流关闭补丁依赖 integration 的私有接口，因此 `langchain-openai / langchain-anthropic / langchain-ollama` 分别固定为 1.4.0 / 1.4.8 / 1.1.0，并同步锁文件。升级须审阅这些接口与客户端所有权；不再宣称从 0.2.0 起均兼容。
 
 ### 2.1 当前接入路由的窗口容量
 

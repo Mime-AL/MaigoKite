@@ -86,9 +86,14 @@ models:
     - provider: anthropic
       base_url: "https://gateway.example"
       default_context_window: 200000
+    - provider: openai_compatible
+      base_url: "http://127.0.0.1:1234/v1"
+      metadata_api: lmstudio  # 显式声明后才查询 LM Studio 加载窗口与思考能力
 ```
 
-`provider` 和 `base_url` 必须对应实际接入的协议和基础地址，沿用尾斜杠和本地 1234 端口的现有标准化规则。`base_url` 必须显式填写；界面留空、地址由 SDK 环境变量提供时，填写 SDK 实际使用的地址。同地址的不同协议是不同路由；同一协议/地址不允许重复配置。容量必须是正的安全整数。省略 `routes` 或使用 `[]` 保留默认行为。
+`provider` 和 `base_url` 必须对应实际接入的协议和基础地址，只去除首尾空白及尾斜杠，不按端口补 `/v1` 或识别产品。`base_url` 必须显式填写；界面留空、地址由 SDK 环境变量提供时，填写 SDK 实际使用的地址。同地址的不同协议是不同路由；同一协议/地址不允许重复配置。容量若填写，必须是正的安全整数。`metadata_api` 可省略；当前仅支持 compatible 路由显式声明 `lmstudio`，不要求同时填写容量默认值。省略 `routes` 或使用 `[]` 时不访问 LM Studio 专属接口。
+
+OpenAI/compatible、Ollama 生成请求默认遵循 `HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY`；只有 `localhost` 和 loopback IP 自动直连，私网不强制绕过代理。直连仍保留 `SSL_CERT_FILE / SSL_CERT_DIR` 的证书配置。旧 LM Studio 地址若只写到端口，请自行补上服务要求的 `/v1`；没有可靠的旧产品标识时，程序不替用户修改路径。
 
 此字段只在未获得模型容量时回退，不强制限制已知窗口。要覆盖单个模型，在设置页填写它的窗口容量。Ollama 和本地地址没有自动的 262,144 回退：以服务加载数据为准，查不到时保持未知；也可在上面的列表中显式声明一个默认值。
 

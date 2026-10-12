@@ -11,8 +11,10 @@ from jsonschema.validators import validator_for
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
+from agent.errors import UserFacingError
 
-class ValidationError(ValueError):
+
+class ValidationError(UserFacingError):
     def __init__(self, message: str, errors: list[dict[str, Any]]) -> None:
         super().__init__(message)
         self.errors = errors

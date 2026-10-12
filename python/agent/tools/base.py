@@ -12,6 +12,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 
+from agent.errors import public_error
 from agent.tools.validator import ToolValidator
 
 
@@ -73,7 +74,7 @@ class BaseTool(ABC):
                     result = await result.collect()
             except (OSError, ValueError) as exc:
                 result = ToolResult.failure(
-                    {}, str(exc), error_code="TOOL_EXECUTION_FAILED",
+                    {}, public_error(exc), error_code="TOOL_EXECUTION_FAILED",
                 )
             payload = {
                 "data": result.data,

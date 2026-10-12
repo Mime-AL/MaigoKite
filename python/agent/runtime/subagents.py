@@ -1,11 +1,8 @@
-"""Single-level read-only delegation using native LangChain subagents-as-tools.
-
-Only admission, narrowed product permissions and UI projection live here.
-Graph state/checkpoints and the model/tool loop belong to LangGraph.
-"""
+"""Run isolated read-only investigations within the parent's quota and task scope."""
 
 import asyncio
 import json
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any
@@ -17,18 +14,20 @@ from langchain.tools import ToolRuntime
 from langchain_anthropic import ChatAnthropic
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from agent.errors import UserFacingError, public_error
 from agent.models.context_capacity import ContextCapacity
-from agent.runtime.context import ContextBudgetMiddleware
+from agent.runtime.context import ContextBudgetMiddleware, summary_target_tokens
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
 READ_TOOLS = frozenset({"file_read", "glob", "grep"})
 CHILD_TAG = "maigokite:subagent"
 
 
-class DelegationError(ValueError):
+class DelegationError(UserFacingError):
     """Safe product diagnostic; provider exception text is not user-facing."""
 
 
@@ -47,6 +46,7 @@ class ChildContext:
     model_info: dict[str, Any]
     scope: asyncio.TaskGroup | None = None
     context_capacity: ContextCapacity | None = None
+    result_token_limit: int = 0
 
     @property
     def adapter(self) -> Any:
@@ -85,7 +85,7 @@ class _ReadOnlyTools(AgentMiddleware):
             try:
                 return await self._read(request, handler)
             except Exception as exc:
-                return ToolMessage(content=str(exc), tool_call_id=request.tool_call["id"], status="error")
+                return ToolMessage(content=public_error(exc), tool_call_id=request.tool_call["id"], status="error")
 
         child = request.runtime.context
         if child.scope is None:
@@ -101,8 +101,6 @@ class _ReadOnlyTools(AgentMiddleware):
         decision = adapter._policy_decision(call["name"], dict(call.get("args") or {}), child)
         if call["name"] not in READ_TOOLS or decision.outcome != "allow":
             return ToolMessage(content=decision.reason, tool_call_id=call["id"], status="error")
-        # Native ToolNode invokes the existing public tool conversion. No shell,
-        # MCP, writes, approval grants, questions, or recursive delegation enter this graph.
         await adapter._emit(parent, "subagent.progress", {
             "subagent_id": child.subagent_id, "tool_name": call["name"], "arguments": decision.arguments,
             **child.model_info,
@@ -186,12 +184,22 @@ class DelegateTool(BaseTool):
         call_id = str(runtime.tool_call_id)
         selected = dict(self.model_info) if not model_id or model_id == self.model_info.get("model_id") else {}
         try:
-            try:
-                used, limit = await adapter.repository.reserve_subagent_call(
-                    parent.request.workspace_id, parent.request.task_id, call_id,
-                )
-            except ValueError as exc:
-                raise DelegationError(str(exc)) from exc
+            used, limit = await adapter.repository.reserve_subagent_call(
+                parent.request.workspace_id, parent.request.task_id, call_id,
+            )
+            # ToolRuntime provides the current checkpoint messages. Divide the
+            # remaining input space across this batch, rather than giving each
+            # concurrent child the entire parent's remaining window.
+            messages = runtime.state.get("messages", [])
+            if parent.result_budget is None:
+                raise DelegationError("当前请求没有模型上下文预算，请通过普通对话委派子 Agent。")
+            input_budget, overhead = parent.result_budget
+            available = input_budget - overhead - count_tokens_approximately(messages, use_usage_metadata_scaling=False)
+            proposal = next((item for item in reversed(messages) if isinstance(item, AIMessage)), None)
+            batch_size = max(1, len(proposal.tool_calls) if proposal is not None else 1)
+            result_limit = min(summary_target_tokens(input_budget), max(0, available) // batch_size)
+            if result_limit <= _result_tokens(_TRUNCATED_RESULT):
+                raise DelegationError("父任务剩余上下文不足以接收子 Agent 结果，请先压缩上下文或缩小任务。")
             await adapter._emit(parent, "subagent.queued", {
                 "subagent_id": call_id, "task": task, "used": used, "limit": limit,
                 "label": label, "requested_model_id": model_id,
@@ -222,6 +230,7 @@ class DelegateTool(BaseTool):
                      "permission_mode": "read_only", "approved": False,
                      "enabled_tools": sorted(READ_TOOLS & set(parent.execution_metadata.get("enabled_tools", READ_TOOLS)))},
                     {**selected, "label": label},
+                    result_token_limit=result_limit,
                 )
                 await adapter._emit(parent, "subagent.started", {
                     "subagent_id": call_id, "task": task, **child.model_info,
@@ -238,9 +247,8 @@ class DelegateTool(BaseTool):
                 last = result["messages"][-1]
                 if not isinstance(last, AIMessage) or last.tool_calls or not last.text:
                     raise DelegationError("子 Agent 没有产出最终摘要。")
-                # Bound context transfer; full child evidence remains in native checkpoints.
-                text = last.text
-                summary = text[:12000] + ("\n[摘要超长，已截断；必要时由主 Agent 读取所引用文件。]" if len(text) > 12000 else "")
+                reason = last.response_metadata.get("finish_reason") or last.response_metadata.get("stop_reason") or last.response_metadata.get("done_reason")
+                summary = _bounded_result(last.text, result_limit, incomplete=reason in {"length", "max_tokens", "max_output_tokens"})
                 await adapter._emit(parent, "subagent.completed", {"subagent_id": call_id, "summary": summary, **child.model_info})
                 return ToolMessage(content=summary, tool_call_id=call_id, name=self.name,
                                    artifact={"summary": summary, "data": {"content": summary, "subagent_id": call_id, **child.model_info}})
@@ -251,7 +259,7 @@ class DelegateTool(BaseTool):
             # Recoverable failures become native tool results; TaskGroup won't
             # kill unrelated siblings merely because one investigation failed.
             # Provider exceptions may contain request URLs or credentials.
-            if isinstance(exc, DelegationError):
+            if isinstance(exc, UserFacingError):
                 summary = str(exc)
             elif isinstance(exc, TimeoutError):
                 summary = "子 Agent 执行超时，请缩小任务范围后重试；未切换模型。"
@@ -261,6 +269,44 @@ class DelegateTool(BaseTool):
                 "subagent_id": call_id, "message": summary, "requested_model_id": model_id, "label": label,
             })
             return ToolMessage(content=summary, tool_call_id=call_id, name=self.name, status="error")
+
+
+_TRUNCATED_RESULT = "[结果超出本轮摘要预算，仅保留完整段落；必要时请缩小任务或读取引用文件。]"
+
+
+def _result_tokens(text: str) -> int:
+    return count_tokens_approximately([ToolMessage(content=text, tool_call_id="delegate", name="delegate")],
+                                      use_usage_metadata_scaling=False)
+
+
+def _bounded_result(text: str, limit: int, *, incomplete: bool = False) -> str:
+    """Keep a paragraph prefix within the parent budget, including the truncation notice."""
+    if incomplete:
+        # A provider output cap may stop mid-sentence; the final paragraph is
+        # not known complete even when its token count fits the parent's limit.
+        text = text.rpartition("\n\n")[0]
+    if not incomplete and _result_tokens(text) <= limit:
+        return text
+    kept: list[str] = []
+    complete: list[str] = []
+    fence = ""
+    for paragraph in text.split("\n\n"):
+        candidate = "\n\n".join([*kept, paragraph, _TRUNCATED_RESULT])
+        if _result_tokens(candidate) > limit:
+            break
+        kept.append(paragraph)
+        for line in paragraph.splitlines():
+            match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+            if match:
+                marker, tail = match.groups()
+                if not fence:
+                    fence = marker
+                elif marker[0] == fence[0] and len(marker) >= len(fence) and not tail.strip():
+                    fence = ""
+        # Do not return half of a fenced code block, even across blank lines.
+        if not fence:
+            complete = kept.copy()
+    return "\n\n".join([*complete, _TRUNCATED_RESULT])
 
 
 class ModelLookupArgs(BaseModel):

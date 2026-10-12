@@ -220,7 +220,7 @@ GET/List 返回相同字段；protobuf JSON 省略空值时客户端按 `""` 解
 
 当前控制范围：OpenAI 使用原生 SDK `profile.reasoning_effort_levels`（原始 GPT-5 使用官方档位修正），
 Claude 使用已确认的自适应思考型号及官方 effort 档位，Ollama 查询 `/api/show.thinking`，
-LM Studio 查询 `/api/v1/models.capabilities.reasoning`。OpenAI/LM Studio 的强度参数复用 SDK Responses，
+LM Studio 仅在对应 `models.routes` 显式配置 `metadata_api: lmstudio` 后查询 `/api/v1/models.capabilities.reasoning`，不通过端口或本地地址推断。OpenAI/LM Studio 的强度参数复用 SDK Responses，
 Claude 使用 adaptive + effort，Ollama 使用原生 reasoning/think；不自建 Provider 协议。
 LM Studio 仅原生 API 暴露的 on/off 尚不映射到兼容接口，返回 `native_control_only`；
 未知兼容服务、旧版缺少元数据或未接入的预算型控制返回不可调节，保持服务默认。
@@ -331,7 +331,13 @@ Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能�
 固定指令和工具定义本身超预算的失败带 `reason=fixed_overhead_exceeded`，显示输入预算不足，
 不称为历史摘要失败。现有 `context.max_tokens` 只作未知容量下恢复工作的预算，不能声明服务端窗口。
 
-模型配置使用可选 `context_window`（正的安全整数；省略/0 表示没有模型覆盖），从设置页获取的服务目录按精确模型 ID 保存，经既有 REST / protobuf / Repository 传递，无数据库增列。换服务或换模型不能沿用另一模型的容量。Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取精确模型项的 `context_window / context_length / contextWindow / max_model_len`；只有本地 OpenAI-compatible 服务才尝试 LM Studio 加载实例接口。models.dev/SDK 资料只适用于已识别的当前路由，不跨厂商匹配模型 ID；自定义 Anthropic/OpenAI 协议地址不等于官方路由。无资料的远端接入使用 `models.routes[].default_context_window`，未配置时采用 262,144 的 `assumed` 回退，本地/Ollama 无默认云端回退。输出上限与旧产品预算仍不冒充窗口。持久容量记录增加内部 `capacity_policy / catalog_route`，旧跨厂商缓存失效；前端缓存换版本，历史目录容量不得覆盖新路由观测，用量保留。`context.updated` 保持 `model_id / model_key`：后者为 `[provider, normalized_base_url, model, context_window_or_null]` 的紧凑 JSON，仅用于配置关联，不含密钥。前端同时匹配配置 ID 与该关联值；旧事件缺少关联值时不把历史容量套到当前配置，新请求发布新的观测。路由配置由现有 YAML 读取，不新增 REST/protobuf 字段或设置系统。
+模型配置使用可选 `context_window`（正的安全整数；省略/0 表示没有模型覆盖），从设置页获取的服务目录按精确模型 ID 保存，经既有 REST / protobuf / Repository 传递，无数据库增列。换服务或换模型不能沿用另一模型的容量。
+
+Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取精确模型项的 `context_window / context_length / contextWindow / max_model_len`。LM Studio 加载实例接口只对 `models.routes` 中明确设置 `metadata_api: lmstudio` 的 compatible 路由启用，不凭端口或本地地址探测。models.dev/SDK 资料只适用于已识别的当前路由，不跨厂商匹配模型 ID，也不把目录内 localhost 样例当作本机服务身份；自定义 Anthropic/OpenAI 协议地址不等于官方路由。
+
+无资料的远端接入使用 `models.routes[].default_context_window`，未配置时采用 262,144 的 `assumed` 回退，本地/Ollama 无默认云端回退。输出上限与旧产品预算仍不冒充窗口。持久容量记录使用内部 `capacity_policy / catalog_route`，本次策略升级使旧推断缓存失效，不删除聊天和用量。
+
+`context.updated` 保持 `model_id / model_key`：后者为 `[provider, normalized_base_url, model, context_window_or_null]` 的紧凑 JSON，仅用于配置关联，不含密钥。前端同时匹配配置 ID 与该关联值；旧事件缺少关联值时不把历史容量套到当前配置，新请求发布新的观测。路由配置由现有 YAML 读取，不新增 REST/protobuf 字段或设置系统。
 
 压缩状态通过 `context.compaction.started / failed / skipped` 与既有 `context.compacted` 发布。started 带 `before_tokens / input_budget_tokens / model_context_window / measurement`；failed 带 `message / error_type / model_context_window` 且保留原历史；skipped 的 `reason=no_compressible_history` 不代表完成压缩。前端按事件投影独立压缩状态，不从普通“思考中”推断；窗口仪表保留 measurement、容量来源、获取状态与观测时间，未知窗口只显示已有 Token 计数/估算、不绘制占用比例。聊天过程与底部显示压缩失败原因，关闭窗口用量显示不隐藏失败反馈。本次前端接入未运行测试或真实服务验收，后端没有手动压缩接口，界面不提供该按钮。
 

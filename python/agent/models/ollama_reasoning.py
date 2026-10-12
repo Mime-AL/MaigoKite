@@ -1,8 +1,9 @@
-"""Expose Ollama's returned thinking without changing its model-side defaults.
+"""Preserve default thinking text with the pinned langchain-ollama 1.1.0.
 
 The native integration only preserves thinking when its reasoning flag is set.
 Use that native conversion, but retain the original HTTP `think` parameter.
-These small integration hooks can go when upstream preserves default thinking.
+The conversion hooks depend on this integration's signatures. Remove them when
+upstream retains returned thinking without requiring a request-side override.
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from langchain_ollama import ChatOllama
 
 
 class ReasoningChatOllama(ChatOllama):
-    """Only presentation changes; HTTP, tool calls and stream ownership stay native."""
+    """Separate returned thinking from the answer while preserving the HTTP think value."""
 
     def _chat_params(
         self, messages: list[BaseMessage], stop: list[str] | None = None, **kwargs: Any,

@@ -18,12 +18,10 @@ from openai import APIError
 from pydantic import SecretStr
 
 from agent.models.compatible_reasoning import ReasoningChatOpenAI
-from agent.models.native_model import _is_local_endpoint
 
-
-# DSH's configurable route fallback, not a claim about any named model.
+# Used only when a remote route has no observed or configured capacity.
 DEFAULT_ROUTE_CONTEXT_WINDOW = 262_144
-CAPACITY_POLICY = "route-v1"
+CAPACITY_POLICY = "route-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +182,7 @@ async def _provider_capacity(model: Any) -> ContextCapacity:
 
 
 async def _lmstudio_capacity(model: ReasoningChatOpenAI) -> ContextCapacity:
-    """Read a local serving instance; never send this endpoint to every vendor.
+    """Read loaded capacity from an explicitly configured LM Studio route.
 
     Reuse the public HTTP client owned by the Core's compatible model factory.
     Cancellation closes this response, never the shared client. A proxy URL's
@@ -240,20 +238,20 @@ async def resolve_context_capacity(model: Any, previous: ContextCapacity | None 
         serving = await _ollama_capacity(model)
         return serving if serving.tokens or not fallback.tokens else replace(fallback, status=serving.status)
     compatible = isinstance(model, ReasoningChatOpenAI)
-    local = compatible and _is_local_endpoint(model.openai_api_base)
+    lmstudio = compatible and metadata.get("maigokite_metadata_api") == "lmstudio"
     # Official API models resolve from the installed catalog, like DSH. Custom
     # routes can disclose a smaller capacity through their own listing instead.
     endpoint = metadata.get("maigokite_base_url", "")
     if not compatible and (fallback.source == "model_profile" or not endpoint and
                            fallback.source in {"models.dev", "sdk_profile"}):
         return fallback
-    # Unsupported/denied probes are cached only for this run/model. Loaded local
+    # Unsupported/denied probes are cached only for this run/model. Loaded instance
     # observations are refreshed each turn so a changed load setting is visible.
-    if previous and not local and (previous.status in {"unsupported_metadata", "unauthorized"}
+    if previous and not lmstudio and (previous.status in {"unsupported_metadata", "unauthorized"}
                                   or previous.tokens):
         return previous if previous.tokens or not fallback.tokens else replace(fallback, status=previous.status)
     loaded = None
-    if local:
+    if lmstudio:
         loaded = await _lmstudio_capacity(model)
         if loaded.tokens:
             return loaded
@@ -269,7 +267,7 @@ async def resolve_context_capacity(model: Any, previous: ContextCapacity | None 
         # Missing serving metadata does not invalidate a route declaration.
         # An assumed default retains its distinct source/status here.
         return fallback
-    # Keep a local instance's more useful failure reason (not loaded/ambiguous)
+    # Keep a loaded instance's more useful failure reason (not loaded/ambiguous)
     # rather than replacing it with a generic catalog-without-capacity response.
     if loaded is not None and loaded.status in {"not_loaded", "ambiguous_instance", "unauthorized"}:
         return loaded

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from agent.errors import UserFacingError
 from agent.models.usage import aggregate_usage_events
 
 
@@ -870,14 +871,14 @@ class SQLiteRepository:
                     (workspace_id, task_id, call_id),
                 ).fetchone()
                 if task is None or call is None or task["status"] != "running":
-                    raise ValueError("当前任务不可委派。")
+                    raise UserFacingError("当前任务不可委派。")
                 used = db.execute(
                     "SELECT COUNT(*) FROM tool_calls WHERE task_id=? AND subagent_admitted=1", (task_id,),
                 ).fetchone()[0]
                 limit = task["max_subagent_calls"]
                 if not call["subagent_admitted"]:
                     if used >= limit:
-                        raise ValueError("本轮子 Agent 派发额度已用完（或未启用），请由主 Agent 完成剩余工作。")
+                        raise UserFacingError("本轮子 Agent 派发额度已用完（或未启用），请由主 Agent 完成剩余工作。")
                     db.execute("UPDATE tool_calls SET subagent_admitted=1 WHERE id=?", (call_id,))
                     used += 1
                 return used, limit
@@ -893,11 +894,11 @@ class SQLiteRepository:
             with db:
                 task = db.execute("SELECT * FROM tasks WHERE workspace_id=? AND id=?", (workspace_id, task_id)).fetchone()
                 if task is None or task["status"] != "running":
-                    raise ValueError("任务已停止，不能继续请求模型。")
+                    raise UserFacingError("任务已停止，不能继续请求模型。")
                 if not task["model_call_limit"]:
                     return
                 if task["model_calls_used"] >= task["model_call_limit"] - int(child):
-                    raise ValueError("本轮共享模型调用预算已用完。子 Agent 不会获得额外预算。")
+                    raise UserFacingError("本轮共享模型调用预算已用完。子 Agent 不会获得额外预算。")
                 db.execute("UPDATE tasks SET model_calls_used=model_calls_used+1 WHERE id=?", (task_id,))
 
     async def update_task_status(self, task_id: str, status: str, last_error: str = "") -> None:
