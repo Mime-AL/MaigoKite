@@ -1,6 +1,6 @@
 # MaigoKite
 
-MaigoKite 是一个运行在你电脑上的个人 Agent。它可以读写工作区文件、查资料、操作网页，也可以通过 MCP 接入其他工具。你选择模型，并决定它能访问什么、哪些操作需要确认。
+MaigoKite 是一个运行在你电脑上的个人 Agent，用来处理文件、查资料、操作网页，也可以通过本地 Skill 和 MCP 定制自己的工作流。你选择模型，并决定它能访问什么、哪些操作需要确认。
 
 比如你可以让它：
 
@@ -8,7 +8,6 @@ MaigoKite 是一个运行在你电脑上的个人 Agent。它可以读写工作�
 - 搜索公开网页，把结果和来源写回文件
 - 修改本地文件，并在界面里查看 diff
 - 点击网页、填写表单或截图
-- 通过本地 Skill 和 MCP 组合自己的工作流
 
 项目仍在开发中，提供 Web 和 Electron 桌面入口。暂时需要从源码运行，还没有独立安装包。
 
@@ -16,15 +15,15 @@ MaigoKite 是一个运行在你电脑上的个人 Agent。它可以读写工作�
 
 支持 OpenAI、Anthropic、Ollama 和 OpenAI-compatible API。可以添加多个模型，设置默认模型，也可以为不同会话选择模型。
 
-源码启动时，默认工作区是项目根目录下的 `.workspace`，不是源码目录本身。启动时会自动创建它，但不会搬入旧文件。用侧栏加号添加已有文件夹后，可以让 Agent 读写、搜索文件，并在侧栏预览内容、查看 Git diff。
+源码启动时会创建项目根目录下的 `.workspace` 作为默认工作区，不会自动搬入旧文件。也可以用侧栏加号添加已有文件夹，读写、搜索文件并预览内容、查看 Git diff。
 
-可用 `MAIGOKITE_WORKSPACE_ROOT` 或配置文件的 `workspace.root` 指定其他目录。默认位置不可写时需要手动指定，不会自动换位置。工作区权限与 Agent 的执行权限分开管理；你可以选择只读、工作区访问或完全访问。需要审批的操作会先显示给你确认，界面也会显示工具调用过程。
+你可以选择只读、工作区访问或完全访问。需要审批的操作会先显示给你确认，工具调用过程可在活动区查看。完全访问会取消工作区沙箱与逐项审批，请按任务需要选择。
 
-浏览器工具使用 Playwright，可以点击、填写表单、获取页面快照和截图。它不会自动继承你日常浏览器中的登录状态，使用前需要配置 Chromium。
+浏览器工具使用 Playwright，需要配置 Chromium，不会自动继承日常浏览器的登录状态。
 
-从侧栏“扩展”可以管理本地 `SKILL.md` 和 stdio MCP Server。Skill 告诉 Agent 某类任务应该怎么做，本身不会直接执行代码；MCP 用来接入外部工具。保存配置后点击“应用并检查连接”。有任务运行或审批待处理时，需要先处理完，才能应用新配置。
+侧栏“扩展”用于管理本地 `SKILL.md` 和 stdio MCP Server。Skill 提供任务指令，本身不执行代码；MCP 接入外部工具。保存后需显式应用配置，有运行或待处理交互时须先完成或取消任务。
 
-工作区管理、权限和扩展设置的具体规则见 [配置指南](docs/user-guide/Configuration.md)。
+修改默认目录、权限和扩展的操作步骤见 [配置指南](docs/user-guide/Configuration.md)。
 
 ## 运行
 
@@ -71,7 +70,7 @@ bash scripts/start.sh web built
 .\scripts\start.ps1 web built
 ```
 
-Agent 的命令工具也支持 Windows PowerShell：默认优先使用 PowerShell 7，没有时选择系统 5.1，可显式指定版本。两版的中文命令传输统一处理，但文件编码默认值仍不同。Windows 暂无受限进程沙箱，执行命令需单次明确授权或用户开启完全访问。使用方式与尚待实机验收的边界见[配置指南](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
+Windows 命令工具支持 PowerShell 7 / 5.1，但尚未完成实机验收，也没有受限进程沙箱。命令执行需单次授权或显式开启完全访问，编码差异见 [配置指南](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
 
 Web 和桌面入口二选一，不要同时启动。日常使用只需执行最后一条启动命令，不用每次重装或构建。修改源码后重新构建；需要热更新开发时，省略 `built`，使用 `start.sh web|desktop` 或 `start.ps1 web|desktop`。
 
@@ -79,19 +78,13 @@ Web `built` 地址为 `http://127.0.0.1:4173`，开发模式地址为 `http://12
 
 `Ctrl+C` 停止本次启动的整套服务。关闭浏览器标签页不会停止服务；桌面关闭窗口会隐藏到托盘，用托盘“退出”关闭整套服务。若提示端口占用，请先退出旧实例；脚本不会替你结束其他进程或连接旧 Core。
 
-如果 Electron 报 `Electron failed to install correctly`，先更新仓库，再运行 `bash scripts/setup.sh electron`；Windows 使用 `.\scripts\setup.ps1 electron`。无需重装 Go/Python 或反复构建。原因及处理步骤见 [开发指南](docs/development/DevelopmentGuide.md#electron-installation编译成功但运行时缺失)。
+启动失败时先查看 [常见启动问题](docs/user-guide/Installation.md#3-常见启动问题)，包括 Electron 安装不完整、端口冲突和模型连接问题。
 
 这些命令仍依赖本机开发环境，不会生成自带 Python 等运行资源的独立安装包。发布限制见 [构建与发布指南](docs/deployment/ReleaseGuide.md)。
 
 ### 浏览器工具
 
-浏览器工具需要 Chromium。可以安装 Playwright Chromium，也可以在配置中指定已有 Chrome / Chromium 的可执行文件：
-
-```text
-browser.executable_path
-```
-
-默认留空时使用 Playwright 管理的 Chromium，不会自动寻找固定路径的 Chrome。安装与配置见 [开发指南](docs/development/DevelopmentGuide.md#路径与解释器) 和 [配置指南](docs/user-guide/Configuration.md)。
+安装 Playwright Chromium，或通过 `browser.executable_path` 指定已有 Chrome / Chromium。留空时使用 Playwright 管理的 Chromium，不会自动寻找固定路径的 Chrome。步骤见 [开发指南](docs/development/DevelopmentGuide.md#路径与解释器) 和 [配置指南](docs/user-guide/Configuration.md#71-浏览器运行时)。
 
 ## 第一次使用
 
@@ -103,13 +96,7 @@ browser.executable_path
 读取 README.md，告诉我这个项目现在主要在做什么。
 ```
 
-或者：
-
-```text
-查一下这个项目依赖的几个库最近有什么重要变化，把结果整理到 notes.md。
-```
-
-不同模型对 Tool Calling 的支持不同。API 能连接，并不一定意味着这个模型能完成工具调用。
+需要查资料时，先在工具设置中确认搜索服务可用，再让 Agent 将结果和来源写回文件。不同模型对工具调用的支持不同，连接成功不代表工具调用可用。
 
 ## 数据
 
@@ -122,22 +109,20 @@ browser.executable_path
 - Web 搜索会访问配置的搜索服务
 - MCP 是否访问网络取决于对应 MCP Server
 
-数据目录为 `~/.maigokite`，环境变量使用 `MAIGOKITE_` 前缀，Python 命令为 `maigokite-agent`。旧名称不提供别名或自动迁移；项目文件夹可以自行改名。
+数据目录为 `~/.maigokite`。配置位置和项目标识见 [配置指南](docs/user-guide/Configuration.md#1-配置层级)，备份前请阅读 [备份与恢复](docs/ops-security/Backup.md)。
 
 ## 当前状态
 
 项目还没有进入稳定发布阶段。使用前请留意这些限制：
 
-- 新执行内核和新 UI 仍有待回归验证的部分
+- 执行内核和 UI 的部分新增功能尚未完成回归验证
 - 任务停止或失败后，不是所有情况都能从原位置恢复
 - 远程 MCP 操作不一定能被本地取消立即终止
 - 浏览器会话不能跨 Core 重启恢复
 - Memory 主要用于手工管理，还没有自动检索并注入会话
 - 子 Agent、持久工作流和手机远程访问还没有完整交付
 
-历史聊天、任务和审批数据会保留，但缺少 LangGraph checkpoint 的历史待审批任务不能继续执行。可以拒绝或取消，再发起新任务。
-
-功能进度见 [Roadmap](docs/project/Roadmap.md)，变更记录见 [更新日志](docs/project/Changelog.md)。源码可运行不代表已经通过发布验收。
+历史数据的恢复限制见 [断线、停止与重启](docs/user-guide/Installation.md#4-断线停止与重启)。功能进度与验证记录见 [交付路线与状态](docs/project/Roadmap.md)，版本变化见 [更新日志](docs/project/Changelog.md)。
 
 ## 项目结构
 
@@ -150,19 +135,13 @@ browser.executable_path
 
 ## 开发
 
-运行测试：
-
-```bash
-bash scripts/run_tests.sh
-```
-
 构建：
 
 ```bash
 bash scripts/build.sh all
 ```
 
-开发环境、协议生成和贡献约束见 [开发指南](docs/development/DevelopmentGuide.md)；测试范围见 [测试与验收](docs/testing/TestPlan.md)。
+开发环境、协议生成和质量检查命令见 [开发指南](docs/development/DevelopmentGuide.md)。当前测试文件与聚合测试脚本仅保留在维护者本地，不随 Git 分发；新克隆不能直接复现历史测试结果，范围见 [测试与验收](docs/testing/TestPlan.md)。
 
 提交 Issue 或 PR 时，请附上复现步骤、实际行为、预期行为和必要的脱敏日志。不要提交 API Key、个人数据、运行数据库或构建产物。
 

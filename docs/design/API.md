@@ -2,7 +2,7 @@
 
 > **状态**：当前有效
 > **架构版本**：v1
-> **最后核验**：2026-09-18
+> **基线核验**：2026-09-18；后续增量的验证范围见 [交付路线与状态](../project/Roadmap.md)。
 > **权威范围**：REST 资源、gRPC 服务、WebSocket 事件及兼容规则
 
 最终机器契约应分别由 OpenAPI、Proto 和事件 Schema 表达；本文档说明稳定资源与行为，不复制生成代码。
@@ -150,13 +150,13 @@ POST /workspaces/{workspace_id}/extension-settings/apply
 
 `skills` 返回实际启用的声明式技能元数据，`mcp-servers` 返回实际加载的 stdio Server 状态和工具名，不把期望启用当作已经连接。
 
-三个 `extension-settings` 接口只允许个人工作区 owner（Core 同时要求 `workspace_id=personal`）。GET/PUT/apply 返回同一个快照：`config / active_config / applied_revision / reload_required / reloading / runtime_ready / servers / skills / skill_errors / extension_error`。其中 skills 包括停用的已扫描元数据；config 是期望配置，active_config 仅含上次生效配置的 `revision / mcp_servers`，不重复返回 Skill 正文；extension_error 提示应用或资源清理失败。配置 revision 已应用不等于所有 MCP 都连接成功，仍须检查每项状态。`runtime_ready=false` 时不宣称聊天链可运行。
+三个 `extension-settings` 接口只允许个人工作区 owner（Core 同时要求 `workspace_id=personal`）。GET/PUT/apply 返回同一个快照：`config / active_config / applied_revision / reload_required / reloading / runtime_ready / servers / skills / skill_errors / extension_error`。其中 skills 包括停用的已扫描元数据；config 是期望配置，active_config 仅含上次生效配置的 `revision / mcp_servers`，不重复返回 Skill 正文；extension_error 提示应用或资源清理失败。应用新版本要求 Skill 扫描成功且所有启用 MCP 已连接；已应用的 revision 不保证连接持续健康，仍须检查逐项状态。`runtime_ready=false` 时不宣称聊天链可运行。
 
 PUT 完整替换 `config`（2 MiB 上限）：`revision / mcp_servers / skill_directories / skills / disabled_skills`，校验通过后递增 revision，写现有 `workspace_settings` 并记审计，不操作运行中的进程。MCP 项包括 `namespace / transport=stdio / command / args / cwd / enabled / env_allowlist / secret_env / enabled_tools / disabled_tools`；托管 Skill 项包括 `name / content / enabled`，每个 Markdown 最大 256 KiB。只接受声明字段，不接受原始 env/secret 值。
 
 apply 默认接受 `{"revision": <保存后的版本>}`，应用新配置。Gateway 按 `secret_env` 从现有密钥链读取引用 `mcp.<namespace>.<ENV_NAME>`，经内部 RPC 瞬时传值。Core 拒绝旧版本、重复应用或仍有运行/待审批/待回答的任务（409）；无效配置 400，非 owner 403。
 
-同一接口接受 `{"revision": <active_config.revision>, "restore_only": true}`，只恢复已生效配置的 MCP 连接、复用已加载 Skill；允许等待审批/回答，不允许活动运行，不应用尚未生效的编辑。批准 MCP 工具时，Gateway 会在所需连接缺失时先执行此恢复；缺凭证或连接失败不提交审批决定，成功后仍由 Core 校验审批 hash/version/策略。拒绝审批无需恢复连接。
+同一接口接受 `{"revision": <active_config.revision>, "restore_only": true}`，只恢复已生效配置的 MCP 连接、复用已加载 Skill；允许等待审批/回答，不允许活动运行，不应用尚未生效的编辑。新聊天、回答、任务恢复和批准入口均先准备已生效配置的凭证与连接；缺凭证或恢复失败时不准入本次执行，也不消费审批决定。批准 MCP 工具时还检查对应连接，成功后仍由 Core 校验审批 hash/version/策略。拒绝审批无需恢复 MCP 连接。
 
 配置或进程异常有逐项状态，不能用 HTTP 200 推断全部连接成功；基础 Runtime 准备失败返回错误并保留原聊天入口，已断开的 MCP 另行恢复。Core 持有应用任务到清理完成，调用方断线不提前开放新运行；请求超时后先 GET 查看 reloading/结果，不盲目重发 apply。
 
@@ -229,7 +229,7 @@ LM Studio 仅原生 API 暴露的 on/off 尚不映射到兼容接口，返回 `n
 
 模型保存请求可携带 `credential_source_id`，由 Gateway 从同工作区、同接口协议、同规范化基础地址的已保存配置复用密钥；来源无效时在写入前拒绝。显式提交 `api_key` 优先，密钥仍按目标模型 ID 存储，不回传前端。此字段不建立新的 Provider 注册表或共享密钥域。
 
-阶段 1 中，模型 API 管理工作区的聊天模型配置集合，并保证最多一个默认模型。`models/actions/validate` 使用提交的草稿配置做一次最小模型调用，不保存草稿。`models/actions/discover` 根据模型提供方与基础地址查询服务端模型目录：OpenAI、Anthropic 和兼容端点使用 `/models`，Ollama 使用 `/api/tags`。
+模型 API 管理工作区的聊天模型配置集合，并保证最多一个默认模型。`models/actions/validate` 使用提交的草稿配置做一次最小模型调用，不保存草稿。`models/actions/discover` 根据模型提供方与基础地址查询服务端模型目录：OpenAI、Anthropic 和兼容端点使用 `/models`，Ollama 使用 `/api/tags`。
 
 目录发现优先使用本次草稿中的 Key。仅当模型提供方与基础地址同已保存配置完全匹配时，才读取该配置的凭证存储引用。结果和敏感凭证都不持久化。目录请求禁用重定向、系统代理和链路本地地址，防止 Key 被转发到非预期端点。
 
@@ -247,9 +247,9 @@ LM Studio 仅原生 API 暴露的 on/off 尚不映射到兼容接口，返回 `n
 
 权限设置请求与响应仅包含 `default_mode`。REST 写入拒绝未知字段（包括旧的 `tool_levels / grants`），不再静默接受无效设置。内部 Proto 的旧 `tool_levels` 字段号 2 和名称均保留为 reserved，Gateway/Core 需一起更新；旧产品库无需删表，旧风险配置不生效，下一次保存只写默认档位。
 
-审批 `deny` 不读取模型凭证、不创建/调用模型，结束当前任务并关闭其剩余待审批操作；仍验证主体、任务状态、参数 hash、版本及过期时间并保存审计。`allow` 保持凭证准备和原生 HITL 恢复路径；没有永久会话授权，也没有审核 Agent。
+审批 `deny` 只拒绝当前操作，不取消整轮或关闭其他待审批操作。Gateway 尽力准备模型凭证供后续续接，但凭证不可用不能阻止拒绝保存，也不为被拒绝的操作启动 MCP。决定仍验证主体、任务状态、参数 hash、版本及过期时间并保存审计；后续续接失败通过 `task.failed` 报告。`allow` 继续使用凭证准备和原生 HITL 恢复路径。授权有期限且可撤销，不存在永久会话授权或独立审核 Agent；批次续接语义见 3.8。
 
-`preferences` 是当前主体在工作区中的用户级偏好。阶段 1 支持 `assistant_name`（1–32 个字符），用于界面称呼；只修改当前个人主体的显示偏好，不改变工作区名称。
+`preferences` 是当前主体在工作区中的用户级偏好。`assistant_name`（1–32 个字符）用于界面称呼，只修改当前个人主体的显示偏好，不改变工作区名称。
 
 `runtime-status` 是工作区所有者可见的只读投影，返回规范化工作区根目录及来源、网关/智能体核心状态和版本、即时生效项与需重启项。它不修改部署配置，也不声称能够检测运行期间手工编辑的外部 YAML。
 
@@ -275,7 +275,7 @@ POST 接口为用户显式文件操作，限工作区所有者；不作为 Agent
 
 ### 3.8 GUI 交互与执行检查接口（2026-10-10）
 
-本节记录本批后端实现，**不表示已通过运行验收或前端已接线**。本批不修改前端，不运行测试、类型检查、lint 或构建，不切换默认 Runtime。
+本节以 2026-10-10 的后端接口为基线，包含后续 GUI 接线说明。最初批次未修改前端，也未运行测试、类型检查、lint 或构建；不能用这份历史记录推断当前界面缺少接口。各项当前验证范围见 [交付路线与状态](../project/Roadmap.md)，未验收项仍单独标注。
 
 以下路径均以 `/api/v1/workspaces/{workspace_id}` 为前缀，沿用现有工作区访问校验：
 

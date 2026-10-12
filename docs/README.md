@@ -1,11 +1,12 @@
 # 项目文档
 
-MaigoKite 面向个人用户和选定工作流。本目录按“一项事实、一个权威来源”组织，不以文档数量或预留模块代表完成度。
+MaigoKite 是面向个人工作流的本地 Agent。本目录按读者和职责划分：用户指南说明如何使用，设计文档说明行为与约束，路线图记录交付和验证状态。
 
 ## 快速阅读
 
 - 了解产品：[产品愿景](project/Vision.md) → [需求与验收](requirements/RequirementList.md)
 - 了解架构：[系统设计](design/SystemDesign.md) → [智能体运行时设计](design/AgentRuntime.md)
+- 了解界面：[前端与桌面交互设计](design/FrontendDesign.md) → [墨线 UI 设计](design/agent-ui-design.md)
 - 开发运行：[开发指南](development/DevelopmentGuide.md)
 - 当前进度：[交付路线与状态](project/Roadmap.md)
 - 用户配置：[安装与首次使用](user-guide/Installation.md) → [配置指南](user-guide/Configuration.md)
@@ -20,7 +21,7 @@ MaigoKite 面向个人用户和选定工作流。本目录按“一项事实、�
 | 版本变更记录 | [更新日志](project/Changelog.md) |
 | 组件、信任与运行形态 | [系统设计](design/SystemDesign.md) |
 | Go/Python 内部职责 | [后端设计](design/BackendDesign.md) |
-| Vue/Electron 与交互 | [前端与桌面交互设计](design/FrontendDesign.md) |
+| Vue/Electron 与交互 | [前端与桌面交互设计](design/FrontendDesign.md)；视觉细节见 [墨线 UI 设计](design/agent-ui-design.md) |
 | 聊天执行、审批桥接、上下文和资源 | [智能体运行时设计](design/AgentRuntime.md) |
 | REST/gRPC/WS 契约 | [API 设计](design/API.md)；机器结构定义/Proto 优先 |
 | 当前业务表与事务 | [数据库设计](design/Database.md)；Repository 是实现事实 |
@@ -47,8 +48,8 @@ MaigoKite 面向个人用户和选定工作流。本目录按“一项事实、�
 - 规划中/未交付不得写成可执行用户操作。提前注册页可以显示真实只读状态，不能有假保存控件。
 - 历史记录/已弃用只保留决策与证据；旧 ADR 如被新方向取代，不自动进入路线。
 - 图表放在所属设计旁，字段和权限矩阵不复制。保留前端、后端、API、数据库独立成册，读者与契约不同。
-- 文档修改不得伪造新的测试结果；状态只更新 Roadmap，接口只改 API，存储只改 Database。
+- 不得因整理文档而新增测试结论。交付与验证记录集中在 Roadmap，接口契约集中在 API，存储契约集中在 Database；其他文档引用这些主文档，不另存一份完整清单。
 - 被归并文档不留长期归档副本，使用版本历史追踪；个人化不代表删除安全边界或已需兼容的数据。
 - 新建文档前先确定独立读者/职责，能在主文档解释的内容不另起册。
 
-归并日期：2026-10-09；中文化日期：2026-10-10。历史 US/UC 编号保留在需求文档，前序研究（含 pi）保留在 AgentRuntime 的研究范围中；整理不构成运行代码或发布状态的新验收。
+归并日期：2026-10-09；中文化日期：2026-10-10。历史 US/UC 编号保留在需求文档，前序研究（含 pi）保留在 AgentRuntime 的研究范围中。这些日期记录文档整理，不代表代码或发布验收。

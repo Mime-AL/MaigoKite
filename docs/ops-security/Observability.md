@@ -12,14 +12,14 @@
 | `task_events` / 活动区 | 工具、审批、公开过程与终态，稳定 ID/sequence | 补拉有单页上限及订阅窗口，不是无限重放 |
 | health / runtime-status | 网关/核心服务基本状态、路径和版本等实际值 | 核心服务是 gRPC，不能假设存在 HTTP health |
 | MCP/技能清单 | 实际加载/连接能力 | 清单不是安装、授权或运行成功证明 |
-| `model.usage` | 模型提供方实际返回的主模型词元、可取得的缓存/公开过程用量 | 缺失表示未提供；不含完整摘要账单，不推算硬编码价格 |
+| `model.usage` | 模型提供方返回的主模型、摘要与子 Agent 用量，按 `purpose: response / summary / subagent` 区分 | 缺失表示未提供；取消后的计费、内部重试与丢失回执未必可见，不是完整账单，也不按硬编码价格推算 |
 
 当前没有接线 Prometheus/Grafana、Langfuse、OTel exporter、完整 trace propagation、长期指标库或告警服务。依赖包或 Observer 接口存在不等于已集成。
 
 ## 2. 脱敏与关联
 
 - 禁止记录 API 密钥、Bearer Token、Cookie、完整认证头、MCP 完整环境和隐藏思维链。
-- Audit 当前按含 secret/词元的键过滤，不是完整递归 DLP；调用方仍须避免在其他键或正文放入凭证。
+- AuditLog 递归处理字典和列表，遮盖键名包含 `secret / token / password / authorization` 的值；这不是完整内容脱敏或 DLP，调用方仍须避免在其他键或正文放入凭证。
 - 工具审计优先工具名、风险、结果与限长摘要。网页全文、提示词、ToolResult 不自动 dump 到普通日志。
 - 用户可见事件只保存必要 payload，原始工具详情受授权约束，不用调试 dump 代替产品 DTO。
 - 当前任务/tool_call/conversation/sequence 用于关联；request/trace/deadline 尚未完整传播。字段缺失时省略，不伪造 ID。

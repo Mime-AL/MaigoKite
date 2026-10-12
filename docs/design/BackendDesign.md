@@ -39,7 +39,7 @@ flowchart TD
 - `AgentServiceServicer` 转换 Proto 与事件流，领域写入委托核心服务。
 - `AgentCore` 组织聊天入口、设置、审批、取消与关闭，不继续生长为通用执行框架。
 - 执行/检查点/HITL 统一属于 LangChain/LangGraph；旧路径和 feature flag 已移除。资源所有权和历史任务边界见 AgentRuntime。
-- ToolRegistry 只保留发现、结构定义/产品元数据、权限与公开转换入口；不为新路径自建工具调度。
+- ToolRegistry 只保留发现、结构定义/产品元数据、权限与公开转换入口；工具调度交给 LangChain/LangGraph。
 - 浏览器复用 Playwright；本地技能是受限声明内容；MCP 进程/协议只由 Python 管理。不得在 Go 或渲染进程再建一套执行与权限体系。
 
 ## 4. 命令与状态边界
@@ -49,7 +49,7 @@ flowchart TD
 命令应先完成身份/资源归属与参数校验，再进入产品逻辑。任务、工具调用、审批及事件持久化的实际结构定义和事务限制以 Database 为准。
 
 - 当前仅 SQLiteRepository；没有 PostgreSQL 兼容承诺。
-- 新运行时恢复看检查点，审批校验看 Repository，UI 看 messages/task_events。
+- 执行恢复读取 LangGraph 检查点，审批校验读取 Repository，UI 查询 messages/task_events。
 - 内存 TaskManager 已删除；运行续接只看 LangGraph checkpoint，Repository 保留业务投影与审批审计，不建第二套状态机。
 - 部分状态与事件独立事务写入，尚无正式 Unit of Work/Outbox。修复应按一致性需求决定，不预设必须引入大型持久化框架。
 - 索引若未来加入，须可从权威数据重建；敏感凭证不进入消息、记忆或日志。
@@ -58,9 +58,9 @@ flowchart TD
 
 权限矩阵、审批摘要值/版本/过期规则仅由 [工具权限](../agent-capabilities/security/tool-permission.md) 定义；模型文字不授权，参数变更使旧审批失效。
 
-MCP discovery、stdio 子进程与关闭边界仅由 [MCP 集成](../agent-capabilities/mcp/mcp-integration.md) 定义。当前不实现第二个 MCP 生命周期层，全面官方 SDK 迁移另行验收。
+MCP discovery、stdio 子进程与关闭边界由 [MCP 集成](../agent-capabilities/mcp/mcp-integration.md) 定义。协议与进程生命周期复用官方 SDK，不另建一套实现；SDK 定向验收与扩展管理新增链路的验证范围分别记录在 [交付路线与状态](../project/Roadmap.md)。
 
-HTTP 断线不取消任务；取消必须显式提交。新运行时根任务清理完成后才发布 cancelled；旧路径和第三方阻塞调用的限制见 AgentRuntime。恢复依赖浏览器易失 session 的审批不能视为安全续跑。
+HTTP 断线不取消任务，取消必须显式提交。根任务清理完成后才发布 cancelled；第三方阻塞调用和历史任务恢复的限制见 [智能体运行时设计](AgentRuntime.md)。依赖浏览器易失 session 的审批不能视为可安全续跑。
 
 错误码与 HTTP/gRPC 映射唯一来源为 API。日志与诊断见 [日志与诊断](../ops-security/Observability.md)，内部错误不得向用户回显敏感凭证、堆栈或内部部署地址。
 

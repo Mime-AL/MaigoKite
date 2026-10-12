@@ -157,12 +157,14 @@ PowerShell 禁止执行脚本时，确认源码可信后可使用进程级 `powe
 
 ## 4. 质量与构建入口
 
+以下测试命令以本地已有测试文件为前提。当前 `.gitignore` 排除了 Go/Python/Web 测试、Vitest 配置与 `scripts/run_tests.sh`，新克隆不包含这些入口或完整测试集；依赖安装不会补齐它们。不要把“未发现测试”或未执行记录写成通过。测试范围与证据口径见 [测试与验收](../testing/TestPlan.md)。
+
 | 入口 | 范围 |
 | --- | --- |
 | `cd gateway` 后 `go test ./...` | 网关 Go 测试 |
 | 项目 Python 执行 `-m pytest python`（根目录） | 根环境的 Python 测试集 |
 | `cd web` 后 `npm run test:run` | Vue/Vitest |
-| `scripts/run_tests.sh` | 聚合测试入口，具体场景见 [测试与验收](../testing/TestPlan.md) |
+| `scripts/run_tests.sh` | 维护者本地聚合测试入口，不随 Git 分发 |
 | `build.sh all` / `build.ps1 all` | Go + Vue/Electron；Python 分发包另用 python 目标，不是完整桌面发布 |
 
 从根目录执行 `.venv/bin/ruff check python/` 和 `.venv/bin/mypy python/agent` 可检查 Python 代码。报告时写明实际检查范围和失败结果，不要将检查失败写成“工具缺失”或“跳过”。静态检查失败须保留非零退出码。平台限制和安装包验收要求见构建与发布指南。
