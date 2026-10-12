@@ -24,6 +24,7 @@ class Input(BaseModel):
 
 
 class ConversationCreate(Input):
+    memory_enabled: StrictBool = False
     title: str = Field(default="", max_length=200)
     model_id: str = Field(default="", max_length=200)
     folder_id: str = Field(default="", max_length=200)
@@ -36,6 +37,7 @@ class ConversationCreate(Input):
 
 
 class ConversationUpdate(Input):
+    memory_enabled: StrictBool | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     model_id: str | None = Field(default=None, max_length=200)
     folder_id: str | None = Field(default=None, max_length=200)
@@ -148,9 +150,15 @@ class ToolSettings(Input):
 
 
 class MemoryInput(Input):
+    folder_id: str | None = Field(default=None, max_length=200)
     category: str = Field(min_length=1, max_length=32)
     content: str = Field(min_length=1, max_length=4000)
     confidence: float = Field(default=1, ge=0, le=1)
+
+
+class MemorySettings(Input):
+    folder_id: str = Field(max_length=200)
+    enabled: StrictBool
 
 
 class ExtensionApply(Input):
@@ -178,6 +186,7 @@ def conversation(item: dict[str, Any]) -> dict[str, Any]:
                    "archived max_subagent_calls max_concurrent_subagents")
     value["subagent_model_ids"] = json.loads(item.get("subagent_model_ids_json") or "[]")
     value["archived"] = bool(item.get("archived", False))
+    value["memory_enabled"] = bool(item.get("memory_enabled", False))
     return value
 
 

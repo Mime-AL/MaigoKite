@@ -14,10 +14,10 @@ class ProcessRegistry:
         self.active: dict[str, dict[str, Any]] = {}
 
     def attach(self, job_id: str, workspace_id: str, task_id: str, process: asyncio.subprocess.Process,
-               stdout: BinaryIO, stderr: BinaryIO, stop: Any) -> None:
+               stdout: BinaryIO, stderr: BinaryIO, stop: Any, *, interactive: bool = True) -> None:
         self.active[job_id] = {"workspace_id": workspace_id, "task_id": task_id,
                                "process": process, "stdout": stdout, "stderr": stderr, "stop": stop,
-                               "input_lock": asyncio.Lock()}
+                               "input_lock": asyncio.Lock(), "interactive": interactive}
 
     def detach(self, job_id: str) -> None:
         self.active.pop(job_id, None)
@@ -32,7 +32,7 @@ class ProcessRegistry:
         result: dict[str, Any] = {"pid": item["process"].pid, "live": item["process"].returncode is None,
                                   "log_tail": "", "live_logs_available": can_read_logs}
         stdin = item["process"].stdin
-        result["stdin_available"] = bool(result["live"] and stdin is not None and not stdin.is_closing())
+        result["stdin_available"] = bool(item["interactive"] and result["live"] and stdin is not None and not stdin.is_closing())
         if can_read_logs:
             # Use pread, or a separate file handle on Windows. Never seek on
             # the child's shared output handle while it is writing.
@@ -78,7 +78,7 @@ class ProcessRegistry:
         async with item["input_lock"]:
             process = item["process"]
             stdin = process.stdin
-            if process.returncode is not None or stdin is None or stdin.is_closing():
+            if not item["interactive"] or process.returncode is not None or stdin is None or stdin.is_closing():
                 raise ValueError("process stdin is unavailable or closed")
             try:
                 stdin.write(text.encode("utf-8"))

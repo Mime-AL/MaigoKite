@@ -2,7 +2,7 @@
 
 > **状态**：当前有效
 > **架构版本**：v1
-> **源码更新**：2026-10-11（本批只做静态检查，未运行测试或 GUI 联调）
+> **源码更新**：2026-10-12（本批只做源码审阅，未运行测试或 GUI 联调）
 > **权威范围**：工具风险等级、权限模式、审批与 hard-deny
 
 系统级认证、凭证与网络安全见 [安全边界](../../ops-security/Security.md)。
@@ -46,7 +46,7 @@ API 资源归属检查                  Python ToolPolicy
 
 个人版权限配置只有 `default_mode`，会话使用自己的 `permission_mode`。后端不再保存或传递逐工具可调风险矩阵，也没有独立的内存 grant/scope 权限存储。历史数据库中的 `tool_levels` 被忽略，下次保存该设置时清除；已有风险标签和审批审计保留。
 
-`read_only` 允许用户对具体写入批准，搜索子进程使用只读工作区挂载。是否启用工具和是否允许调用仍是独立边界。没有独立审核模型，不注册“帮我批准”，也不增加调用模型判断风险的隐性成本。借鉴 [DSH 基础预设](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/interaction/permission-presets/src/index.ts) 的沙箱/审批分离，不移植其插件框架或实验 Auto review。
+`read_only` 允许用户对具体写入批准。Linux 搜索使用只读挂载，Windows 搜索使用固定可信 ripgrep 与校验后的只读快照，后者不是通用进程隔离。是否启用工具和是否允许调用仍是独立边界。没有独立审核模型，不注册“帮我批准”，也不增加调用模型判断风险的隐性成本。借鉴 [DSH 基础预设](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/interaction/permission-presets/src/index.ts) 的沙箱/审批分离，不移植其插件框架或实验 Auto review。
 
 ## 4. 基础工具映射
 
@@ -87,7 +87,7 @@ PermissionManager.evaluate(tool_name, arguments, approved, risk_override, mode)
 
 受限命令通过 `sandbox_permissions=require_escalated` 请求单次沙箱外执行，或通过 `network_access=true` 仅请求网络；参数只是请求，不是授权。普通模式下都必须审批。Git 元数据在沙箱内只读，修改 Git 必须先提出明确升级请求。已明确禁用的操作仍不能借升级绕过。
 
-当前宿主命令没有独立网络隔离后端，所以单次沙箱外命令还必须明确包含 `network_access=true` 并一起批准，否则不启动。只有 `network_access=true` 不会解除工作区文件隔离。完全访问模式已经显式包含宿主网络许可。越界 glob/grep 在批准后仍把目标目录放入只读、断网沙箱，不借批准获得任意宿主命令权限。
+当前宿主命令没有独立网络隔离后端，所以单次沙箱外命令还必须明确包含 `network_access=true` 并一起批准，否则不启动。只有 `network_access=true` 不会解除工作区文件隔离。完全访问模式已经显式包含宿主网络许可。越界 glob/grep 批准仅允许读取指定目录，Linux 继续使用只读、断网沙箱，Windows 继续受控只读搜索；不借批准获得任意宿主命令权限。
 
 已知路径与命令规则只是确定性保护，不是完整敏感数据检测/DLP。任意代码在允许目录内的副作用不能只靠字符串匹配可靠识别。
 
@@ -132,24 +132,30 @@ version
 - 内置工具使用路径、进程和网络策略限制。
 - `exec_command` 的 `shell=direct` 不经过 shell 展开；`auto` 在 Windows 优先选择 PowerShell 7、缺失时选择 Windows PowerShell 5.1，其他平台保持 direct。显式 `pwsh` / `powershell` 不互相回退。PowerShell 脚本整体交给对应解释器，不用 POSIX `shlex` 拆分。
 - Shell 选择在审批前归一化，与原始脚本一起进入已有审批参数/hash；传输用的 Base64 不替换审计正文。PowerShell 脚本按 L5 不透明操作处理，非完全访问模式需单次批准，不生成任务/会话复用授权。已配置的命令前缀白名单对脚本只允许全文匹配，不因开头命令允许而放行后续语句；工作目录仍校验路径。产品不声称能静态识别脚本中的所有敏感访问。
-- Linux 复用 bubblewrap，只挂载只读运行库和指定工作区，受限命令默认不共享网络。启动参数显式要求 user namespace、禁止嵌套 user namespace、去除全部 capabilities；安装版本或系统不支持时拒绝受限执行，不删除保护参数重试。可用性探测与实际执行使用相同隔离选项，断网探测不再带 `--share-net`。搜索使用只读工作区；工作区根部已知凭证文件遮蔽，`.git` 只读。这不是递归敏感内容隔离。PowerShell 安装位置不在挂载范围时，受限执行同样拒绝，不自动扩大挂载。
-- 受限进程沙箱不可用时返回 `SANDBOX_UNAVAILABLE`，不再回退为普通宿主命令。当前未实现 Windows/macOS 受限执行后端；不能假装这些平台已受保护。`file_read` 等进程内工具继续使用产品路径校验。
+- Linux 复用 bubblewrap，只挂载只读运行库和指定工作区，受限命令默认不共享网络。启动参数显式要求 user namespace、禁止嵌套 user namespace、去除全部 capabilities；安装版本或系统不支持时拒绝受限执行，不删除保护参数重试。可用性探测与实际执行使用相同隔离选项，断网探测不再带 `--share-net`。搜索使用只读工作区；启动前递归遮蔽已知凭证路径，嵌套 `.git` 只读，不遍历符号链接。扫描遇到保护项符号链接、权限错误、超过 10 万项/5 秒或挂载参数预算时拒绝启动。此处仅是已存在路径的保护，不检测内容、改名凭证、硬链接或并发宿主修改；不能称为完整 DLP。PowerShell 安装位置不在挂载范围时，受限执行同样拒绝，不自动扩大挂载。
+- 受限进程沙箱不可用时返回 `SANDBOX_UNAVAILABLE`，不再回退为普通宿主命令。Windows 已接可选 SRT 原生后端，默认关闭、alpha 且待实机验收，见下节；macOS 后端未接入。`file_read` 等进程内工具继续使用产品路径校验。
 - 工作区仍不得配置为文件系统根目录。单次已批准的显式升级命令、以及 `danger_full_access` 模式使用宿主 argv 执行，仍保留输出限制、取消、超时和进程清理。
 - 越界文件操作只有匹配审批/窄授权或显式完全访问才执行；浏览器文件操作同时校验页面 URL 和会话归属。完全访问不增加 Browser/MCP/子 Agent 的新功能。
-- 第三方 MCP Server 默认按不受信代码处理。
+- MCP 工具结果是不可信输入，但当前 **MCP Server 程序必须由部署者信任**：它由官方 SDK 直接启动，拥有宿主用户权限；最小环境、cwd 和审批不构成该进程的 OS 隔离。不得把工具结果不可信与进程已隔离混为一谈。
 - 本地技能只读取声明内容，不获得独立进程权限；目标 SkillGrant 尚未交付，当前 MCP 信任与环境来自部署配置。
-- 子进程不继承完整宿主环境。
+- 命令与 MCP 子进程只继承各自允许的环境；这不代表 Playwright driver 和浏览器父进程已获得同样的宿主环境/权限隔离。Chromium 临时与持久化 profile 启动均启用其原生沙箱，不自动回退 `--no-sandbox`。
 - 超时和取消应覆盖所属进程及后代，但当前 MCP 和同步线程存在限制；实际范围见 [智能体运行时设计](../../design/AgentRuntime.md)，不把目标要求当作已完成。
-- Windows 命令停止复用系统 `taskkill /PID <owned-pid> /T /F` 并等待退出，GUI 停止与执行超时/取消共用该清理回调。清理失败不假报成功。这不是 Windows Job Object 隔离，不能保证拦住已脱离或父进程已先退出的后台任务，也不提供后台进程托管能力。
+- Windows 宿主命令停止复用系统 `taskkill /PID <owned-pid> /T /F` 并等待退出，GUI 停止与执行超时/取消共用该清理回调。清理失败不假报成功。宿主路径不是 Windows Job Object 隔离，不能保证拦住已脱离或父进程已先退出的后台任务；受限路径另由下节 SRT 管理 Job 与 ACL，不提供后台进程托管能力。
 - 创建子进程期间收到取消时，等待取得该子进程句柄再停止并回收；POSIX 正常退出也清理原进程组的剩余后代。它不保证收回主动脱离进程组的宿主进程；Linux 受限执行另由 bubblewrap 的 PID namespace 管理后代。
-- 当前只执行墙钟超时、预览输出上限，不执行 CPU/内存配额。`set_limits()` 对非零配额明确报不支持；运行状态接口同样返回 `cpu_memory_limits: false`，不再保存未实施的限制值。
+- 墙钟超时与预览限制继续保留。stdout/stderr 由后端管道捕获，单次合计最多保存 8 MiB，超限停止并等待清理；不限制命令直接写文件或历史日志累计。Linux 可选 `tools.command_limits` 通过 util-linux `prlimit` 落实每进程 CPU/虚拟地址空间软硬上限，缺少后端则失败；默认零表示不额外限制。它不是 RSS/cgroup/Job Object 的进程树总配额，`cpu_memory_limits` 仍为 false；Windows 非零 rlimit 配置明确不支持。详见[命令资源限制](../../user-guide/Configuration.md#命令资源限制)。
 - Windows 文件参数在路径规范化前拒绝盘符相对路径（`C:foo`）、缺盘符根路径、设备路径、NTFS alternate data streams、保留名称及尾随点/空格；沿用 Python 标准库的保留名称规则。`.git` 大小写变体不能绕过文件写入策略，路径白名单用 pathlib 比较目录层级。已有 API 目录句柄保护保留；这些参数检查不是任意 PowerShell 代码的 OS 沙箱，也不消除进程内文件工具的所有 TOCTOU 风险。
 
-### Windows 原生后端待接入
+### Windows 原生后端（可选 alpha，待验收）
 
-方向为原生 Windows / PowerShell，不要求 WSL。调查了 [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) 的 Windows 后端：它可复用原生隔离组件，但目前仍标注 alpha，安装涉及专用账户、ACL 和 WFP 规则。其接入需要独立的管理员安装确认，以及进程/ACL 清理、并发工作区、文件和网络边界的 Windows 验收；不能仅套一层命令包装就宣称与 Linux 挂载隔离等价。
+复用 [Anthropic Sandbox Runtime 0.0.79](https://github.com/anthropics/sandbox-runtime/tree/v0.0.79) 的公开 SDK、专用账户、受限 Token、ACL、WFP 与 Job，不要求 WSL，不自研 Win32 安全机制。Python 继续持有命令生命周期，单次 Node 桥接持有一个 SRT session；现有 PermissionPolicy/审批不变。启动依赖、安装和启用步骤集中在 [配置指南](../../user-guide/Configuration.md#windows-原生命令沙箱)。
 
-本批未安装或默认启用该后端，也未自研 Win32 沙箱；Windows 受限命令及受限 `glob/grep` 仍明确失败。后续若采用该组件，普通 setup/start 不得自动修改系统账户、ACL 或防火墙，显式宿主执行也不得被标记为 sandboxed。本批仅源码修改与人工核对，未运行测试或 Windows 实机验证。
+- 默认关闭；普通 setup 只下载锁定依赖，账户/防火墙安装需要单独的确认参数与 UAC。每次运行由 SDK 验证 WFP，失败不静默降为宿主执行。
+- 工作区可写/只读映射为临时 ACL，已知敏感项拒绝读取、Git 元数据拒绝写入；拒绝 UNC/junction 工作区。同一用户的 MaigoKite 实例串行运行，避免共享 SID 下的授权叠加，但不隔离其他用户或其他 SRT 客户端。
+- 上游允许系统 DNS，公开可读路径也不是工作区外不可见。代理令牌/共享账户有跨客户端限制；不承诺完全断网、完整 DLP 或等同 Linux 挂载边界。
+- 停止先请求关闭 broker/Job，再等 ACL 回收回执；超时或清理失败明确报错。强杀恢复依赖上游，不重新实现 ACL journal。GUI 不暴露桥接控制管道，当前 Windows 沙箱不支持交互 stdin。
+- 普通 `glob/grep`（包括只读子 Agent）继续使用可信 ripgrep 的受控只读搜索，不要求开启这个可选后端。MCP/浏览器/文件工具仍各自遵循上文边界。
+
+本批只接源码并人工核对，未运行测试、安装账户/防火墙或进行 Windows 实机验证；不能据此宣布稳定 Windows 沙箱交付。
 
 ## 9. 审计
 

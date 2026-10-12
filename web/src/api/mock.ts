@@ -27,6 +27,7 @@ const resumes = new Map<string, (allowed: boolean, note?: string) => void>(),
   timers = new Map<string, Set<ReturnType<typeof setTimeout>>>()
 const submissions = new Map<string, { content: string; taskId: string }>()
 const forks = new Map<string, { messageId: string; conversation: Conversation }>()
+const memorySettings = new Map<string, boolean>()
 const model = {
   id: 'demo',
   name: '本地预览',
@@ -262,9 +263,15 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       task_count: tasks.length,
       audit_event_count: 0,
     }
+  else if (parsed.pathname.endsWith('/memory-settings')) {
+    const folder = String(method === 'PATCH' ? body.folder_id : parsed.searchParams.get('folder_id') || '')
+    if (method === 'PATCH') memorySettings.set(folder, body.enabled === true)
+    result = { folder_id: folder, enabled: memorySettings.get(folder) === true }
+  }
   else if (parsed.pathname.includes('/memories')) {
     if (method === 'GET')
-      result = { memories: memories.filter((m) => m.content.includes(parsed.searchParams.get('q') || '')) }
+      result = { memories: memories.filter((m) => (m.folder_scope ?? null) === parsed.searchParams.get('folder_id') &&
+        m.content.toLocaleLowerCase().includes((parsed.searchParams.get('q') || '').toLocaleLowerCase())) }
     else if (method === 'DELETE') {
       const index = memories.findIndex((m) => m.id === id)
       if (index >= 0) memories.splice(index, 1)
@@ -274,6 +281,7 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
         id: existing?.id || `memory-${Date.now()}`,
         workspace_id: 'personal',
         subject_user_id: 'local-user',
+        folder_scope: typeof body.folder_id === 'string' ? body.folder_id : existing?.folder_scope ?? null,
         category: String(body.category) as UserMemory['category'],
         content: String(body.content),
         source_type: existing?.source_type || 'user',

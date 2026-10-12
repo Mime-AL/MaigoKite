@@ -22,7 +22,7 @@ from agent.extensions import ExtensionConfig, startup_config
 from agent.models.runtime import ChatModelRuntime, ChatModelSettings
 from agent.mcp import MCPClient
 from agent.observability import Observability
-from agent.repository import ConversationBusyError, MessageReplay, SQLiteRepository, validate_subagent_model_ids
+from agent.repository import ConversationBusyError, MessageReplay, SQLiteRepository, folder_memory_scope, validate_subagent_model_ids
 from agent.process_registry import ProcessRegistry
 from agent.runtime import LangGraphRuntime, ProductToolSpec, RuntimeRunRequest
 from agent.security.injection_filter import InjectionFilter
@@ -561,6 +561,7 @@ class AgentCore:
         max_concurrent_subagents: int = 1,
         subagent_model_ids: list[str] | None = None,
         thinking: str = "",
+        memory_enabled: bool = False,
     ) -> dict[str, Any]:
         mode = permission_mode or (await self.get_permission_settings(workspace_id))["default_mode"]
         try:
@@ -579,7 +580,7 @@ class AgentCore:
         return await self.repository.create_conversation(
             workspace_id, title, model_id, mode, response_mode, folder_id,
             max_subagent_calls, max_concurrent_subagents, subagent_model_ids,
-            thinking=thinking,
+            thinking=thinking, memory_enabled=memory_enabled,
         )
 
     async def update_conversation_permission(
@@ -606,6 +607,7 @@ class AgentCore:
         max_subagent_calls: int | None = None,
         max_concurrent_subagents: int | None = None,
         subagent_model_ids: list[str] | None = None,
+        memory_enabled: bool | None = None,
     ) -> dict[str, Any]:
         if folder_id is not None or archived is not None:
             self._require_inactive_conversation(conversation_id)
@@ -649,6 +651,7 @@ class AgentCore:
             max_subagent_calls=max_subagent_calls,
             max_concurrent_subagents=max_concurrent_subagents,
             subagent_model_ids=subagent_model_ids,
+            memory_enabled=memory_enabled,
         )
 
     async def list_conversations(self, workspace_id: str = "personal") -> list[dict[str, Any]]:
@@ -903,6 +906,8 @@ class AgentCore:
             "principal_id": principal_id,
             "permission_mode": conversation["permission_mode"],
             "process_registry": self.processes,
+            "command_limits": dict(self.config.get("tools.command_limits", {}) or {}),
+            "windows_sandbox": dict(self.config.get("tools.windows_sandbox", {}) or {}),
             "approved": False,
             "workspace_root": folder["root_path"],
             "api_keys": api_keys,
@@ -1196,11 +1201,28 @@ class AgentCore:
         return {"assistant_name": name}
 
     async def list_memories(
-        self, workspace_id: str, user_id: str, query: str = "", limit: int = 100
+        self, workspace_id: str, user_id: str, query: str = "", limit: int = 100, folder_id: str | None = None,
     ) -> list[dict[str, Any]]:
         if len(query) > 200:
             raise ValueError("memory search query must not exceed 200 characters")
-        return await self.repository.list_user_memories(workspace_id, user_id, query, limit)
+        scope = await self._memory_scope(workspace_id, folder_id)
+        return await self.repository.list_user_memories(workspace_id, user_id, query, limit, folder_scope=scope)
+
+    async def _memory_scope(self, workspace_id: str, folder_id: str | None) -> str | None:
+        if folder_id is None:
+            return None
+        folder = await self.get_workspace_folder(workspace_id, folder_id)
+        return folder_memory_scope(folder_id, str(folder["root_path"]))
+
+    async def get_memory_settings(self, workspace_id: str, user_id: str, folder_id: str) -> dict[str, Any]:
+        scope = await self._memory_scope(workspace_id, folder_id)
+        enabled = await self.repository.get_preference(workspace_id, user_id, "memory.enabled." + str(scope))
+        return {"folder_id": folder_id, "enabled": enabled is True}
+
+    async def set_memory_settings(self, workspace_id: str, user_id: str, folder_id: str, enabled: bool) -> dict[str, Any]:
+        scope = await self._memory_scope(workspace_id, folder_id)
+        await self.repository.set_memory_enabled(workspace_id, user_id, str(scope), enabled)
+        return {"folder_id": folder_id, "enabled": enabled}
 
     async def upsert_memory(
         self,
@@ -1211,6 +1233,7 @@ class AgentCore:
         category: str,
         content: str,
         confidence: float = 1.0,
+        folder_id: str | None = None,
     ) -> dict[str, Any]:
         category = category.strip().lower()
         normalized_content = " ".join(content.split())
@@ -1233,6 +1256,7 @@ class AgentCore:
             source_type="user",
             source_id=user_id,
             confidence=confidence,
+            folder_scope=await self._memory_scope(workspace_id, folder_id),
         )
         return item
 

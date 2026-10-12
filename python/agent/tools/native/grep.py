@@ -55,14 +55,18 @@ class GrepTool(BaseTool):
             command.append("--ignore-case")
         command.extend(["--", args.pattern, "." if target.is_dir() else str(target)])
         try:
-            result = await executor.execute_argv(command)
+            if os.name == "nt" and not full_access:
+                from agent.tools.native.windows_search import search
+                result = await search(root, workspace=workspace, pattern=args.pattern, files_only=False, target=target,
+                                      ignore_case=args.ignore_case, context_lines=args.context_lines)
+            else:
+                result = await executor.execute_argv(command)
         except FileNotFoundError:
             return ToolResult.failure({}, "ripgrep is not installed.", error_code="RIPGREP_UNAVAILABLE",
-                                      user_hint="文件搜索需要 ripgrep（rg），请安装后重试。")
+                                      user_hint="文件搜索需要 ripgrep（rg）。Windows 请安装在工作区之外的可信 PATH 目录。")
         except SandboxUnavailableError as exc:
             return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
-                                      user_hint=("Windows 受限内容搜索尚未接入；可先用 file_read 读取已知文件。"
-                                                 "不会为搜索自动开启完全访问。" if os.name == "nt" else exc.user_hint))
+                                      user_hint=exc.user_hint)
         if result.timed_out or result.exit_code not in {0, 1}:
             return ToolResult.failure({}, result.stderr or "Content search failed.", error_code="FILE_SEARCH_FAILED")
         matches: list[tuple[str, int]] = []

@@ -83,14 +83,14 @@ function findPython() {
   throw new Error('Python 3.14.x not found. Run setup with uv, install Python 3.14, or set MAIGOKITE_PYTHON.')
 }
 
-function npm(args) {
-  if (!windows) return run('npm', args, web)
+function npm(args, cwd = web) {
+  if (!windows) return run('npm', args, cwd)
   // npm.cmd cannot be execFile'd. Invoke its installed JS entry with Node instead
   // of interpolating a repository path into cmd.exe (spaces, &, Unicode paths).
   const directories = [path.dirname(process.execPath), ...(process.env.PATH || '').split(path.delimiter)]
   for (const directory of directories) {
     const cli = path.join(directory.replace(/^"|"$/g, ''), 'node_modules/npm/bin/npm-cli.js')
-    if (existsSync(cli)) return run(process.execPath, [cli, ...args], web)
+    if (existsSync(cli)) return run(process.execPath, [cli, ...args], cwd)
   }
   throw new Error('npm CLI not found beside Node/on PATH. Install Node.js with npm.')
 }
@@ -139,11 +139,18 @@ function checkElectronInstallEnvironment() {
 }
 
 async function setup(target) {
-  if (!['all', 'dev', 'python', 'electron'].includes(target) || modeArg || extra.length)
-    throw new Error('Usage: setup [all|dev|python|electron]')
+  if (!['all', 'dev', 'python', 'electron', 'sandbox'].includes(target) || modeArg || extra.length)
+    throw new Error('Usage: setup [all|dev|python|electron|sandbox]')
   // uv may replace an incompatible venv; npm ci replaces node_modules.
   // Refuse while the standard suite ports are occupied instead of killing it.
   await freePorts([8080, 5173])
+  if (target === 'sandbox') {
+    if (!windows) throw new Error('The sandbox dependency target is for native Windows only; Linux uses bubblewrap.')
+    npm(['ci', '--ignore-scripts', '--engine-strict', '--no-audit', '--no-fund'], path.join(root, 'scripts/windows-sandbox'))
+    console.info('Windows sandbox dependency installed. No accounts, ACLs or firewall rules were changed.')
+    console.info('Read docs/user-guide/Configuration.md before explicitly running scripts/sandbox.ps1 install -ConfirmSystemChanges.')
+    return
+  }
   if (target !== 'python') checkElectronInstallEnvironment()
   if (target === 'electron') {
     // npm applies the checked-in overrides; Electron owns download/checksum/
@@ -176,6 +183,10 @@ async function setup(target) {
     // npm's devDependencies are separate from the optional Python dev tools.
     npm(['ci', '--include=dev', '--engine-strict', '--foreground-scripts', '--ignore-scripts=false'])
     console.info(`[MaigoKite] Electron ready: ${needElectron()}`)
+    if (windows) {
+      npm(['ci', '--ignore-scripts', '--engine-strict', '--no-audit', '--no-fund'], path.join(root, 'scripts/windows-sandbox'))
+      console.info('Windows sandbox dependency installed; system provisioning remains a separate explicit step.')
+    }
   }
   console.info(target === 'python' ? 'Python dependencies installed; Web/Electron dependencies unchanged.' : 'Application dependencies installed.')
   console.info('Browser tools additionally need: <Core Python> -m playwright install chromium')

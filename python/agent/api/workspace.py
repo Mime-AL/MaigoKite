@@ -283,7 +283,7 @@ def routes(core, execution) -> APIRouter:
                 "workspace_source": "selection" if folder_id else "environment" if os.getenv("MAIGOKITE_WORKSPACE_ROOT") else "configuration",
                 "environment": core.config.get("app.environment", "development"),
                 "backend": {"status": "serving" if core._initialized else "unavailable", "version": request.app.version},
-                "sandbox": await to_thread.run_sync(process_sandbox_status),
+                "sandbox": await to_thread.run_sync(process_sandbox_status, core.config.get("tools.windows_sandbox", {})),
                 "restart": {"pending": False, "required_for": ["启动配置与服务端口"],
                             "hot_applied": ["工作区选择", "模型", "权限", "扩展", "界面称呼"], "note": ""}}
 

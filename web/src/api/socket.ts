@@ -19,7 +19,8 @@ export class EventSocket {
   private recovering = false
   private subscribed = false
   private queued: AgentEvent[] = []
-  private seen = new Set<string>()
+  // Only live receipts ahead of the confirmed history cursor need identities.
+  private seen = new Map<string, number>()
   private generation = 0
   private recovery: { generation: number; promise: Promise<void> } | null = null
   private controller: AbortController | null = null
@@ -48,13 +49,15 @@ export class EventSocket {
         void this.recover(generation)
         return
       }
-      if (this.recovering) this.queued.push(event)
+      if (!this.subscribed) return
+      if (this.recovering) this.buffer(event, generation)
       else {
         try {
           if (!this.deliver(event, false)) {
-            this.queued.push(event)
+            this.buffer(event, generation)
             this.recovering = true
           }
+          if (this.seen.size >= 1000) void this.recover(generation)
         } catch (error) {
           this.replayFailed(generation, error)
         }
@@ -79,6 +82,9 @@ export class EventSocket {
       this.handshake = null
       this.heartbeat = null
       this.options.connection(false)
+      this.subscribed = false
+      this.recovering = true
+      this.controller?.abort()
       this.socket = null
       const delay = Math.min(30_000, 1000 * 2 ** this.attempts++)
       this.reconnect = setTimeout(() => {
@@ -113,7 +119,7 @@ export class EventSocket {
       for (;;) {
         const before = this.lastSeq
         const events = await this.options.history(before, signal)
-        if (this.stopped || generation !== this.generation) return
+        if (this.stopped || generation !== this.generation || signal.aborted) return
         for (const event of events.slice().sort((a, b) => a.sequence - b.sequence))
           if (!this.deliver(event, true)) return
         if (events.length < 1000 || this.lastSeq === before) break
@@ -131,7 +137,7 @@ export class EventSocket {
         this.options.connection(true)
       }
     } catch (error) {
-      this.replayFailed(generation, error)
+      if (!signal.aborted) this.replayFailed(generation, error)
     } finally {
       if (!this.stopped && generation === this.generation) {
         // close() is asynchronous; messages already queued by the browser must
@@ -144,18 +150,29 @@ export class EventSocket {
     if (this.stopped || generation !== this.generation) return
     this.subscribed = false
     this.recovering = true
+    this.controller?.abort()
+    // These events are durable. Reconnect re-reads them from the last
+    // successfully applied cursor instead of retaining an unbounded buffer.
+    this.queued = []
     this.options.connection(false)
     // Only successfully projected receipts are acknowledged; reconnect can
     // replay a failed item instead of leaving the chat permanently thinking.
     this.socket?.close()
     this.options.failure?.(error)
   }
+  private buffer(event: AgentEvent, generation: number) {
+    if (this.queued.length >= 2000) {
+      this.replayFailed(generation, new Error('Conversation replay buffer full; reconnecting'))
+      return
+    }
+    this.queued.push(event)
+  }
   private deliver(event: AgentEvent, replay: boolean) {
     if (
       !event ||
       typeof event.type !== 'string' ||
       !Number.isSafeInteger(event.sequence) ||
-      event.sequence < 0 ||
+      event.sequence <= 0 ||
       !event.payload ||
       typeof event.payload !== 'object' ||
       Array.isArray(event.payload)
@@ -164,11 +181,16 @@ export class EventSocket {
     // Both live paths now preserve durable IDs. Keep the history cursor tied
     // to HTTP replay: a higher live sequence alone does not prove no gap exists.
     const key = event.event_id || `${event.task_id}:${event.sequence}:${event.type}`
+    if (event.sequence <= this.lastSeq) return true
     if (!this.seen.has(key)) {
       if (this.options.receive(event, replay) === false) return false
-      this.seen.add(key)
+      this.seen.set(key, event.sequence)
     }
-    if (replay) this.lastSeq = Math.max(this.lastSeq, event.sequence || 0)
+    if (replay) {
+      this.lastSeq = Math.max(this.lastSeq, event.sequence)
+      for (const [id, sequence] of this.seen)
+        if (sequence <= this.lastSeq) this.seen.delete(id)
+    }
     return true
   }
   stop() {

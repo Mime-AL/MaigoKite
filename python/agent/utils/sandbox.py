@@ -1,14 +1,16 @@
-"""Workspace-confined subprocess execution used by native tools."""
+"""Native subprocess confinement, lifetime ownership and bounded output capture."""
 
 from __future__ import annotations
 
 import asyncio
 import codecs
+import math
 import os
 import platform
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -17,6 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from agent.errors import UserFacingError
 from agent.security.sensitive_paths import is_sensitive_path, validate_windows_path
 from agent.utils.command_shell import powershell_argv, resolve_command_shell
 
@@ -27,8 +30,8 @@ class SandboxUnavailableError(RuntimeError):
     @property
     def user_hint(self) -> str:
         if os.name == "nt":
-            return ("Windows 原生受限进程沙箱尚未接入；安装 PowerShell 或 WSL 不会自动启用隔离。"
-                    "命令需明确请求单次宿主执行及网络权限并获得批准，或由用户开启完全访问。")
+            return ("请执行 scripts/setup.ps1 sandbox 安装依赖，再显式安装并启用 Windows 沙箱。"
+                    "可用 scripts/sandbox.ps1 status 查看状态；不会自动安装系统组件或放行宿主执行。")
         if platform.system() == "Linux":
             return ("请安装或更新 bubblewrap，并确认系统允许非特权用户命名空间。"
                     "也可以明确申请单次沙箱外执行及网络权限；不会自动放行。")
@@ -49,6 +52,8 @@ class SandboxExecutionResult:
     shell: str = "direct"
     executable: str = ""
     output_decoding_errors: bool = False
+    output_limit_exceeded: bool = False
+    output_bytes_limit: int = 0
 
 
 def _decode_preview(data: bytes, limit: int) -> tuple[str, bool]:
@@ -104,9 +109,28 @@ def _bubblewrap_works(binary: str, allow_network: bool = False) -> bool:
     return result.returncode == 0
 
 
-def process_sandbox_status() -> dict[str, Any]:
+def process_sandbox_status(windows_settings: dict[str, Any] | None = None) -> dict[str, Any]:
     """Report host isolation capability separately from a session's authorization mode."""
     system = platform.system()
+    if system == "Windows":
+        from agent.utils.windows_sandbox import status
+
+        native = status(windows_settings or {})
+        return {
+            **native, "platform": system, "backend": "srt-windows", "scope": "command_processes",
+            "experimental": True, "network_isolation": native["status"] == "available",
+            "dns_isolation": False, "interactive_stdin": False,
+            "read_boundary": "dedicated_account_acl_and_explicit_denies",
+            "cpu_memory_limits": False, "per_process_rlimits_available": False,
+            "captured_log_limit_bytes": SandboxExecutor._LOG_LIMIT, "disk_quota": False,
+            "other_boundaries": {
+                "windows_search": "trusted_ripgrep_and_checked_snapshot",
+                "native_files": "application_path_policy", "mcp_stdio": "trusted_host_process",
+                "browser": "chromium_native_sandbox_not_workspace_isolation",
+            },
+            "hint": "Windows 沙箱待逐次执行校验；请先完成显式安装。alpha 后端不隔离系统 DNS、公开可读路径或其他 SRT 客户端。"
+                    if native["status"] == "unverified" else SandboxUnavailableError().user_hint,
+        }
     binary = shutil.which("bwrap") if system == "Linux" else None
     available = bool(binary and _bubblewrap_works(binary))
     return {
@@ -119,14 +143,34 @@ def process_sandbox_status() -> dict[str, Any]:
         ),
         "network_isolation": available,
         "cpu_memory_limits": False,
+        "per_process_rlimits_available": bool(_prlimit_binary()),
+        "captured_log_limit_bytes": SandboxExecutor._LOG_LIMIT,
+        "disk_quota": False,
+        "scope": "command_processes",
+        "other_boundaries": {
+            "windows_search": "trusted_ripgrep_and_checked_snapshot",
+            "native_files": "application_path_policy",
+            "mcp_stdio": "trusted_host_process",
+            "browser": "chromium_native_sandbox_not_workspace_isolation",
+        },
         "hint": "" if available else SandboxUnavailableError().user_hint,
     }
+
+
+def _prlimit_binary() -> str | None:
+    # A workspace-local executable must not be trusted to enforce its own limits.
+    if platform.system() == "Linux":
+        for path in ("/usr/bin/prlimit", "/bin/prlimit"):
+            if shutil.which(path):
+                return path
+    return None
 
 
 class SandboxExecutor:
     """Execute argv or an explicitly selected shell within the approved boundary."""
 
     _OUTPUT_LIMIT = 1_000_000
+    _LOG_LIMIT = 8 * 1024 * 1024
     _SYSTEM_MOUNTS = ("/usr", "/usr/local", "/bin", "/sbin", "/lib", "/lib64")
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
@@ -142,8 +186,15 @@ class SandboxExecutor:
         if self.mode not in {"read_only", "workspace", "danger_full_access"}:
             raise ValueError("invalid process sandbox mode")
         self.allow_network = bool(values.get("allow_network", False))
+        self.windows_sandbox = values.get("windows_sandbox") or {}
+        if not isinstance(self.windows_sandbox, dict):
+            raise ValueError("windows_sandbox must be an object")
         self.output_limit = min(max(int(values.get("output_limit", self._OUTPUT_LIMIT)), 1), self._OUTPUT_LIMIT)
+        self.log_limit = int(values.get("log_limit", self._LOG_LIMIT))
+        if not 1 <= self.log_limit <= 64 * 1024 * 1024:
+            raise ValueError("command log limit must be 1 byte to 64 MiB")
         self.output_directory: Path | None = None
+        self.set_limits(values.get("cpu_seconds", 0), values.get("address_space_mb", 0))
         if self.mode != "danger_full_access" and not self.workdir.is_relative_to(self.workspace_root):
             raise ValueError("sandbox workdir is outside the workspace")
         if not self.workdir.is_dir():
@@ -185,9 +236,24 @@ class SandboxExecutor:
         if timeout <= 0:
             raise ValueError("command timeout must be positive")
 
+        if os.name == "nt" and self.mode != "danger_full_access":
+            from agent.utils.windows_sandbox import execute
+
+            return await execute(self, args, timeout, shell=shell, interactive=interactive,
+                                 on_spawn=on_spawn, on_exit=on_exit)
+
         # Namespace availability can take up to two seconds to probe. Keep the
         # API event loop responsive while checking it, before starting any tool.
         argv, sandboxed, executable = await asyncio.to_thread(self._build_argv, args)
+        return await self._capture(argv, timeout, sandboxed=sandboxed, executable=executable,
+                                   shell=shell, interactive=interactive, on_spawn=on_spawn, on_exit=on_exit)
+
+    async def _capture(
+        self, argv: list[str], timeout: float, *, sandboxed: bool, executable: str,
+        shell: str = "direct", interactive: bool = False, on_spawn: Any = None, on_exit: Any = None,
+        env: dict[str, str] | None = None, stdin_prefix: bytes | None = None, stop: Any = None,
+    ) -> SandboxExecutionResult:
+        """Drain both pipes into a shared bounded log budget; children never inherit log handles."""
         start = time.monotonic()
         # Only command tools request durable workspace logs. Search subprocesses
         # retain their existing temporary output and do not create artifacts.
@@ -199,38 +265,93 @@ class SandboxExecutor:
         with output_file() as stdout_file, output_file() as stderr_file:
             spawning = asyncio.create_task(asyncio.create_subprocess_exec(
                 *argv,
-                stdin=asyncio.subprocess.PIPE if interactive else asyncio.subprocess.DEVNULL,
-                stdout=stdout_file,
-                stderr=stderr_file,
+                stdin=asyncio.subprocess.PIPE if interactive or stdin_prefix is not None else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=65536,
                 cwd=str(self.workdir),
-                env=self._minimal_environment(),
+                env=self._minimal_environment() if env is None else env,
                 start_new_session=os.name == "posix",
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             ))
             # Cancellation during CreateProcess/fork must still acquire the
             # process handle so the same owner can stop and reap the child.
+            cancelled_during_spawn = False
             try:
                 process = await asyncio.shield(spawning)
             except asyncio.CancelledError:
                 process = await spawning
-                await self._stop_and_wait(process)
-                raise
+                cancelled_during_spawn = True
             timed_out = False
+            output_bytes = 0
+            output_limit_exceeded = False
+            capture_error: OSError | None = None
+            stop_output = asyncio.Event()
+
+            async def drain(reader: asyncio.StreamReader, destination: Any) -> None:
+                nonlocal output_bytes, output_limit_exceeded, capture_error
+                while chunk := await reader.read(65536):
+                    remaining = self.log_limit - output_bytes
+                    kept = chunk[:remaining]
+                    if kept and capture_error is None:
+                        try:
+                            destination.write(kept)
+                            destination.flush()  # Live-log readers use independent handles.
+                            output_bytes += len(kept)
+                        except OSError as exc:
+                            # Disk-full errors must not abandon a pipe and leave
+                            # process.wait() stuck on its backpressure during cleanup.
+                            capture_error = exc
+                            stop_output.set()
+                    if len(chunk) > remaining and not output_limit_exceeded:
+                        output_limit_exceeded = True
+                        stop_output.set()
+
+            readers = [asyncio.create_task(drain(process.stdout, stdout_file)),
+                       asyncio.create_task(drain(process.stderr, stderr_file))]
+            completion = asyncio.gather(process.wait(), *readers)
+            output_stop = asyncio.create_task(stop_output.wait())
             try:
+                if stdin_prefix is not None:
+                    process.stdin.write(stdin_prefix)
+                    await asyncio.wait_for(process.stdin.drain(), timeout=5)
+                if cancelled_during_spawn:
+                    raise asyncio.CancelledError
                 if on_spawn is not None:
-                    on_spawn(process, stdout_file, stderr_file, self._kill_process_group)
-                await asyncio.wait_for(process.wait(), timeout)
-            except asyncio.TimeoutError:
-                timed_out = True
+                    on_spawn(process, stdout_file, stderr_file, stop or self._kill_process_group)
+                # Keep draining during cancellation/timeout cleanup: a child
+                # blocked on a full pipe must not prevent wait() from finishing.
+                done, _ = await asyncio.wait({completion, output_stop}, timeout=timeout,
+                                             return_when=asyncio.FIRST_COMPLETED)
+                timed_out = not done
+                if completion in done:
+                    completion.result()
             finally:
                 try:
                     # On POSIX, a normally exiting parent can leave children in
                     # its process group. Stop those too before releasing logs.
-                    await self._stop_and_wait(process)
+                    if stop is None:
+                        await self._stop_and_wait(process)
+                    else:
+                        cleaning = asyncio.create_task(stop(process))
+                        try:
+                            await asyncio.shield(cleaning)
+                        except asyncio.CancelledError:
+                            # A second stop during SDK cleanup must not release
+                            # the Windows session lock before ACL revocation.
+                            await cleaning
+                            raise
                 finally:
+                    for reader in readers:
+                        reader.cancel()
+                    output_stop.cancel()
+                    completion.cancel()
+                    await asyncio.gather(completion, output_stop, *readers, return_exceptions=True)
                     if on_exit is not None:
                         on_exit()
 
+            if capture_error is not None:
+                raise UserFacingError("命令日志无法保存，已停止执行。请检查日志目录权限与磁盘空间。") from capture_error
             stdout_file.seek(0)
             stderr_file.seek(0)
             stdout_bytes = stdout_file.read(self.output_limit + 1)
@@ -241,13 +362,13 @@ class SandboxExecutor:
         stdout, stdout_error = _decode_preview(stdout_bytes, self.output_limit)
         stderr, stderr_error = _decode_preview(stderr_bytes, self.output_limit)
         return SandboxExecutionResult(
-            exit_code=-1 if timed_out else int(process.returncode or 0),
+            exit_code=-1 if timed_out or output_limit_exceeded else int(process.returncode or 0),
             stdout=stdout,
             stderr=stderr or ("command timed out" if timed_out else ""),
             duration_ms=(time.monotonic() - start) * 1000,
             timed_out=timed_out,
             output_truncated=(
-                len(stdout_bytes) > self.output_limit or len(stderr_bytes) > self.output_limit
+                output_limit_exceeded or len(stdout_bytes) > self.output_limit or len(stderr_bytes) > self.output_limit
             ),
             sandboxed=sandboxed,
             stdout_path=stdout_path,
@@ -255,6 +376,8 @@ class SandboxExecutor:
             shell=shell,
             executable=executable,
             output_decoding_errors=stdout_error or stderr_error,
+            output_limit_exceeded=output_limit_exceeded,
+            output_bytes_limit=self.log_limit,
         )
 
     async def execute_python(
@@ -273,24 +396,45 @@ class SandboxExecutor:
         return await self.execute_argv([executable, "-c", code], timeout)
 
     def set_limits(self, cpu_seconds: float, memory_mb: int) -> None:
-        """Reject unsupported quotas instead of acknowledging an unenforced limit."""
-        if cpu_seconds < 0 or memory_mb < 0:
-            raise ValueError("sandbox limits must not be negative")
-        if cpu_seconds or memory_mb:
-            raise NotImplementedError("CPU and memory quotas are not implemented; only wall-clock timeouts are enforced")
+        """Set Linux per-process RLIMIT_CPU/RLIMIT_AS, not aggregate CPU/RSS quotas.
+
+        The historical memory_mb argument denotes virtual address space. Both
+        hard and soft limits are applied by util-linux before executing the tool.
+        Zero leaves the host's existing limit unchanged.
+        """
+        if (not math.isfinite(cpu_seconds) or cpu_seconds < 0
+                or not isinstance(memory_mb, int) or memory_mb < 0):
+            raise ValueError("limits require finite nonnegative CPU seconds and integer address-space MiB")
+        if (cpu_seconds or memory_mb) and not _prlimit_binary():
+            raise UserFacingError("配置了 CPU/地址空间限制，但当前平台无法实施。此功能需要 Linux util-linux 的 prlimit；Windows 尚未支持。")
+        self.cpu_seconds = math.ceil(cpu_seconds)
+        self.address_space_mb = memory_mb
+
+    def _limited_argv(self, args: list[str]) -> list[str]:
+        if not self.cpu_seconds and not self.address_space_mb:
+            return args
+        binary = _prlimit_binary()
+        if not binary:
+            raise UserFacingError("无法实施已配置的资源限制；请检查 Linux prlimit 安装。命令未执行。")
+        # Avoid preexec_fn in the threaded API process; prlimit performs the
+        # kernel calls in its own process, then execs the requested command.
+        return [binary,
+                *([f"--cpu={self.cpu_seconds}:{self.cpu_seconds}"] if self.cpu_seconds else []),
+                *([f"--as={self.address_space_mb * 1024 * 1024}:{self.address_space_mb * 1024 * 1024}"]
+                  if self.address_space_mb else []), "--", *args]
 
     def _build_argv(self, args: list[str]) -> tuple[list[str], bool, str]:
         if self.mode == "danger_full_access":
             if not self.allow_network:
                 raise PermissionError("Host execution requires explicit network authorization; no command was started")
             resolved = self._resolve_argv(args)
-            return resolved, False, resolved[0]
+            return self._limited_argv(resolved), False, resolved[0]
         bubblewrap = shutil.which("bwrap") if platform.system() == "Linux" else None
         if bubblewrap and _bubblewrap_works(bubblewrap, self.allow_network):
             resolved = self._resolve_argv(args)
             if not self._visible_in_sandbox(Path(resolved[0]).resolve()):
                 raise SandboxUnavailableError("Executable is outside the sandbox mounts. No command was started.")
-            return self._bubblewrap_argv(bubblewrap, resolved), True, resolved[0]
+            return self._bubblewrap_argv(bubblewrap, self._limited_argv(resolved)), True, resolved[0]
         raise SandboxUnavailableError(
             f"Restricted process sandbox unavailable on {platform.system()}. No command was started."
         )
@@ -386,22 +530,82 @@ class SandboxExecutor:
                 "/tmp/npm-cache",
             ]
         )
-        # Protect common root credential files and Git metadata in the process
-        # namespace too. This is a bounded guard, not recursive content DLP.
-        for path in self.workspace_root.iterdir():
-            if path.is_symlink():
-                continue
-            if path.name == ".git":
-                command.extend(["--ro-bind", str(path), str(path)])
-            elif is_sensitive_path(path):
-                if path.is_dir():
-                    command.extend(["--tmpfs", str(path), "--remount-ro", str(path)])
-                elif path.is_file():
-                    command.extend(["--ro-bind", "/dev/null", str(path)])
+        command.extend(self._protected_mounts())
         command.extend(["--", *args])
         return command
 
+    def _protected_mounts(self) -> list[str]:
+        denied_read, denied_write = self._protected_paths()
+        mounts: list[str] = []
+        for path in denied_read:
+            if path.is_dir():
+                mounts.extend(["--tmpfs", str(path), "--remount-ro", str(path)])
+            else:
+                mounts.extend(["--ro-bind", "/dev/null", str(path)])
+        for path in denied_write:
+            mounts.extend(["--ro-bind", str(path), str(path)])
+        return mounts
+
+    def _protected_paths(self) -> tuple[list[Path], list[Path]]:
+        """Inventory credential/Git paths for Linux mounts and Windows ACL rules.
+
+        Abort on an incomplete inventory; silently skipping an unreadable or
+        oversized subtree would make the promised mounts depend on scan luck.
+        These mounts are a launch-time path guard, not content or hardlink DLP.
+        """
+        if is_sensitive_path(self.workspace_root):
+            raise PermissionError("A credential directory cannot be used as the command workspace")
+        denied_read: list[Path] = []
+        denied_write: list[Path] = []
+        pending = [self.workspace_root]
+        entries = 0
+        deadline = time.monotonic() + 5
+        while pending:
+            with os.scandir(pending.pop()) as children:
+                for entry in children:
+                    entries += 1
+                    if entries > 100_000 or time.monotonic() > deadline or len(denied_read) + len(denied_write) > 1000:
+                        raise UserFacingError("工作区保护扫描超出 10 万项、5 秒或挂载预算，命令未启动；请缩小工作区。")
+                    path = Path(entry.path)
+                    sensitive = is_sensitive_path(Path(entry.name))
+                    git = entry.name.casefold() == ".git"
+                    info = entry.stat(follow_symlinks=False)
+                    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                        if os.name == "nt":
+                            raise UserFacingError("工作区含符号链接或 junction，当前 Windows ACL 后端无法保证其路径边界；请使用无重解析点的工作区。")
+                        if sensitive or git:
+                            raise UserFacingError("工作区存在敏感名称或 .git 符号链接，无法安全遮蔽；命令未启动，请调整工作区。")
+                        continue
+                    if sensitive:
+                        if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+                            raise PermissionError("Protected path is not a regular file or directory")
+                        denied_read.append(path)
+                        continue
+                    if git:
+                        denied_write.append(path)
+                    if stat.S_ISDIR(info.st_mode):
+                        pending.append(path)
+        return denied_read, denied_write
+
+    def windows_read_paths(self) -> list[str]:
+        paths = self.windows_sandbox.get("allow_read", [])
+        if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+            raise ValueError("windows_sandbox.allow_read must be a list of absolute paths")
+        result = []
+        for path in paths:
+            validate_windows_path(path)
+            value = Path(path).expanduser()
+            if not value.is_absolute() or not value.exists() or is_sensitive_path(value.resolve()):
+                raise ValueError("Windows sandbox read exceptions must be existing, non-sensitive absolute paths")
+            result.append(str(value.resolve()))
+        return result
+
     def _visible_in_sandbox(self, directory: Path) -> bool:
+        if os.name == "nt":
+            roots = [Path(value) for key in ("SYSTEMROOT", "PROGRAMFILES", "PROGRAMFILES(X86)")
+                     if (value := os.environ.get(key))]
+            roots.extend(Path(path) for path in self.windows_read_paths())
+            return directory.is_relative_to(self.workspace_root) or any(directory.is_relative_to(root) for root in roots)
         return directory.is_relative_to(self.workspace_root) or any(
             directory.is_relative_to(Path(root)) for root in self._SYSTEM_MOUNTS
         )
