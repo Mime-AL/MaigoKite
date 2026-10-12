@@ -1,6 +1,6 @@
 # MaigoKite 智能体核心
 
-这是 MaigoKite 的 Python 核心服务包。从仓库根目录启动：
+这是 MaigoKite 的 Python 后端包，FastAPI 与 AgentCore 在同一进程中运行。从仓库根目录启动：
 
 ```bash
 PYTHONPATH=python .venv/bin/python -m agent.main run --config config/config.dev.yaml
@@ -10,4 +10,4 @@ PYTHONPATH=python .venv/bin/python -m agent.main run --config config/config.dev.
 
 依赖只在仓库根 `pyproject.toml` / `uv.lock` 维护，`python/` 不再是独立安装项目。
 
-默认执行路径仍为 legacy；LangGraph 普通聊天/工具路径需要显式启用临时迁移开关，尚未完成切默认验收。
+聊天、工具调用与审批续接统一使用 LangChain create_agent / LangGraph。旧自研执行链和迁移开关已删除；验收范围见 [交付路线与状态](../docs/project/Roadmap.md)。

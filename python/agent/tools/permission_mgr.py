@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from agent.security.sensitive_paths import is_sensitive_path
+from agent.security.sensitive_paths import is_sensitive_path, validate_windows_path
 from agent.security.whitelist import Whitelist
 from agent.utils.command_shell import resolve_command_shell
 
@@ -138,6 +138,18 @@ class PermissionManager:
         outside_workspace = False
         allow_network = unrestricted
         escalate = False
+        path_keys = (
+            ("path",) if tool_name.startswith("file_") or tool_name in {"grep", "browser"}
+            else ("root_dir",) if tool_name == "glob"
+            else ("workdir",) if tool_name in {"bash", "exec_command"}
+            else ()
+        )
+        try:
+            for key in path_keys:
+                if normalized.get(key) is not None:
+                    validate_windows_path(str(normalized[key]))
+        except ValueError as exc:
+            return PolicyDecision("deny", RiskLevel.L5, str(exc), normalized)
         if tool_name == "browser":
             action = str(normalized.get("action", ""))
             action_risks = {
@@ -183,7 +195,9 @@ class PermissionManager:
                 resolved = resolved.resolve()
                 if not unrestricted and is_sensitive_path(resolved):
                     return PolicyDecision("deny", RiskLevel.L5, "protected credential path is not available to agent tools", normalized)
-                if not unrestricted and tool_name in {"file_write", "file_edit"} and ".git" in resolved.parts:
+                if not unrestricted and tool_name in {"file_write", "file_edit"} and any(
+                    part.casefold() == ".git" for part in resolved.parts
+                ):
                     return PolicyDecision("deny", RiskLevel.L5, "direct writes to Git metadata are not allowed", normalized)
                 try:
                     resolved.relative_to(self.workspace_root)

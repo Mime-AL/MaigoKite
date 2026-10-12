@@ -5,7 +5,7 @@
 
 ## 1. 当前生命周期
 
-Python 核心服务是唯一 MCP Client 所有者，Go/Electron 不直接调用 MCP 工具。2026-10-10 已用官方 Python SDK 替换自研 stdio 协议实现；`agent.mcp.MCPClient` 仅保留配置校验、SDK 生命周期桥接和字典结果转换，调用入口不变。
+Python 核心服务是唯一 MCP Client 所有者，API 层和 Electron 不直接调用 MCP 工具。2026-10-10 已用官方 Python SDK 替换自研 stdio 协议实现；`agent.mcp.MCPClient` 仅保留配置校验、SDK 生命周期桥接和字典结果转换，调用入口不变。
 
 Linux 本地定向验收覆盖真实 SDK stdio 子进程、发现/调用/审批、取消后连接复用、超时、关闭和启动失败清理。它不覆盖后续扩展管理接口，具体范围见 [交付路线与状态](../../project/Roadmap.md)。
 

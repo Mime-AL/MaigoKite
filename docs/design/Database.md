@@ -12,7 +12,7 @@
 - 当前业务数据库只有 SQLite，启用 foreign keys 与 WAL。
 - SQLite 保存工作区、成员关系、会话、消息、任务、事件、工具调用、审批、设置、审计、Todo 和显式用户记忆。
 - 模型与其他非敏感工作区配置保存在 `workspace_settings` JSON 中。
-- 敏感凭证值由网关凭证存储保存，不进入 SQLite。
+- 敏感凭证值由 Python API 通过操作系统凭证存储保存，不进入 SQLite；访问边界见 [后端设计](BackendDesign.md#3-凭证与访问边界)。
 - 原始文档、FTS、向量嵌入、向量索引、PostgreSQL 和对象存储尚未接入。
 
 当前 Repository 采用单进程写入模型。不能仅凭接口抽象，就推断它已支持多实例并发或 PostgreSQL。

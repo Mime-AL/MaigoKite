@@ -95,7 +95,7 @@ UI 在读取消息、任务和审批快照之前开始缓冲收到的事件，�
 
 当前预加载白名单包含运行状态/错误订阅、窗口控制、外观、托盘状态、通知、工作区路径打开与速记；真实 IPC 在主进程校验窗口来源和参数。renderer 类型由实际 preload 对象派生，不再维护一份超前的方法承诺。业务请求仍统一走 Python API；这些接线不代表 runtime bundling 或桌面发布已验收。
 
-Electron 持有自己启动的 Go/Python 子进程并协调关闭；启动、退出等待和平台差异见 [开发指南](../development/DevelopmentGuide.md)。源码中的生命周期处理不等于完整进程监督或跨平台安装验收。打包路径、签名和干净机器验收由 [构建与发布指南](../deployment/ReleaseGuide.md) 定义。
+Electron 持有自己启动的单个 Python 后端进程并协调关闭；启动、退出等待和平台差异见 [开发指南](../development/DevelopmentGuide.md)。源码中的生命周期处理不等于完整进程监督或跨平台安装验收。打包路径、签名和干净机器验收由 [构建与发布指南](../deployment/ReleaseGuide.md) 定义。
 
 ## 7. 性能与可访问性
 

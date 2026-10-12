@@ -14,7 +14,7 @@ API 资源归属检查                  Python ToolPolicy
 谁能访问哪个 Workspace 资源       Agent 能否执行具体能力与参数
 ```
 
-两层都必须通过。网关的允许结果不能替代 ToolPolicy。
+两层都必须通过。API 资源归属检查的允许结果不能替代 ToolPolicy。
 
 ## 2. 风险等级
 
@@ -132,7 +132,7 @@ version
 - 内置工具使用路径、进程和网络策略限制。
 - `exec_command` 的 `shell=direct` 不经过 shell 展开；`auto` 在 Windows 优先选择 PowerShell 7、缺失时选择 Windows PowerShell 5.1，其他平台保持 direct。显式 `pwsh` / `powershell` 不互相回退。PowerShell 脚本整体交给对应解释器，不用 POSIX `shlex` 拆分。
 - Shell 选择在审批前归一化，与原始脚本一起进入已有审批参数/hash；传输用的 Base64 不替换审计正文。PowerShell 脚本按 L5 不透明操作处理，非完全访问模式需单次批准，不生成任务/会话复用授权。已配置的命令前缀白名单对脚本只允许全文匹配，不因开头命令允许而放行后续语句；工作目录仍校验路径。产品不声称能静态识别脚本中的所有敏感访问。
-- Linux 复用 bubblewrap，只挂载只读运行库和指定工作区，受限命令默认不共享网络。搜索使用只读工作区；工作区根部已知凭证文件遮蔽，`.git` 只读。这不是递归敏感内容隔离。PowerShell 安装位置不在挂载范围时，受限执行同样拒绝，不自动扩大挂载。
+- Linux 复用 bubblewrap，只挂载只读运行库和指定工作区，受限命令默认不共享网络。启动参数显式要求 user namespace、禁止嵌套 user namespace、去除全部 capabilities；安装版本或系统不支持时拒绝受限执行，不删除保护参数重试。可用性探测与实际执行使用相同隔离选项，断网探测不再带 `--share-net`。搜索使用只读工作区；工作区根部已知凭证文件遮蔽，`.git` 只读。这不是递归敏感内容隔离。PowerShell 安装位置不在挂载范围时，受限执行同样拒绝，不自动扩大挂载。
 - 受限进程沙箱不可用时返回 `SANDBOX_UNAVAILABLE`，不再回退为普通宿主命令。当前未实现 Windows/macOS 受限执行后端；不能假装这些平台已受保护。`file_read` 等进程内工具继续使用产品路径校验。
 - 工作区仍不得配置为文件系统根目录。单次已批准的显式升级命令、以及 `danger_full_access` 模式使用宿主 argv 执行，仍保留输出限制、取消、超时和进程清理。
 - 越界文件操作只有匹配审批/窄授权或显式完全访问才执行；浏览器文件操作同时校验页面 URL 和会话归属。完全访问不增加 Browser/MCP/子 Agent 的新功能。
@@ -141,6 +141,15 @@ version
 - 子进程不继承完整宿主环境。
 - 超时和取消应覆盖所属进程及后代，但当前 MCP 和同步线程存在限制；实际范围见 [智能体运行时设计](../../design/AgentRuntime.md)，不把目标要求当作已完成。
 - Windows 命令停止复用系统 `taskkill /PID <owned-pid> /T /F` 并等待退出，GUI 停止与执行超时/取消共用该清理回调。清理失败不假报成功。这不是 Windows Job Object 隔离，不能保证拦住已脱离或父进程已先退出的后台任务，也不提供后台进程托管能力。
+- 创建子进程期间收到取消时，等待取得该子进程句柄再停止并回收；POSIX 正常退出也清理原进程组的剩余后代。它不保证收回主动脱离进程组的宿主进程；Linux 受限执行另由 bubblewrap 的 PID namespace 管理后代。
+- 当前只执行墙钟超时、预览输出上限，不执行 CPU/内存配额。`set_limits()` 对非零配额明确报不支持；运行状态接口同样返回 `cpu_memory_limits: false`，不再保存未实施的限制值。
+- Windows 文件参数在路径规范化前拒绝盘符相对路径（`C:foo`）、缺盘符根路径、设备路径、NTFS alternate data streams、保留名称及尾随点/空格；沿用 Python 标准库的保留名称规则。`.git` 大小写变体不能绕过文件写入策略，路径白名单用 pathlib 比较目录层级。已有 API 目录句柄保护保留；这些参数检查不是任意 PowerShell 代码的 OS 沙箱，也不消除进程内文件工具的所有 TOCTOU 风险。
+
+### Windows 原生后端待接入
+
+方向为原生 Windows / PowerShell，不要求 WSL。调查了 [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) 的 Windows 后端：它可复用原生隔离组件，但目前仍标注 alpha，安装涉及专用账户、ACL 和 WFP 规则。其接入需要独立的管理员安装确认，以及进程/ACL 清理、并发工作区、文件和网络边界的 Windows 验收；不能仅套一层命令包装就宣称与 Linux 挂载隔离等价。
+
+本批未安装或默认启用该后端，也未自研 Win32 沙箱；Windows 受限命令及受限 `glob/grep` 仍明确失败。后续若采用该组件，普通 setup/start 不得自动修改系统账户、ACL 或防火墙，显式宿主执行也不得被标记为 sandboxed。本批仅源码修改与人工核对，未运行测试或 Windows 实机验证。
 
 ## 9. 审计
 

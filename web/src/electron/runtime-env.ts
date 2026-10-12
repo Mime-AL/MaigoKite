@@ -47,5 +47,10 @@ export function createRuntimeEnvironment(source: NodeJS.ProcessEnv = process.env
     if (value) target[key] = value
   }
   if (!target.LANG) target.LANG = 'C.UTF-8'
+  // The backend writes UTF-8 into Node pipes on both Windows editions;
+  // Python 3.14 otherwise uses the host locale for redirected text streams.
+  target.PYTHONUTF8 = '1'
+  target.PYTHONIOENCODING = 'utf-8'
+  target.PYTHONUNBUFFERED = '1'
   return target
 }

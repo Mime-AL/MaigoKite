@@ -127,6 +127,10 @@ Windows 暂无受限进程沙箱。上面的参数是请求本次宿主执行及
 
 超时与取消使用现有进程管理，Windows 通过 `taskkill /T /F` 请求停止所属进程树并等待返回；父进程先退出、后台脱离等情形没有 Job Object 级保证。日志面板支持 Windows 的独立文件句柄读取，不改变子进程的写入偏移。
 
+Python 后端和命令子进程的管道输出显式使用 UTF-8；这不改变 PowerShell 5.1 的文件写入编码，也不自动转换其他程序的 GBK 输出。命令子进程使用隐藏控制台启动，Git 状态查询不再弹出控制台窗口。内部搜索/Python 调用直接传 argv，不再先拼命令字符串再拆分。`shell=direct` 在 Windows 不直接运行 `.cmd/.bat`，此类命令请显式使用 PowerShell。
+
+文件工具和工作区 API 不接受 `C:foo`、`\foo`、`file.txt:stream`、设备名称或尾随点/空格等含糊路径；请使用工作区相对路径，或文件工具支持的完整绝对路径（例如 `C:\项目\说明.txt`）。这不会把 PowerShell 脚本当成可静态分析的文件参数。
+
 本轮仅静态检查，尚未完成 Windows 实机验收。待验证：5.1/7 的中文输出与中文/空格路径、管道和错误退出码、UTF-8/BOM 文件差异、审批拒绝与恢复、中文 stdin、超时及 GUI 停止子进程树。Linux 原有 direct 行为也需回归；未执行项不视为通过。
 
 编码约定依据：[微软编码说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_character_encoding?view=powershell-7.5)、[EncodedCommand 参数](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_exe?view=powershell-5.1#-encodedcommand)、[taskkill](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill)。
@@ -157,6 +161,7 @@ tools:
 `default_tools: []` 关闭默认内置工具，不关闭已显式连接的 MCP 工具。MCP 加载范围由
 服务级工具列表控制，再由设置页选择。`glob/grep` 需要安装 ripgrep（`rg`），缺失会提示；
 grep 使用 Rust 正则语法而非 Python 正则语法。非 Windows 的 `exec_command` 默认使用 direct argv，不解释管道、重定向或 Shell 展开；Windows 行为见本节 PowerShell 说明。
+受限 `glob/grep` 同时依赖进程沙箱：Linux 需要可用的 bubblewrap，Windows 目前未接入受限搜索后端，仅安装 ripgrep 或批准文件读取不能解除此限制；明确开启完全访问才使用宿主搜索，系统不会自动切换权限模式。
 历史 `bash` 名称只兼容旧显式调用，不再交给模型。
 
 同页下方可以为 Web 搜索配置可选服务。未配置凭证时使用无需密钥的 DuckDuckGo；保存

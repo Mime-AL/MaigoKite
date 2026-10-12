@@ -5,11 +5,14 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 
+from agent.security.sensitive_paths import validate_windows_path
+
 
 @contextmanager
 def parent_directory(root: Path, relative: str):
+    validate_windows_path(relative)
     parts = Path(relative).parts
-    if Path(relative).is_absolute() or ".." in parts:
+    if Path(relative).anchor or ".." in parts:
         raise PermissionError("relative workspace path required")
     if os.name == "nt":
         # Holding every ancestor without FILE_SHARE_DELETE prevents pathname replacement while Win32 creates a child.
@@ -64,6 +67,11 @@ def windows_directory(path: Path):
 
 
 def create_entry(root: Path, parent: str, name: str, kind: str) -> os.stat_result:
+    validate_windows_path(name)
+    if not name or Path(name).name != name or name in {".", ".."}:
+        raise ValueError("a single file name is required")
+    if kind not in {"directory", "file"}:
+        raise ValueError("invalid workspace entry kind")
     with parent_directory(root, parent) as directory:
         if os.name == "nt":
             target = directory / name
@@ -87,6 +95,7 @@ def create_entry(root: Path, parent: str, name: str, kind: str) -> os.stat_resul
 
 def read_file(root: Path, relative: str, limit: int) -> tuple[bytes, os.stat_result]:
     import stat
+    validate_windows_path(relative)
     path = Path(relative)
     with parent_directory(root, str(path.parent)) as directory:
         if os.name == "nt":

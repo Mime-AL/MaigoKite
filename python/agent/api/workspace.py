@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import subprocess
 import sys
 from datetime import UTC, datetime
 from functools import partial
@@ -15,6 +16,8 @@ from fastapi import APIRouter, Depends, Request, Response
 from agent.api import contracts as dto
 from agent.api.sessions import owner
 from agent.api.workspace_fs import create_entry, read_file
+from agent.security.sensitive_paths import validate_windows_path
+from agent.utils.sandbox import process_sandbox_status
 
 IGNORED = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".pytest_cache"}
 PREVIEW_LIMIT = 512 * 1024
@@ -26,7 +29,11 @@ def timestamp(value: float) -> str:
 
 
 def resolve(root: Path, relative: str, *, exists: bool = True) -> Path:
-    value = Path(relative.strip())
+    try:
+        validate_windows_path(relative)
+    except ValueError as exc:
+        raise dto.APIError(400, "INVALID_PATH", "不支持设备路径、NTFS 数据流、保留名称或不完整的盘符路径。") from exc
+    value = Path(relative)
     if value.is_absolute() or value.drive or ".." in value.parts or "\x00" in relative:
         raise dto.APIError(400, "INVALID_PATH", "请选择工作区内的相对路径。")
     target = (root / value).resolve(strict=exists)
@@ -79,6 +86,10 @@ def preview(root: Path, relative: str, limit: int = PREVIEW_LIMIT) -> dict:
 
 
 def new_entry(root: Path, parent: str, name: str, kind: str) -> dict:
+    try:
+        validate_windows_path(name)
+    except ValueError as exc:
+        raise dto.APIError(400, "INVALID_NAME", "请选择有效的文件或目录名称。") from exc
     if (name != name.strip() or name in {".", ".."} or name.lower() == ".git" or name.endswith(".")
             or re.search(r'[\\/:*?"<>|\x00-\x1f\x7f]', name)
             or re.fullmatch(r"(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", name.split(".")[0], re.I)):
@@ -115,7 +126,8 @@ async def git(root: Path, *args: str) -> bytes:
     env = {key: os.environ[key] for key in ("PATH", "SYSTEMROOT", "WINDIR", "PATHEXT", "TMPDIR", "TEMP", "TMP") if key in os.environ}
     env.update({"LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"})
     process = await asyncio.create_subprocess_exec("git", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", str(root), *args,
-                                                   env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+                                                   env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     output = bytearray()
     try:
         async with asyncio.timeout(8):
@@ -228,7 +240,13 @@ def routes(core, execution) -> APIRouter:
         target = resolve(await root(workspace_id, folder_id), path)
         if not target.is_dir():
             raise dto.APIError(400, "NOT_DIRECTORY", "请选择目录。")
-        program = "explorer.exe" if os.name == "nt" else "open" if sys.platform == "darwin" else "xdg-open"
+        if os.name == "nt":
+            system_root = os.environ.get("SYSTEMROOT")
+            if not system_root:
+                raise dto.APIError(503, "OPEN_FAILED", "缺少 Windows 系统目录，无法打开文件管理器。")
+            program = str(Path(system_root) / "explorer.exe")
+        else:
+            program = "open" if sys.platform == "darwin" else "xdg-open"
 
         async def launch():
             process = await asyncio.create_subprocess_exec(program, str(target), stdout=asyncio.subprocess.DEVNULL,
@@ -265,6 +283,7 @@ def routes(core, execution) -> APIRouter:
                 "workspace_source": "selection" if folder_id else "environment" if os.getenv("MAIGOKITE_WORKSPACE_ROOT") else "configuration",
                 "environment": core.config.get("app.environment", "development"),
                 "backend": {"status": "serving" if core._initialized else "unavailable", "version": request.app.version},
+                "sandbox": await to_thread.run_sync(process_sandbox_status),
                 "restart": {"pending": False, "required_for": ["启动配置与服务端口"],
                             "hot_applied": ["工作区选择", "模型", "权限", "扩展", "界面称呼"], "note": ""}}
 

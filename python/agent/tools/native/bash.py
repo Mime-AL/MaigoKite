@@ -109,7 +109,7 @@ class ExecCommandTool(BaseTool):
             )
         except SandboxUnavailableError as exc:
             return ToolResult.failure({}, public_error(exc), error_code="SANDBOX_UNAVAILABLE",
-                                      user_hint="Windows/macOS 暂无受限进程沙箱；Linux 需要 bubblewrap。可审批明确的沙箱外执行请求（包含网络权限），不会自动放行。")
+                                      user_hint=exc.user_hint)
         except FileNotFoundError as exc:
             return ToolResult.failure({}, public_error(exc), error_code="COMMAND_UNAVAILABLE",
                                       user_hint="请检查程序安装和 PATH。pwsh 需要 PowerShell 7；powershell 指 Windows PowerShell 5.1。")

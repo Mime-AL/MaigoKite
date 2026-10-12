@@ -1,4 +1,4 @@
-"""PowerShell CLI glue, not a shell parser or an authorization boundary."""
+"""Select PowerShell 5.1/7 and transport Unicode scripts without host-shell expansion."""
 
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ def powershell_executable(shell: str) -> str:
     candidates = os.environ.get("PATH", os.defpath).split(os.pathsep)
     if shell == "pwsh":
         for value in candidates:
+            if os.name == "nt":
+                value = value.strip('"')
             if not value or not Path(value).is_absolute():
                 continue
             candidate = Path(value) / ("pwsh.exe" if os.name == "nt" else "pwsh")

@@ -18,7 +18,7 @@
 
 ## 2. 通用调用上下文
 
-外部请求应经过API 层身份/资源校验形成可信上下文。以下是目标关联字段；当前请求仅携带部分主体/工作区字段，request/trace/deadline 尚未统一传播：
+外部请求应经过 API 层身份/资源校验形成可信上下文。以下是目标关联字段；当前请求仅携带部分主体/工作区字段，request/trace/deadline 尚未统一传播：
 
 ```text
 request_id
@@ -54,7 +54,9 @@ POST 仅所有者可用，接受 `root_path` 与可选 `name`，由 Core 校验�
 
 `DELETE folders/{folder_id}` 仅 owner 可用，API/Core 均检查身份；成功返回 204。只删除文件夹登记，不读取或删除磁盘文件、消息、任务、checkpoint、模型或记忆。关联对话（含归档）在同一 SQLite 事务中移至默认目录，撤销原目录下的复用审批授权，并写入 `workspace_folder.deleted` 审计；之后的文件操作使用默认目录。默认空 ID 不可删除（400），不存在或不属于当前个人范围的登记为 404。存在未结束任务、仍在清理的 Runtime run、运行进程或最新可恢复 interrupted 任务时返回 409；整项操作失败，不部分迁移。磁盘目录已消失不影响移除登记。界面提供二次确认并同步已载入对话的目录归属，迟到的旧列表不重新显示被移除的工作区。
 
-`folders/browse` 为本机 Web 文件夹选择器提供目录列表，要求 owner 且请求直接连接地址为 loopback（不信任转发头来判定本机）。可选 `path` 为已有绝对目录，省略时从API 层进程用户的主目录开始；`show_hidden=true` 包含点开头目录。响应为 `{path, parent, home, root, entries: [{name, path}], truncated}`，根目录的 parent 为空。只枚举目录，不返回文件或读取内容；每次最多扫描 5000 项、返回 500 个文件夹，不缓存响应。注册路径仍调用上述 POST，由 Core 做最终校验。它不是工作区文件预览接口，也不是远程设备文件选择协议；API/Core 必须共享文件系统，反向代理不应将此本机专用入口公开到远程。
+`folders/browse` 为本机 Web 文件夹选择器提供目录列表，要求 owner 且请求直接连接地址为 loopback（不信任转发头来判定本机）。可选 `path` 为已有绝对目录，省略时从 API 层进程用户的主目录开始；`show_hidden=true` 包含点开头目录。响应为 `{path, parent, home, root, entries: [{name, path}], truncated}`，根目录的 parent 为空。
+
+只枚举目录，不返回文件或读取内容；每次最多扫描 5000 项、返回 500 个文件夹，不缓存响应。注册路径仍调用上述 POST，由 Core 做最终校验。它不是工作区文件预览接口，也不是远程设备文件选择协议；API/Core 使用同一后端文件系统，反向代理不应将此本机专用入口公开到远程。
 
 手机访问为规划中，范围以 [手机远程访问](RemoteAccess.md) 为准。配对设备关联同一个个人主体；首版复用会话、任务、审批和 UI Event DTO，仅开放明确列出的远程资源。配对、会话和撤销的具体契约在实施时补充，本文不将它们列成已存在的端点。
 
@@ -198,7 +200,7 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 读取凭证只返回引用和元数据，不返回敏感凭证值。
 
 **模型窗口查询。** `models/{model_id}/context` 由 API 恢复当前配置的凭证，再调用
-Core 的 `GetChatModelContext`。与执行路径复用同一个容量解析函数和 Core 所有的模型客户端；
+`AgentCore.get_chat_model_context`。与执行路径复用同一个容量解析函数和 Core 所有的模型客户端；
 不生成消息、不创建任务、不自动加载模型、不修改配置。返回 `model_id / model_key / model_name`、
 `model_context_window / capacity_source / capacity_status / capacity_checked_at`，以及
 `input_budget_tokens / output_reserved_tokens / safety_margin_tokens / compaction_trigger_tokens`。
@@ -252,6 +254,10 @@ LM Studio 仅原生 API 暴露的 on/off 尚不映射到兼容接口，返回 `n
 `preferences` 是当前主体在工作区中的用户级偏好。`assistant_name`（1–32 个字符）用于界面称呼，只修改当前个人主体的显示偏好，不改变工作区名称。
 
 `runtime-status` 是工作区所有者可见的只读投影，返回规范化工作区根目录及来源、单一 `backend` 服务状态和版本、即时生效项与需重启项。它不修改部署配置，也不声称能够检测运行期间手工编辑的外部 YAML。
+
+响应新增 `sandbox: {platform, backend, status, reason, network_isolation, cpu_memory_limits, hint}`。
+这是宿主能力而非当前对话的授权结果：Linux 通过带断网、禁用嵌套 user namespace 和去除 capabilities 的最小 bubblewrap 启动探测才返回 `available`；探测在线程中执行、单次最多 2 秒，结果在后端进程内缓存。修改系统配置后需重启后端重新探测。它不保证特定工作区挂载成功，也不代表完全访问任务启用了隔离。
+未安装、探测失败、平台未接入分别返回 `bubblewrap_not_installed / bubblewrap_probe_failed / native_backend_not_integrated`；Windows 当前为 `backend: none, status: unavailable`，不根据 PowerShell 是否安装猜测沙箱能力。CPU/内存配额尚未实现，`cpu_memory_limits` 为 `false`。旧客户端可以忽略新增字段；本批未修改设置界面。
 
 ### 3.7 工作区文件与变更
 
@@ -347,7 +353,7 @@ Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取
 
 **进程。** job ID 使用真实命令的 tool_call ID，只允许停止当前 Core 持有且属于该工作区的句柄，客户端不能提交任意 PID。日志通过 GET 轮询，不是新增日志 WebSocket 协议；`log_tail` 为 stdout/stderr 各约 4000 的尾部片段。POSIX 使用不移动子进程文件偏移的 `pread` 读取；无 `pread` 的平台 `live_logs_available: false`，只提供已有完成输出。仍沿用现有执行超时、进程组终止及平台限制；这不是 detached background scheduler，不保证跨 Core 重启接管进程。
 
-权限拒绝、版本冲突、任务已结束等情况不会以空列表/假成功代替真实写入结果。前端后续需接入这些端点及新的事件映射；Mock 演示通过不等于真实接口已联调通过。
+权限拒绝、版本冲突、任务已结束等情况不会以空列表/假成功代替真实写入结果。前端已接入相关端点和事件映射，但接线和 Mock 演示不等于真实 Python API 已联调通过；验收范围见 [交付路线与状态](../project/Roadmap.md)。
 
 ## 4. 命令语义
 
@@ -361,7 +367,7 @@ Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取
 
 生命周期只允许一个 worker。HTTP 入口完成输入与工作区归属校验，Core 决定执行、审批、取消及恢复；客户端不能自选可信 principal。请求体上限 2 MiB，系统文件/凭证操作在工作线程中完成，HTTP 断线不取消已接纳任务。
 
-原有会话、消息、任务、审批与事件 JSON 保持兼容；`runtime-status` 的 `gateway / agent_core` 合并为 `backend`，前端需同步更新。Web 构建版由同一后端提供页面，未知 API 地址不返回 SPA 页面。2026-10-12 迁移仅完成源码与接口清单核对，未运行测试或构建。
+原有会话、消息、任务、审批与事件 JSON 保持兼容；`runtime-status` 的 `gateway / agent_core` 合并为 `backend`，前端按单服务状态展示。Web 构建版由同一后端提供页面，未知 API 地址不返回 SPA 页面。2026-10-12 迁移仅完成源码与接口清单核对，未运行测试或构建。
 
 ## 6. WebSocket 事件
 

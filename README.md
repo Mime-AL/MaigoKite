@@ -35,7 +35,7 @@ MaigoKite 是一个运行在你电脑上的个人 Agent，用来处理文件、�
 
 推荐安装 [uv](https://github.com/astral-sh/uv)，以便按锁文件安装 Python 依赖。请在运行应用的机器上安装依赖，不要复制其他机器的 `.venv` 或 `node_modules`。详细环境要求见 [开发指南](docs/development/DevelopmentGuide.md)。
 
-旧 Python 环境升级到 3.14 前，请先退出整套应用，再执行 `uv sync --locked --no-default-groups --python 3.14`，或使用下方 setup 脚本。默认只安装 Python 运行依赖；uv 同步会移除项目环境中不再需要的包，必要时重建不兼容的虚拟环境，不清理共享解释器或下载缓存。启动脚本不会自动替换旧环境；无 uv 时的升级步骤见开发指南。
+升级 Python 环境前先退出应用，按 [开发指南](docs/development/DevelopmentGuide.md#2-初始化) 更新依赖；启动脚本不会自动替换旧环境。
 
 ### Linux
 
@@ -72,17 +72,17 @@ if ($LASTEXITCODE -eq 0) { .\scripts\start.ps1 web built }
 
 Windows 命令工具支持 PowerShell 7 / 5.1，但尚未完成实机验收，也没有受限进程沙箱。命令执行需单次授权或显式开启完全访问，编码差异见 [配置指南](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
 
-`setup` 默认同步 Python 运行依赖及 Web/Electron 源码工具。只更新后端用 `setup.sh python` / `setup.ps1 python`，不重装前端；需要 Python 开发工具时才用 `setup.sh dev` / `setup.ps1 dev`。安装前检查 8080/5173 占用，须先退出整套应用；不会替你结束进程。
+`setup` 安装 Python 运行依赖及 Web/Electron 工具。执行前先退出应用；仅更新后端或安装开发工具的选项见 [开发指南](docs/development/DevelopmentGuide.md#2-初始化)。
 
 Web 和桌面入口二选一，不要同时启动。日常使用只需执行对应的 `start ... built`，不用每次重装或构建。修改前端或 Electron 源码后重新构建；需要热更新开发时，省略 `built`，使用 `start.sh web|desktop` 或 `start.ps1 web|desktop`。
 
-构建失败后不要继续启动。`built` 会核对成功构建记录与当前界面源码，缺失、失败或过期时拒绝创建服务，避免运行仍含旧 Go Gateway 的 Electron 产物。从旧版本升级后需要成功构建一次；不需要因此重装依赖。
+构建失败后不要继续启动。`built` 会检查构建记录和当前源码，产物缺失或过期时须重新构建。
 
 Web `built` 地址为 `http://127.0.0.1:8080`，页面和 API 都由 Python 后端提供；开发模式地址为 `http://127.0.0.1:5173`，Vite 代理同一个后端。桌面 `built` 直接打开本地界面。两种入口都只用于本机，不要直接把端口暴露到公网。
 
-从 Go 网关版本升级时，先退出旧整套服务，再运行 setup、build 和 start；不再需要 Go SDK 或 8081 端口。保持原 `MAIGOKITE_CONFIG` / `MAIGOKITE_DB_PATH` 即可沿用会话、任务、审批及相邻的 LangGraph 检查点，无需导出导入。不要同时启动旧版和新版操作同一数据库。
+旧版后端的升级、数据沿用和凭证限制见 [从旧后端升级](docs/development/DevelopmentGuide.md#从旧后端升级)。
 
-`Ctrl+C` 停止本次启动的整套服务。关闭浏览器标签页不会停止服务；桌面关闭窗口会隐藏到托盘，用托盘“退出”关闭整套服务。若提示端口占用，请先退出旧实例；脚本不会替你结束其他进程或连接旧 Core。
+`Ctrl+C` 停止本次启动的整套服务。关闭浏览器标签页不会停止服务；桌面关闭窗口会隐藏到托盘，用托盘“退出”关闭整套服务。端口占用时先退出旧实例，脚本不会替你结束其他进程。
 
 启动失败时先查看 [常见启动问题](docs/user-guide/Installation.md#3-常见启动问题)，包括 Electron 安装不完整、端口冲突和模型连接问题。
 

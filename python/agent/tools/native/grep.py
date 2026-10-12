@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import shlex
+import os
 from pathlib import Path
 from typing import Any
 
@@ -55,13 +55,14 @@ class GrepTool(BaseTool):
             command.append("--ignore-case")
         command.extend(["--", args.pattern, "." if target.is_dir() else str(target)])
         try:
-            result = await executor.execute_command(shlex.join(command))
+            result = await executor.execute_argv(command)
         except FileNotFoundError:
             return ToolResult.failure({}, "ripgrep is not installed.", error_code="RIPGREP_UNAVAILABLE",
                                       user_hint="文件搜索需要 ripgrep（rg），请安装后重试。")
         except SandboxUnavailableError as exc:
             return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
-                                      user_hint="内容搜索需要可用的进程沙箱；请安装或启用 bubblewrap。")
+                                      user_hint=("Windows 受限内容搜索尚未接入；可先用 file_read 读取已知文件。"
+                                                 "不会为搜索自动开启完全访问。" if os.name == "nt" else exc.user_hint))
         if result.timed_out or result.exit_code not in {0, 1}:
             return ToolResult.failure({}, result.stderr or "Content search failed.", error_code="FILE_SEARCH_FAILED")
         matches: list[tuple[str, int]] = []

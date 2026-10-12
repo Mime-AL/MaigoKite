@@ -227,7 +227,7 @@ async function start(target, mode) {
   const config = needFile(hostPath(process.env.MAIGOKITE_CONFIG || 'config/config.dev.yaml'))
   const env = {
     ...process.env, MAIGOKITE_PROJECT_ROOT: root, MAIGOKITE_CONFIG: config,
-    MAIGOKITE_PYTHON: python, PYTHONUNBUFFERED: '1',
+    MAIGOKITE_PYTHON: python, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
     MAIGOKITE_INSTALL_DIR: hostPath(process.env.MAIGOKITE_INSTALL_DIR || root),
     MAIGOKITE_BACKEND_PROXY_TARGET: 'http://127.0.0.1:8080',
     MAIGOKITE_PARENT_PIPE: '1',

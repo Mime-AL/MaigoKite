@@ -8,7 +8,7 @@
 
 两个入口都会启动整套本地服务，不要同时运行，也不需要 Make。
 
-源码运行需要 Go、Python、Node/npm。未来的正式安装包应包含所需运行资源，不能要求普通用户自行安装开发环境。
+源码运行需要 Python 3.14.x、Node/npm 和 ripgrep（`rg`），具体版本见开发指南。未来的正式安装包应包含所需运行资源，不能要求普通用户自行安装开发环境。
 
 ## 2. 首次使用
 
@@ -22,7 +22,7 @@
 ## 3. 常见启动问题
 
 - **设置保存 404**：确认连接的是当前 Python 后端，再检查前端代理、服务版本和启动状态。不必反复填写凭证。
-- **Python 不可用**：检查实际使用的解释器和依赖。核心服务的 health 接口使用 gRPC，不是 HTTP `/health`。
+- **Python 不可用**：检查实际使用的解释器和依赖。Python 后端在 Core 初始化完成后提供 HTTP `/health`，默认地址为 `http://127.0.0.1:8080/health`。
 - **Electron 安装不完整**：更新仓库后运行 `bash scripts/setup.sh electron`（Windows：`.\scripts\setup.ps1 electron`），再用 `start desktop built` 启动。重复编译不能补齐 Electron。新机器应先按开发指南安装受支持的 Node/npm，再执行完整 setup。
 - **端口冲突**：检查是否同时启动了开发脚本和 Electron 管理的服务，再检查配置中的端口。
 - **模型连得上却不能回答/调用工具**：确认真实模型 ID、模型提供方协议和服务端能力。HTTP 200 不代表响应中有正确的 completion。

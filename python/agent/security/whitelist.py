@@ -56,5 +56,10 @@ class Whitelist:
         self._allowed_paths.add(str(Path(path_pattern).expanduser().resolve()))
 
     def is_path_allowed(self, path: str) -> bool:
-        resolved = str(Path(path).expanduser().resolve())
-        return any(fnmatch.fnmatch(resolved, pattern) or resolved == pattern or resolved.startswith(pattern.rstrip("/") + "/") for pattern in self._allowed_paths)
+        resolved = Path(path).expanduser().resolve()
+        # pathlib handles Windows separators and case folding while preserving
+        # directory boundaries (docs is not docs-backup).
+        return any(
+            fnmatch.fnmatch(str(resolved), pattern) or resolved.is_relative_to(Path(pattern))
+            for pattern in self._allowed_paths
+        )

@@ -7,7 +7,7 @@
 
 | 来源 | 当前提供 | 限制 |
 | --- | --- | --- |
-| Go/Python ConsoleObserver | 组件控制台日志、Python 标准 logging 事件数据 | 没有统一外层 JSON Schema、应用日志轮转或云同步 |
+| Python ConsoleObserver / logging | 组件控制台日志、Python 标准 logging 事件数据 | 没有统一外层 JSON Schema、应用日志轮转或云同步 |
 | SQLite `audit_events` | 工具/审批等安全与业务审计 | 独立于普通运行日志 |
 | `task_events` / 活动区 | 工具、审批、公开过程与终态，稳定 ID/sequence | 补拉有单页上限及订阅窗口，不是无限重放 |
 | health / runtime-status | Python 后端基本状态、路径和版本等实际值 | FastAPI `/health` 在初始化完成后提供状态 |
@@ -29,7 +29,7 @@
 
 ## 3. 排障流程
 
-1. 先看工作区与运行状态，确认网关/核心服务连接和真实路径；区分网络断线与核心服务退出。
+1. 先看工作区与运行状态，确认 Python 后端状态和真实路径；区分页面连接断开与后端进程退出。
 2. 以任务/tool_call ID 检查持久活动和审批记录，再查对应组件控制台输出。
 3. 模型问题检查所选配置项、实际模型 ID、基础地址、连接验证；搜索/MCP 问题查对应工具配置与服务错误，不能混同模型 API 密钥。
 4. 审批恢复查运行时检查点和审批摘要值/版本，UI 显示 waiting 不证明恢复成功。
@@ -42,7 +42,7 @@
 
 按实际诊断需求逐步复用成熟 logger/OTel 和桌面日志收集，不自研 tracing 或上传服务：
 
-- 统一 Go/Python 字段和 request/trace 传播，补递归脱敏回归。
+- 统一 API/Core 日志字段和 request/trace 传播，补递归脱敏回归。
 - 桌面滚动文件限制大小/份数，提供用户主动导出；不要求 S3、Kubernetes 或集中式日志平台。
 - 增加必要的模型耗时、任务失败/取消、浏览器/MCP 资源、事件缺口和 SQLite 状态观测。
 - 费用与缓存收益仅来自真实模型提供方/代表性任务测量；阈值按容量与体验确定，不预写虚假 SLO。

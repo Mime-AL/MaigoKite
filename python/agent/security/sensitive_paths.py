@@ -3,6 +3,7 @@
 This is a conservative path guard, not content DLP or a sandbox for arbitrary code.
 """
 
+import os
 from fnmatch import fnmatchcase
 from pathlib import Path
 
@@ -15,7 +16,24 @@ SENSITIVE_NAMES = (
 
 
 def is_sensitive_path(path: Path) -> bool:
-    return any(fnmatchcase(part.casefold(), pattern) for part in path.parts for pattern in SENSITIVE_NAMES)
+    parts = (part.split(":", 1)[0].rstrip(" .") if os.name == "nt" else part for part in path.parts)
+    return any(fnmatchcase(part.casefold(), pattern) for part in parts for pattern in SENSITIVE_NAMES)
+
+
+def validate_windows_path(path: str | Path) -> None:
+    """Reject Win32 aliases before resolve() erases the spelling used for approval."""
+    text = str(path)
+    if "\x00" in text:
+        raise ValueError("file paths must not contain NUL")
+    if os.name != "nt":
+        return
+    value = Path(text)
+    # C:foo and \foo depend on a drive's current directory; neither identifies
+    # the same resource across approval, restart and execution.
+    if bool(value.drive) != bool(value.root):
+        raise ValueError("use a workspace-relative path or a fully qualified Windows path")
+    if text.replace("/", "\\").startswith(("\\\\?\\", "\\\\.\\")) or os.path.isreserved(text):
+        raise ValueError("device paths, alternate data streams and reserved Windows names are not supported")
 
 
 def search_exclusions() -> list[str]:

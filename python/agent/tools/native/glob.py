@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import shlex
+import os
 from pathlib import Path
 from typing import Any
 
@@ -48,16 +48,17 @@ class GlobTool(BaseTool):
             "allow_network": full_access,
         })
         try:
-            result = await executor.execute_command(shlex.join([
+            result = await executor.execute_argv([
                 "rg", "--no-config", "--files", "--null", "--sort", "path", "--glob", args.pattern,
                 *([] if full_access else search_exclusions()), ".",
-            ]))
+            ])
         except FileNotFoundError:
             return ToolResult.failure({}, "ripgrep is not installed.", error_code="RIPGREP_UNAVAILABLE",
                                       user_hint="文件搜索需要 ripgrep（rg），请安装后重试。")
         except SandboxUnavailableError as exc:
             return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
-                                      user_hint="文件搜索需要可用的进程沙箱；请安装或启用 bubblewrap。")
+                                      user_hint=("Windows 受限文件搜索尚未接入；可在工作区文件栏查看文件。"
+                                                 "不会为搜索自动开启完全访问。" if os.name == "nt" else exc.user_hint))
         if result.timed_out or result.exit_code not in {0, 1}:
             return ToolResult.failure({}, result.stderr or "File search failed.", error_code="FILE_SEARCH_FAILED")
         # A capped output can end in half a filename; never present it as real.

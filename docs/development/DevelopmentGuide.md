@@ -84,7 +84,7 @@ Web dev 使用 `http://127.0.0.1:5173`，Vite 代理 HTTP/WebSocket 到 Python �
 
 Python CLI 为 `maigokite-agent run --config config/config.dev.yaml --port 8080`，源码也可用项目 Python 执行 `python/main.py run`。可选 `--web-dir web/dist` 提供已构建页面；只允许一个 worker，不使用 uvicorn reload/multi-worker 启动同一 Core。
 
-默认配置为 `config/config.dev.yaml`。built 也使用这份配置和开发数据库，不会自动切换数据目录。可通过 `MAIGOKITE_CONFIG` 指定其他配置，但 成套脚本与前端代理仍约定使用 8080。
+默认配置为 `config/config.dev.yaml`。built 也使用这份配置和开发数据库，不会自动切换数据目录。可通过 `MAIGOKITE_CONFIG` 指定其他配置，但成套脚本与前端代理仍约定使用 8080。
 
 ### 路径与解释器
 

@@ -17,12 +17,22 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from agent.security.sensitive_paths import is_sensitive_path
+from agent.security.sensitive_paths import is_sensitive_path, validate_windows_path
 from agent.utils.command_shell import powershell_argv, resolve_command_shell
 
 
 class SandboxUnavailableError(RuntimeError):
     """A confined request must not silently become a host process."""
+
+    @property
+    def user_hint(self) -> str:
+        if os.name == "nt":
+            return ("Windows 原生受限进程沙箱尚未接入；安装 PowerShell 或 WSL 不会自动启用隔离。"
+                    "命令需明确请求单次宿主执行及网络权限并获得批准，或由用户开启完全访问。")
+        if platform.system() == "Linux":
+            return ("请安装或更新 bubblewrap，并确认系统允许非特权用户命名空间。"
+                    "也可以明确申请单次沙箱外执行及网络权限；不会自动放行。")
+        return "当前平台尚未接入受限进程沙箱；命令需明确申请单次宿主执行及网络权限。"
 
 
 @dataclass(frozen=True)
@@ -50,8 +60,8 @@ def _decode_preview(data: bytes, limit: int) -> tuple[str, bool]:
         return data[:limit].decode("utf-8", errors="replace"), True
 
 
-@lru_cache(maxsize=4)
-def _bubblewrap_works(binary: str) -> bool:
+@lru_cache(maxsize=8)
+def _bubblewrap_works(binary: str, allow_network: bool = False) -> bool:
     """Return whether bubblewrap can create a minimal namespace on this host."""
     try:
         result = subprocess.run(
@@ -60,7 +70,10 @@ def _bubblewrap_works(binary: str) -> bool:
                 "--die-with-parent",
                 "--new-session",
                 "--unshare-all",
-                "--share-net",
+                "--unshare-user",
+                "--disable-userns",
+                "--cap-drop", "ALL",
+                *(["--share-net"] if allow_network else []),
                 "--ro-bind",
                 "/usr",
                 "/usr",
@@ -91,6 +104,25 @@ def _bubblewrap_works(binary: str) -> bool:
     return result.returncode == 0
 
 
+def process_sandbox_status() -> dict[str, Any]:
+    """Report host isolation capability separately from a session's authorization mode."""
+    system = platform.system()
+    binary = shutil.which("bwrap") if system == "Linux" else None
+    available = bool(binary and _bubblewrap_works(binary))
+    return {
+        "platform": system,
+        "backend": "bubblewrap" if system == "Linux" else "none",
+        "status": "available" if available else "unavailable",
+        "reason": "" if available else (
+            "bubblewrap_probe_failed" if binary else "bubblewrap_not_installed" if system == "Linux"
+            else "native_backend_not_integrated"
+        ),
+        "network_isolation": available,
+        "cpu_memory_limits": False,
+        "hint": "" if available else SandboxUnavailableError().user_hint,
+    }
+
+
 class SandboxExecutor:
     """Execute argv or an explicitly selected shell within the approved boundary."""
 
@@ -99,6 +131,9 @@ class SandboxExecutor:
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         values = config or {}
+        for key in ("workspace_root", "workdir"):
+            if values.get(key):
+                validate_windows_path(values[key])
         self.workspace_root = Path(values.get("workspace_root") or Path.cwd()).expanduser().resolve()
         self.workdir = Path(values.get("workdir") or self.workspace_root).expanduser().resolve()
         if self.workspace_root == Path(self.workspace_root.anchor):
@@ -119,8 +154,6 @@ class SandboxExecutor:
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
             directory.resolve().relative_to(self.workspace_root)
             self.output_directory = directory
-        self._cpu_seconds = 0.0
-        self._memory_mb = 0
 
     async def execute_command(
         self, command: str, timeout: int = 30, *, on_spawn: Any = None, on_exit: Any = None, interactive: bool = False,
@@ -138,12 +171,23 @@ class SandboxExecutor:
                 raise ValueError("command must not be empty")
         else:
             args = powershell_argv(command, shell, interactive=interactive)
-            if self.mode != "danger_full_access" and not self._visible_in_sandbox(Path(args[0]).resolve()):
-                raise SandboxUnavailableError(
-                    "PowerShell is outside the sandbox mounts; request explicit host execution. No command was started."
-                )
 
-        argv, sandboxed = self._build_argv(args)
+        return await self.execute_argv(args, timeout, on_spawn=on_spawn, on_exit=on_exit,
+                                       interactive=interactive, shell=shell)
+
+    async def execute_argv(
+        self, args: list[str], timeout: int = 30, *, on_spawn: Any = None, on_exit: Any = None,
+        interactive: bool = False, shell: str = "direct",
+    ) -> SandboxExecutionResult:
+        """Run already-separated arguments without a shell or a POSIX quoting round trip."""
+        if not args or not args[0] or any(not isinstance(arg, str) or "\x00" in arg for arg in args):
+            raise ValueError("argv must contain an executable and NUL-free text arguments")
+        if timeout <= 0:
+            raise ValueError("command timeout must be positive")
+
+        # Namespace availability can take up to two seconds to probe. Keep the
+        # API event loop responsive while checking it, before starting any tool.
+        argv, sandboxed, executable = await asyncio.to_thread(self._build_argv, args)
         start = time.monotonic()
         # Only command tools request durable workspace logs. Search subprocesses
         # retain their existing temporary output and do not create artifacts.
@@ -153,7 +197,7 @@ class SandboxExecutor:
             return tempfile.NamedTemporaryFile(mode="w+b", prefix="command_", suffix=".log",
                                                dir=self.output_directory, delete=False)
         with output_file() as stdout_file, output_file() as stderr_file:
-            process = await asyncio.create_subprocess_exec(
+            spawning = asyncio.create_task(asyncio.create_subprocess_exec(
                 *argv,
                 stdin=asyncio.subprocess.PIPE if interactive else asyncio.subprocess.DEVNULL,
                 stdout=stdout_file,
@@ -161,7 +205,16 @@ class SandboxExecutor:
                 cwd=str(self.workdir),
                 env=self._minimal_environment(),
                 start_new_session=os.name == "posix",
-            )
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            ))
+            # Cancellation during CreateProcess/fork must still acquire the
+            # process handle so the same owner can stop and reap the child.
+            try:
+                process = await asyncio.shield(spawning)
+            except asyncio.CancelledError:
+                process = await spawning
+                await self._stop_and_wait(process)
+                raise
             timed_out = False
             try:
                 if on_spawn is not None:
@@ -169,19 +222,14 @@ class SandboxExecutor:
                 await asyncio.wait_for(process.wait(), timeout)
             except asyncio.TimeoutError:
                 timed_out = True
-                await self._kill_process_group(process)
-                await process.wait()
-            except asyncio.CancelledError:
-                await self._kill_process_group(process)
-                await process.wait()
-                raise
-            except Exception:
-                await self._kill_process_group(process)
-                await process.wait()
-                raise
             finally:
-                if on_exit is not None:
-                    on_exit()
+                try:
+                    # On POSIX, a normally exiting parent can leave children in
+                    # its process group. Stop those too before releasing logs.
+                    await self._stop_and_wait(process)
+                finally:
+                    if on_exit is not None:
+                        on_exit()
 
             stdout_file.seek(0)
             stderr_file.seek(0)
@@ -205,7 +253,7 @@ class SandboxExecutor:
             stdout_path=stdout_path,
             stderr_path=stderr_path,
             shell=shell,
-            executable=args[0],
+            executable=executable,
             output_decoding_errors=stdout_error or stderr_error,
         )
 
@@ -213,43 +261,55 @@ class SandboxExecutor:
         self, code: str, timeout: int = 30
     ) -> SandboxExecutionResult:
         # Workspace environments take priority; Core's interpreter is not a project runtime.
-        search_path = self._execution_path()
-        executable = next(
-            (resolved for name in ("python", "python3")
-             if (resolved := shutil.which(name, path=search_path))),
-            None,
-        )
+        executable = None
+        for name in ("python", "python3"):
+            try:
+                executable = self._resolve_argv([name])[0]
+                break
+            except FileNotFoundError:
+                continue
         if executable is None:
             raise RuntimeError("Python executable is unavailable in the workspace execution PATH")
-        if self.mode != "danger_full_access" and not self._visible_in_sandbox(Path(executable).resolve()):
-            raise SandboxUnavailableError(
-                "Workspace Python points outside the sandbox mounts. Use a runtime inside the workspace "
-                "or system mounts, or explicitly authorize host execution. No command was started."
-            )
-        return await self.execute_command(
-            f"{shlex.quote(executable)} -c {shlex.quote(code)}", timeout
-        )
+        return await self.execute_argv([executable, "-c", code], timeout)
 
     def set_limits(self, cpu_seconds: float, memory_mb: int) -> None:
-        # Reserved for a future cgroup/job-object adapter. The process deadline is
-        # enforced now; accepting invalid values would create a false guarantee.
+        """Reject unsupported quotas instead of acknowledging an unenforced limit."""
         if cpu_seconds < 0 or memory_mb < 0:
             raise ValueError("sandbox limits must not be negative")
-        self._cpu_seconds = cpu_seconds
-        self._memory_mb = memory_mb
+        if cpu_seconds or memory_mb:
+            raise NotImplementedError("CPU and memory quotas are not implemented; only wall-clock timeouts are enforced")
 
-    def _build_argv(self, args: list[str]) -> tuple[list[str], bool]:
+    def _build_argv(self, args: list[str]) -> tuple[list[str], bool, str]:
         if self.mode == "danger_full_access":
             if not self.allow_network:
                 raise PermissionError("Host execution requires explicit network authorization; no command was started")
-            return args, False
+            resolved = self._resolve_argv(args)
+            return resolved, False, resolved[0]
         bubblewrap = shutil.which("bwrap") if platform.system() == "Linux" else None
-        if bubblewrap and _bubblewrap_works(bubblewrap):
-            return self._bubblewrap_argv(bubblewrap, args), True
+        if bubblewrap and _bubblewrap_works(bubblewrap, self.allow_network):
+            resolved = self._resolve_argv(args)
+            if not self._visible_in_sandbox(Path(resolved[0]).resolve()):
+                raise SandboxUnavailableError("Executable is outside the sandbox mounts. No command was started.")
+            return self._bubblewrap_argv(bubblewrap, resolved), True, resolved[0]
         raise SandboxUnavailableError(
-            "Process sandbox unavailable. Install/enable bubblewrap on Linux, "
-            "or explicitly approve a require_escalated call with network_access=true. No command was started."
+            f"Restricted process sandbox unavailable on {platform.system()}. No command was started."
         )
+
+    def _resolve_argv(self, args: list[str]) -> list[str]:
+        """Resolve against the tool PATH, never Windows' implicit current-directory search."""
+        executable = Path(args[0])
+        if executable.is_absolute() or any(separator in args[0] for separator in (os.sep, os.altsep) if separator):
+            candidates = [executable if executable.is_absolute() else self.workdir / executable]
+        else:
+            candidates = [Path(directory) / executable for directory in self._execution_path().split(os.pathsep)
+                          if directory]
+        for candidate in candidates:
+            resolved = shutil.which(str(candidate))
+            if resolved:
+                if os.name == "nt" and Path(resolved).suffix.casefold() in {".cmd", ".bat"}:
+                    raise ValueError("Windows batch files require shell=powershell or shell=pwsh; direct argv cannot safely quote cmd.exe syntax")
+                return [resolved, *args[1:]]
+        raise FileNotFoundError(f"Executable not found in the tool PATH: {args[0]}")
 
     def _bubblewrap_argv(self, binary: str, args: list[str]) -> list[str]:
         command = [
@@ -257,6 +317,9 @@ class SandboxExecutor:
             "--die-with-parent",
             "--new-session",
             "--unshare-all",
+            "--unshare-user",
+            "--disable-userns",
+            "--cap-drop", "ALL",
         ]
         if self.allow_network:
             command.append("--share-net")
@@ -310,6 +373,8 @@ class SandboxExecutor:
                 "--setenv",
                 "TMPDIR",
                 "/tmp",
+                "--setenv", "PYTHONUTF8", "1",
+                "--setenv", "PYTHONIOENCODING", "utf-8",
                 "--setenv",
                 "GOCACHE",
                 "/tmp/go-build",
@@ -349,6 +414,8 @@ class SandboxExecutor:
         for candidate in candidates:
             if not candidate:
                 continue
+            if os.name == "nt":
+                candidate = candidate.strip('"')
             directory = Path(candidate).expanduser()
             if not directory.is_absolute():
                 directory = self.workdir / directory
@@ -375,12 +442,22 @@ class SandboxExecutor:
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_PAGER": "cat",
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
+            "NoDefaultCurrentDirectoryInExePath": "1",
         }
         if os.name == "nt":
             for key in ("SYSTEMROOT", "WINDIR", "PATHEXT"):
                 if value := os.environ.get(key):
                     environment[key] = value
         return environment
+
+    @classmethod
+    async def _stop_and_wait(cls, process: asyncio.subprocess.Process) -> None:
+        try:
+            await cls._kill_process_group(process)
+        finally:
+            await process.wait()
 
     @staticmethod
     async def _kill_process_group(process: asyncio.subprocess.Process) -> None:

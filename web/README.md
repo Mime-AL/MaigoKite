@@ -13,9 +13,9 @@ npm ci
 npm run dev
 ```
 
-上面的 `npm run dev` 只启动前端，供 UI 单独开发。完整应用从根目录启动：Linux `bash scripts/start.sh web|desktop`，Windows `scripts/start.ps1 web|desktop`；均管理本次启动的整套服务。Web 使用 Vite 的 后端 HTTP/WebSocket 代理。
+上面的 `npm run dev` 只启动前端，供 UI 单独开发。完整应用从根目录启动：Linux `bash scripts/start.sh web|desktop`，Windows `scripts/start.ps1 web|desktop`；均管理本次启动的整套服务。Web 开发模式通过 Vite 代理后端 HTTP/WebSocket 请求。
 
-不启动后端 的本地演示：
+不启动后端的本地演示：
 
 ```sh
 VITE_MOCK=1 npm run dev
@@ -32,7 +32,7 @@ npm run electron:compile
 VITE_MOCK=1 MAIGOKITE_EXTERNAL_RUNTIME=1 npx electron .
 ```
 
-Web 编译：`npm run build:web`；Web + Electron 编译：`npm run build`。Python 后端无需编译 Go；Web 构建版由 Python 提供静态页面。
+Web 编译：`npm run build:web`；Web + Electron 编译：`npm run build`。Web 构建版由 Python 后端提供静态页面。
 构建使用 `tsconfig.build.json` 检查生产代码，本地测试仍由原 `tsconfig.json` 和测试入口负责，不随应用编译。npm 与根目录入口共用构建脚本，成功后记录源码摘要；`built` 启动拒绝缺失、失败或过期的构建，不会回退到旧 Electron 产物。
 完整构建使用根目录 `build.sh` / `build.ps1` 的 `web|desktop|all`，再用 `start` 的 `built` 模式启动。
 `npm run electron:dev` 也转调完整桌面入口；`npm run electron:preview` 启动已有构建产物，不隐式重建。

@@ -69,7 +69,7 @@ OpenAI、Anthropic、Ollama、目标兼容服务各记录 text 流式输出 → 
 
 ## 6. 产品、安全与持久化
 
-- 网关认证/工作区归属贯穿列表、详情、命令、WS 与文件；可信 principal 不来自客户端。
+- API 层本机来源/工作区归属检查贯穿列表、详情、命令、WS 与文件；可信 principal 不来自客户端。设备认证尚未交付，不能把本机检查当成设备认证验收。
 - 权限预期唯一来源为 [工具权限](../agent-capabilities/security/tool-permission.md)：动态风险、hard-deny、参数变更和撤销均回归。
 - JSON Schema 联合/嵌套/额外属性/离线引用与错误 DTO；MCP isError/非法结果正确失败，超时/异常退出/最小环境与资源清理。
 - 浏览器用真实 Playwright 验证公开 URL、动作审批、截图路径、失败/取消和 session 回收，不自研浏览器协议替代测试。

@@ -66,13 +66,13 @@ SQLite 是当前唯一业务库，领域写入由 Python Repository 管理。敏
 
 当前尚未形成干净机器安装包的完整 runtime bundling 验收。本地 loopback/Origin 边界也不能替代设备认证。构建、资源打包和发布阻塞仅在 [构建与发布指南](../deployment/ReleaseGuide.md) 维护。
 
-历史多人服务器、PostgreSQL、Kubernetes 和分布式 Worker 不进入个人产品路线，也不是手机访问个人电脑的前置条件。当前 Docker 配置不是可用发行承诺。
+历史多人服务器、PostgreSQL、Kubernetes 和分布式 Worker 不进入个人产品路线，也不是手机访问个人电脑的前置条件。Docker/服务器部署的交付边界见 [构建与发布指南](../deployment/ReleaseGuide.md)。
 
 ## 6. 恢复与未来远程访问
 
 WebSocket 只传递事件，不是事实来源。UI 读取持久事件并去重，连接中断不自动取消主机任务。执行恢复以 LangGraph 检查点为依据；缺少检查点的历史任务不能续跑。浏览器 session 是易失资源，不能承诺重启续跑。恢复资格与限制见 [智能体运行时设计](AgentRuntime.md) 和 [API 设计](API.md)。
 
-手机 Web/PWA 为规划中，通过受保护 HTTPS 入口访问同一网关；不引入另一套运行时，也不能利用反向代理落到 loopback 就免认证。当前没有设备配对认证，不得直接公开本地端口。连接方案、权限和 R0–R3 验收仅由 [手机远程访问](RemoteAccess.md) 定义。
+手机 Web/PWA 为规划中，通过受保护 HTTPS 入口访问同一 Python API；不引入另一套运行时，也不能利用反向代理落到 loopback 就免认证。当前没有设备配对认证，不得直接公开本地端口。连接方案、权限和 R0–R3 验收仅由 [手机远程访问](RemoteAccess.md) 定义。
 
 ## 7. 专项入口
 
