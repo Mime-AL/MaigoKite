@@ -146,6 +146,12 @@ class WebUI(StaticFiles):
 def create_app(core, web_dir: Path | None = None) -> FastAPI:
     execution = Execution(core)
     credentials = Credentials(core)
+    async def safety_credential(workspace: str) -> str:
+        try:
+            return await credentials.get(workspace, "safety.decision_model")
+        except APIError:
+            return ""
+    core.set_safety_credential_provider(safety_credential)
 
     @asynccontextmanager
     async def lifespan(app):

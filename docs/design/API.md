@@ -226,11 +226,16 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 
 `risk_threshold` 为 0–100 整数；`trusted_model_ids` 最多 32 个，匹配当前实际调用的模型 ID，不匹配默认模型设置。`enabled: true` 时必须提供 `decision_base_url` 与 `decision_model`。当前 PATCH 实现会补齐 DTO 默认值，前端须先读取、再提交完整配置，以保留其他字段；未知字段被拒绝。格式不在枚举内时返回 `SAFETY_FORMAT_UNSUPPORTED`，阈值或白名单越界返回 400 Validation 错误。
 
+对于 `jev_like`/KEV，审查请求使用 `safe` 和 `dangerous` 两个分类。KEV 返回的
+`probabilities` 中与 `legend` 值 `dangerous` 对应的概率会乘以 100，作为事件和
+运行时使用的 `risk_score`；返回体中的 `score` 不作为风险值读取。因而
+`risk_threshold` 仍保持 0–100 配置语义，`risk_score > risk_threshold` 时拦截。
+
 `api_key` 只出现在 PATCH 请求中，按 `safety.decision_model` 凭证引用保存；GET 只返回 `credential_configured`，不回传密钥。密钥留空保留既有凭证，保存或离开面板后清除输入中的密钥。更换服务地址时须重新提供密钥或移除旧凭证，避免发送到其他服务。
 
 配置按工作区持久化，不随会话变化。设置页「安全」位于「权限」之后，支持配置读取、保存、审查凭证移除，以及 `?tab=safety` 和字段搜索定位。
 
-`capabilities.safety_review` 只表示配置接口可用。接口和 GUI 测试已完成（用户确认），运行时审查仍未接入；`enabled` 仅保存配置，不代表正在提供安全保护。验收记录见 [交付路线与状态](../project/Roadmap.md)。
+`capabilities.safety_review` 表示配置与运行时审查能力可用。启用后，主模型每次调用前审查新增的人类提示词；可信模型跳过审查，审查失败保守拦截，高于阈值时复用结构化提问/恢复链路等待人工决定。接口和 GUI 测试已完成，KEV HTTP 联调已完成；LAYA 联调仍待执行。验收记录见 [交付路线与状态](../project/Roadmap.md)。
 
 读取凭证只返回引用和元数据，不返回敏感凭证值。
 

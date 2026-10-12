@@ -48,6 +48,7 @@ from agent.errors import public_error
 from agent.models.context_capacity import ContextCapacity
 from agent.models.reasoning import ThinkTagStream, split_thinking, visible_reasoning
 from agent.repository import ConversationBusyError, SQLiteRepository
+from agent.safety import SafetyReviewError, SafetyReviewInput, SafetyReviewResult, SafetyReviewer, skipped_review
 from agent.runtime.context import ContextBudgetMiddleware, SafeSummarizationMiddleware
 from agent.runtime.subagents import CHILD_TAG, ChildContext, DelegateTool, ListSubagentModelsTool, create_readonly_agent
 from agent.tools.base import BaseTool
@@ -255,6 +256,106 @@ class _ProductToolMiddleware(AgentMiddleware):
             return await context.adapter._execute_product_tool_call(request, handler)
 
 
+class _PromptSafetyMiddleware(AgentMiddleware):
+    """Review newly visible human prompt text immediately before a model call."""
+
+    async def awrap_model_call(
+            self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+            context = request.runtime.context
+            adapter = context.adapter
+            if adapter._safety_settings is None:
+                return await handler(request)
+            settings = await adapter._safety_settings(context.request.workspace_id)
+            if not settings.get("enabled"):
+                return await handler(request)
+            model_id = str(context.execution_metadata.get("model_id") or
+                           getattr(request.model, "model_name", None) or getattr(request.model, "model", ""))
+            if model_id in settings.get("trusted_model_ids", []):
+                result = skipped_review(model_id, str(settings["request_format"]), int(settings["risk_threshold"]))
+                await adapter._emit_safety_result(context, result)
+                return await handler(request)
+            previous_questions = await adapter.repository.task_questions(
+                context.request.workspace_id, context.request.task_id,
+            )
+            safety_question = next(
+                (item for item in reversed(previous_questions)
+                 if item["tool_call_id"].startswith("safety_")),
+                None,
+            )
+            if safety_question is not None:
+                if safety_question["status"] == "answered":
+                    if safety_question["answer"] != "继续执行":
+                        raise PermissionError("prompt safety review denied execution")
+                    return await handler(request)
+                decision = interrupt({
+                    "kind": "user_question",
+                    "tool_call_id": safety_question["tool_call_id"],
+                    "title": safety_question["title"],
+                    "options": json.loads(safety_question["options_json"]),
+                    "safety_review": True,
+                    "review_id": safety_question["tool_call_id"],
+                })
+                if str(decision) != "继续执行":
+                    raise PermissionError("prompt safety review denied execution")
+                return await handler(request)
+            human_text = "\n\n".join(
+                str(message.text) for message in request.messages if isinstance(message, HumanMessage)
+            )
+            previous_length = int(context.execution_metadata.get("safety_reviewed_length", 0))
+            delta = human_text[previous_length:]
+            if not delta.strip():
+                return await handler(request)
+            context.execution_metadata["safety_reviewed_length"] = len(human_text)
+            key = await adapter._safety_credential(context.request.workspace_id) if adapter._safety_credential else ""
+            try:
+                result = await adapter._safety_reviewer.review(
+                    base_url=str(settings["decision_base_url"]),
+                    api_key=key,
+                    request_format=str(settings["request_format"]),
+                    state=str(settings["state"]),
+                    decision_model=str(settings["decision_model"]),
+                    review=SafetyReviewInput(
+                        model_id=model_id, task_id=context.request.task_id,
+                        step=int(context.execution_metadata.get("model_calls", 0)) + 1,
+                        delta=delta, previous_model_id=str(context.execution_metadata.get("safety_model_id", "")),
+                    ),
+                    threshold=int(settings["risk_threshold"]),
+                )
+            except SafetyReviewError:
+                result = SafetyReviewResult(
+                    review_id="safety_" + uuid.uuid4().hex, model_id=model_id,
+                    request_format=str(settings["request_format"]), risk_score=None,
+                    threshold=int(settings["risk_threshold"]), skipped=False,
+                    skip_reason=None, blocked=True, reason="review_error",
+                )
+            context.execution_metadata["safety_model_id"] = model_id
+            await adapter._emit_safety_result(context, result)
+            if result.blocked:
+                await adapter.repository.create_tool_call(
+                    result.review_id,
+                    context.request.workspace_id,
+                    context.request.conversation_id,
+                    context.request.task_id,
+                    "safety_review",
+                    {"review_id": result.review_id, "risk_score": result.risk_score},
+                    delta,
+                )
+                decision = interrupt({
+                    "kind": "user_question", "tool_call_id": result.review_id,
+                    "title": "提示词安全审查需要确认",
+                    "options": [
+                        {"label": "继续执行", "recommended": False},
+                        {"label": "终止任务", "recommended": True},
+                    ],
+                    "safety_review": True,
+                    "review_id": result.review_id,
+                })
+                if str(decision) != "继续执行":
+                    raise PermissionError("prompt safety review denied execution")
+            return await handler(request)
+
+
 class LangGraphRuntime:
     """Own active runs and translate checkpoint interrupts to product approvals."""
 
@@ -275,6 +376,8 @@ class LangGraphRuntime:
         context_max_tokens: int = 32000,
         max_model_calls: int = 8,
         execution_metadata: Callable[[RuntimeRunRequest], Awaitable[dict[str, Any]]] | None = None,
+        safety_settings: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
+        safety_credential: Callable[[str], Awaitable[str]] | None = None,
     ) -> None:
         if model is None and model_resolver is None:
             raise ValueError("model or model_resolver is required")
@@ -289,6 +392,9 @@ class LangGraphRuntime:
         self.model_resolver = model_resolver
         self.model_catalog = model_catalog
         self._execution_metadata = execution_metadata
+        self._safety_settings = safety_settings
+        self._safety_credential = safety_credential
+        self._safety_reviewer = SafetyReviewer()
         self.workspace_root = Path(workspace_root).expanduser().resolve()
         self.checkpoint_path = (
             Path(checkpoint_path).expanduser().resolve()
@@ -390,6 +496,7 @@ class LangGraphRuntime:
             # to a summary before its first consumption receipt.
             HumanInTheLoopMiddleware(interrupt_on),
             _ProductToolMiddleware(),
+            _PromptSafetyMiddleware(),
             ContextBudgetMiddleware(self.context_max_tokens, summarizer),
         ]
         if isinstance(model, ChatAnthropic):
@@ -531,6 +638,19 @@ class LangGraphRuntime:
         )
         # Replace rather than mutate: an already-started tool keeps its snapshot.
         context.execution_metadata = fresh
+
+    async def _emit_safety_result(self, context: _RunContext, result: Any) -> None:
+        await self._emit(context, "safety.reviewed", {
+            "review_id": result.review_id,
+            "model_id": result.model_id,
+            "request_format": result.request_format,
+            "risk_score": result.risk_score,
+            "threshold": result.threshold,
+            "skipped": result.skipped,
+            "skip_reason": result.skip_reason,
+            "blocked": result.blocked,
+            "reason": result.reason,
+        })
 
     def _should_interrupt(self, tool_request: Any) -> bool:
         context = tool_request.runtime.context

@@ -146,6 +146,7 @@ class AgentCore:
         self._skill_errors: list[str] = []
         self._applied_extension_revision = -1
         self._tool_credentials: dict[tuple[str, str], str] = {}
+        self._safety_credential_provider = None
         self._langgraph_runtime: LangGraphRuntime | None = None
         self._langgraph_entry_tasks: set[asyncio.Task[Any]] = set()
         self.processes = ProcessRegistry()
@@ -455,6 +456,8 @@ class AgentCore:
             context_max_tokens=self._context_max_tokens,
             max_model_calls=self._max_tool_iterations,
             execution_metadata=self._langgraph_execution_metadata,
+            safety_settings=self.get_safety_settings,
+            safety_credential=self._get_safety_credential,
         )
         try:
             await runtime.open()
@@ -467,6 +470,14 @@ class AgentCore:
         return await self._execution_metadata(
             request.workspace_id, request.conversation_id, request.principal_id,
         )
+
+    async def _get_safety_credential(self, workspace_id: str) -> str:
+        if self._safety_credential_provider is None:
+            return ""
+        return await self._safety_credential_provider(workspace_id)
+
+    def set_safety_credential_provider(self, provider) -> None:
+        self._safety_credential_provider = provider
 
     def _configured_tool_selection(self) -> tuple[set[str], set[str]]:
         """Defaults are visibility preferences, disabled_tools is a config ceiling."""
@@ -932,6 +943,7 @@ class AgentCore:
             "workspace_root": folder["root_path"],
             "api_keys": api_keys,
             "enabled_tools": await self._enabled_tool_names(workspace_id),
+            "model_id": str(conversation.get("model_id") or ""),
         }
 
     @staticmethod

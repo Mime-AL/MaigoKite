@@ -21,12 +21,23 @@ from agent.observability import ConsoleObserver, Observability
 logger = logging.getLogger("maigokite-agent")
 
 
+def configure_logging() -> None:
+    """Make backend diagnostics visible when launched by scripts/local.cjs."""
+    level_name = os.getenv("MAIGOKITE_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+
 @click.group()
 def cli() -> None:
     """Run the MaigoKite backend."""
 
 
 def main_cli() -> None:
+    configure_logging()
     cli()
 
 
