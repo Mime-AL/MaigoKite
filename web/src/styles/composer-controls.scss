@@ -6,9 +6,10 @@
   align-items: center;
   flex-wrap: wrap;
 }
-select {
-  @include mixins.interactive-row;
+.composer-controls > .ink-select {
   max-width: var(--composer-select-width);
+}
+.composer-controls :deep(.ink-select-trigger) {
   border: 0;
   background: var(--transparent);
   padding: var(--space-1);
@@ -96,7 +97,7 @@ select {
   border: var(--hairline) solid var(--rule);
 }
 @include breakpoints.sidebar-overlay {
-  select {
+  .composer-controls > .ink-select {
     max-width: var(--composer-select-narrow);
   }
   .control-spacer {

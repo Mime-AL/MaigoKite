@@ -7,6 +7,7 @@ import { t } from '@/i18n'
 import InkLoader from '@/components/common/InkLoader.vue'
 import SafetyModelFields from './SafetyModelFields.vue'
 import SafetyReviewFields from './SafetyReviewFields.vue'
+import { confirmAction } from '@/utils/confirm-action'
 
 const props = defineProps<{ loading?: boolean }>()
 const emit = defineEmits<{ ready: [] }>()
@@ -46,7 +47,8 @@ function begin(kind: typeof failedAction.value) {
 }
 async function load() {
   if (action.value) return
-  if (dirty.value && !window.confirm(t('重新读取会放弃未保存的安全设置。继续？'))) return
+  if (dirty.value && !await confirmAction(t('重新读取会放弃未保存的安全设置。继续？'), false)) return
+  if (action.value) return
   const request = begin('load')
   unavailable.value = false
   try {
@@ -101,7 +103,8 @@ async function save() {
   } finally { if (!request.signal.aborted) action.value = '' }
 }
 async function removeCredential() {
-  if (busy.value || !confirmed.value?.credential_configured || !window.confirm(t('移除审查服务密钥？需要凭证的审查服务将无法连接。'))) return
+  if (busy.value || !confirmed.value?.credential_configured || !await confirmAction(t('移除审查服务密钥？需要凭证的审查服务将无法连接。'))) return
+  if (busy.value || !confirmed.value?.credential_configured) return
   const request = begin('credential')
   try {
     await api.deleteCredential('safety.decision_model', request.signal)
@@ -121,9 +124,9 @@ function retry() {
   else void save()
 }
 watch([draft, apiKey], () => { feedback.value = '' }, { deep: true, flush: 'sync' })
-function canLeave() {
+async function canLeave() {
   if (action.value === 'save' || action.value === 'credential') return false
-  return !dirty.value || window.confirm(t('安全设置尚未保存，离开会丢失修改。继续？'))
+  return !dirty.value || await confirmAction(t('安全设置尚未保存，离开会丢失修改。继续？'), false)
 }
 onBeforeRouteLeave(canLeave)
 onBeforeRouteUpdate((to, from) => (to.path === from.path && to.query.tab === 'safety') || canLeave())
@@ -137,17 +140,16 @@ onBeforeUnmount(() => { controller?.abort(); apiKey.value = ''; draft.value = nu
       <h2>{{ $t('安全') }}</h2>
       <button type="button" class="text-button" :disabled="busy" @click="load">{{ $t('重新读取') }}</button>
     </header>
-    <p v-if="!unavailable" class="safety-notice" role="note">{{ $t('安全审查尚未生效，当前设置可保存。') }}</p>
+    <p v-if="!unavailable" id="safety-review-status" class="safety-notice" role="note">{{ $t('当前对话不执行安全审查。') }}</p>
     <InkLoader v-if="action === 'load'" />
     <p v-if="unavailable" class="panel-copy" role="status">{{ $t('当前服务不支持安全设置，请更新服务后重试。') }}</p>
     <form v-if="draft && !unavailable" @submit.prevent="save">
       <fieldset :disabled="busy">
         <section class="setting-group" data-settings-field="safety-enabled">
           <label class="safety-switch">
-            <input v-model="draft.enabled" type="checkbox" aria-describedby="safety-enabled-help">
+            <input v-model="draft.enabled" type="checkbox" aria-describedby="safety-review-status">
             <span>{{ $t('提示词安全审查') }}</span>
           </label>
-          <p id="safety-enabled-help">{{ $t('审查配置独立于执行权限，不会改变工具审批规则。') }}</p>
         </section>
         <SafetyModelFields v-model="draft" v-model:api-key="apiKey" :disabled="busy" @remove-credential="removeCredential" />
         <SafetyReviewFields v-model="draft" :models="settings.modelProfiles" :disabled="busy" />

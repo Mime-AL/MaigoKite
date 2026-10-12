@@ -151,12 +151,12 @@
   font-size: var(--text-sm);
   scroll-margin-block: var(--space-9);
 }
-.setting-row > span,
+.setting-row > span:not(.ink-select),
 .setting-row > label {
   font-weight: var(--weight-medium);
 }
 .setting-row input:not([type='checkbox']),
-.setting-row select {
+.setting-row .ink-select {
   width: 100%;
   min-width: 0;
 }

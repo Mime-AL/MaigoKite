@@ -2,6 +2,7 @@
 import { nextTick, onMounted, reactive, ref } from 'vue'
 import type { MemoryCategory } from '@/api/client'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
 export interface MemoryDraft {
   id?: string
   category: MemoryCategory
@@ -37,16 +38,12 @@ onMounted(() => {
       v-if="!local.persona"
       class="memory-category"
     >{{ $t('类型')
-    }}<select
-      v-model="local.category"
+    }}<InkSelect
+      :value="local.category"
+      :options="[{ value: 'preference', label: $t('偏好') }, { value: 'constraint', label: $t('约束') }, { value: 'fact', label: $t('事实') }, { value: 'project', label: $t('项目') }, { value: 'other', label: $t('其他') }]"
       :disabled="busy"
-    >
-      <option value="preference">{{ $t('偏好') }}</option>
-      <option value="constraint">{{ $t('约束') }}</option>
-      <option value="fact">{{ $t('事实') }}</option>
-      <option value="project">{{ $t('项目') }}</option>
-      <option value="other">{{ $t('其他') }}</option>
-    </select></label>
+      @change="local.category = ($event.target as HTMLSelectElement).value as MemoryCategory"
+    /></label>
     <footer>
       <button
         class="secondary-button"

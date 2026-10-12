@@ -12,10 +12,10 @@
   flex: 1;
   min-width: 0;
 }
-.audit-filters select {
+.audit-filters .ink-select {
   max-width: 100%;
 }
-.audit-filters > span {
+.audit-filters > span:not(.ink-select) {
   font-size: var(--text-xs);
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;

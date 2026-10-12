@@ -71,18 +71,13 @@ function drop(event: DragEvent) {
       :aria-label="$t('速记内容')"
       :title="error"
       @keydown="keydown"
-    ><select
-      v-model="destination"
-      :disabled="sending"
+    ><div
+      class="capsule-destinations" role="group"
       :aria-label="$t('速记发送目标')"
     >
-      <option value="recent">
-        {{ $t('最近会话') }}
-      </option>
-      <option value="new">
-        {{ $t('新会话') }}
-      </option>
-    </select><button
+      <button type="button" :disabled="sending" :aria-pressed="destination === 'recent'" @click="destination = 'recent'">{{ $t('最近会话') }}</button>
+      <button type="button" :disabled="sending" :aria-pressed="destination === 'new'" @click="destination = 'new'">{{ $t('新会话') }}</button>
+    </div><button
       class="icon-button"
       :disabled="!text.trim() || sending"
       :aria-label="$t('发送')"
@@ -133,13 +128,23 @@ button {
   padding: var(--space-3);
   -webkit-app-region: no-drag;
 }
-select {
+.capsule-destinations {
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  -webkit-app-region: no-drag;
+}
+.capsule-destinations button {
   border: 0;
   padding: var(--space-2);
   font-size: var(--text-xs);
-  background: var(--paper-2);
+  background: var(--transparent);
   -webkit-app-region: no-drag;
 }
+.capsule-destinations button[aria-pressed='true'] { background: var(--accent-selected); color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .capsule {
     animation: paper-fade var(--motion-reduced) var(--ease-out) both !important;

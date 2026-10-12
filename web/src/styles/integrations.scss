@@ -97,7 +97,7 @@ label {
 }
 input:not([type='checkbox']),
 textarea,
-select {
+.ink-select {
   width: 100%;
   min-width: 0;
 }

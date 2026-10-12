@@ -12,6 +12,7 @@ import Pulse from '@/components/shell/Pulse.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import { pendingOrder } from '@/utils/rail-presentation'
 import ConversationAuthorizations from './ConversationAuthorizations.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
 const props = defineProps<{ item: Conversation; collapsed: boolean }>()
 const emit = defineEmits<{ select: [] }>()
 const session = useSessionStore(),
@@ -194,18 +195,11 @@ async function act(action: 'save' | 'archive' | 'delete') {
               :disabled="!!busy"
             ></label>
             <label>{{ $t('所属工作区')
-            }}<select
+            }}<InkSelect
               v-model="folder"
+              :options="workspace.folders.map(entry => ({ value: entry.id, label: entry.name }))"
               :disabled="!!busy || running"
-            >
-              <option
-                v-for="entry in workspace.folders"
-                :key="entry.id"
-                :value="entry.id"
-              >
-                {{ entry.name }}
-              </option>
-            </select></label>
+            /></label>
             <p
               v-if="running"
               class="empty-copy"

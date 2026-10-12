@@ -4,6 +4,7 @@ import type { useModelSettings } from '@/composables/useModelSettings'
 import { MODEL_PROVIDERS, COMPATIBLE_PROVIDER_PRESETS } from '@/config/model-providers'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import ModelSelectionField from './ModelSelectionField.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
 const props = defineProps<{ editor: UnwrapNestedRefs<ReturnType<typeof useModelSettings>> }>()
 const emit = defineEmits<{ result: [ok: boolean, message: string] }>()
 const copied = ref(false),
@@ -124,14 +125,13 @@ const {
         class="form-field"
       >
         <span>{{ $t('接口协议') }}</span>
-        <select
+        <InkSelect
           data-testid="relay-protocol"
           :value="draft.provider"
+          :disabled="settings.saving"
+          :options="[{ value: 'openai_compatible', label: 'OpenAI · Chat Completions' }, { value: 'anthropic', label: 'Anthropic · Messages' }]"
           @change="handleProtocolChange"
-        >
-          <option value="openai_compatible">OpenAI · Chat Completions</option>
-          <option value="anthropic">Anthropic · Messages</option>
-        </select>
+        />
       </label>
 
       <div
@@ -239,39 +239,26 @@ const {
             class="form-field"
           >
             <span>{{ $t('接口类型') }}</span>
-            <select
+            <InkSelect
               data-testid="provider-type"
               :value="draft.provider"
+              :disabled="settings.saving"
+              :options="MODEL_PROVIDERS.map(item => ({ value: item.id, label: $t(item.name) }))"
               @change="handleProviderChange"
-            >
-              <option
-                v-for="item in MODEL_PROVIDERS"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ $t(item.name) }}
-              </option>
-            </select>
+            />
           </label>
           <label
             v-if="draft.provider === 'openai_compatible'"
             class="form-field"
           >
             <span>{{ $t('服务预设') }}</span>
-            <select
+            <InkSelect
               data-testid="preset-select"
               :value="compatiblePreset?.id || ''"
+              :disabled="settings.saving"
+              :options="[{ value: '', label: $t('自定义地址') }, ...COMPATIBLE_PROVIDER_PRESETS.map(item => ({ value: item.id, label: $t(item.name) }))]"
               @change="handlePresetChange"
-            >
-              <option value="">{{ $t('自定义地址') }}</option>
-              <option
-                v-for="item in COMPATIBLE_PROVIDER_PRESETS"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ $t(item.name) }}
-              </option>
-            </select>
+            />
           </label>
         </div>
       </details>

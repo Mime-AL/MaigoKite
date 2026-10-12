@@ -76,7 +76,7 @@
   text-underline-offset: var(--space-1);
 }
 .form-field input,
-.form-field select {
+.form-field .ink-select {
   width: 100%;
   min-width: 0;
   font-size: var(--text-sm);

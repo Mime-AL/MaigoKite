@@ -82,7 +82,7 @@
   transform-origin: top;
   animation: workpaper-open var(--motion-arrive) var(--ease-out) both;
 }
-.workpaper:focus-within {
+.workpaper[data-welcome-settled='true'] {
   animation: none;
 }
 :global(html[data-texture='false']) .workpaper::before {
@@ -145,7 +145,7 @@
 .workpaper.first-welcome :deep(.composer-wrap) {
   animation: paper-arrive var(--motion-panel) var(--ease-out) calc(var(--motion-stagger) * 4) both;
 }
-.workpaper:focus-within :deep(.composer-wrap) {
+.workpaper[data-welcome-settled='true'] :deep(.composer-wrap) {
   animation: none;
 }
 .conversation {
@@ -278,6 +278,10 @@
   .workpaper.first-welcome,
   .workpaper.first-welcome :deep(.composer-wrap) {
     animation: paper-fade var(--motion-reduced) var(--ease-out) both !important;
+  }
+  .workpaper[data-welcome-settled='true'],
+  .workpaper[data-welcome-settled='true'] :deep(.composer-wrap) {
+    animation: none !important;
   }
 }
 

@@ -6,6 +6,7 @@ import { useMemoryStore } from '@/stores/memory'
 import { useSessionStore } from '@/stores/session'
 import { confidencePercent } from '@/utils/work-records'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import { confirmAction } from '@/utils/confirm-action'
 const props = defineProps<{ item: UserMemory; focused?: boolean; editing?: boolean }>()
 const emit = defineEmits<{ (event: 'edit', item: UserMemory): void }>()
 const memory = useMemoryStore(),
@@ -19,7 +20,9 @@ const categories: Record<UserMemory['category'], string> = {
   other: '其他',
 }
 async function remove(item: UserMemory) {
-  if (window.confirm(t('遗忘这条记忆？'))) await memory.remove(item.id)
+  if (memory.saving) return
+  if (await confirmAction(t('遗忘这条记忆？')) && !memory.saving && props.item.id === item.id)
+    await memory.remove(item.id)
 }
 </script>
 <template>

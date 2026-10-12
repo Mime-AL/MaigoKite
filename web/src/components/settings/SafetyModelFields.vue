@@ -14,7 +14,6 @@ function update(patch: Partial<SafetySettings>) { emit('update:modelValue', { ..
 <template>
   <section class="setting-group safety-model-fields">
     <h3>{{ $t('决策模型') }}</h3>
-    <p>{{ $t('审查服务单独配置，不使用对话模型的密钥。') }}</p>
     <div class="setting-row" data-settings-field="safety-base-url">
       <label for="safety-base-url">{{ $t('审查服务地址') }}</label>
       <input

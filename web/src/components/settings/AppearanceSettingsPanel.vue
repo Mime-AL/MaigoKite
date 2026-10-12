@@ -6,6 +6,7 @@ import { desktopEffects } from '@/composables/useElectron'
 import { t, type Language } from '@/i18n'
 import AppearancePreview from './AppearancePreview.vue'
 import EnterBehaviorField from './EnterBehaviorField.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
 const ui = useUIStore(),
   settings = useSettingsStore()
 const name = ref(settings.profile.assistantName),
@@ -65,16 +66,13 @@ async function saveShortcut() {
       <label
         class="setting-row"
         data-settings-field="language"
-      ><span>{{ $t('语言') }}</span><select
+      ><span>{{ $t('语言') }}</span><InkSelect
         :value="ui.appearance.language || 'zh-CN'"
+        :options="[{ value: 'zh-CN', label: $t('简体中文') }, { value: 'en', label: 'English' }, { value: 'system', label: $t('跟随系统') }]"
         @change="
           ui.setAppearance({ language: ($event.target as HTMLSelectElement).value as Language })
         "
-      >
-        <option value="zh-CN">{{ $t('简体中文') }}</option>
-        <option value="en">English</option>
-        <option value="system">{{ $t('跟随系统') }}</option>
-      </select></label>
+      /></label>
       <div
         class="setting-row"
         data-settings-field="assistant-name"
@@ -144,16 +142,13 @@ async function saveShortcut() {
       <label
         class="setting-row"
         data-settings-field="theme"
-      ><span>{{ $t('纸页') }}</span><select
+      ><span>{{ $t('纸页') }}</span><InkSelect
         :value="ui.appearance.theme"
+        :options="[{ value: 'system', label: $t('跟随系统') }, { value: 'light', label: $t('宣纸') }, { value: 'dark', label: $t('松烟') }]"
         @change="
           ui.setAppearance({ theme: ($event.target as HTMLSelectElement).value as ThemeMode })
         "
-      >
-        <option value="system">{{ $t('跟随系统') }}</option>
-        <option value="light">{{ $t('宣纸') }}</option>
-        <option value="dark">{{ $t('松烟') }}</option>
-      </select></label>
+      /></label>
       <div
         class="setting-row"
         data-settings-field="accent"
@@ -175,16 +170,13 @@ async function saveShortcut() {
       <label
         class="setting-row"
         data-settings-field="text-size"
-      ><span>{{ $t('字号') }}</span><select
+      ><span>{{ $t('字号') }}</span><InkSelect
         :value="ui.appearance.textSize || 'default'"
+        :options="[{ value: 'small', label: $t('紧凑') }, { value: 'default', label: $t('标准') }, { value: 'large', label: $t('舒展') }]"
         @change="
           ui.setAppearance({ textSize: ($event.target as HTMLSelectElement).value as TextSize })
         "
-      >
-        <option value="small">{{ $t('紧凑') }}</option>
-        <option value="default">{{ $t('标准') }}</option>
-        <option value="large">{{ $t('舒展') }}</option>
-      </select></label>
+      /></label>
       <label
         class="setting-row"
         data-settings-field="texture"

@@ -131,6 +131,7 @@ function loadEarlier() {
 }
 const welcomeQuote = ref('')
 const firstWelcome = ref(false)
+const welcomeSettled = ref(false)
 const lightPeriod = ref(paperLight(new Date().getHours()))
 // Route reuse includes newly created empty sessions. Typing and stream updates
 // must not reroll a quote while the same welcome screen is visible.
@@ -140,11 +141,16 @@ watch(
     if (id !== null) {
       welcomeQuote.value = pickMygoQuote()
       firstWelcome.value = takeWelcomeIntroduction()
+      welcomeSettled.value = false
       lightPeriod.value = paperLight(new Date().getHours())
     }
   },
   { immediate: true },
 )
+function finishWelcome(event: AnimationEvent) {
+  // Child animations bubble too; only the workpaper's own end settles the scene.
+  if (event.target === event.currentTarget) welcomeSettled.value = true
+}
 const lastMessage = computed(
   () => savedMessages.value.filter((m) => m.role === 'user').slice(-1)[0]?.content || '',
 )
@@ -458,6 +464,9 @@ watch(
       class="chat-body"
       :class="{ workpaper: !timeline.length, 'first-welcome': !timeline.length && firstWelcome }"
       :data-light="lightPeriod"
+      :data-welcome-settled="welcomeSettled || undefined"
+      @focusin="welcomeSettled = true"
+      @animationend="finishWelcome"
     >
       <div class="conversation">
         <div

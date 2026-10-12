@@ -12,6 +12,7 @@ import MemoryGroup from '@/components/message/MemoryGroup.vue'
 import type { MemoryDraft } from '@/components/message/MemoryEditor.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
 import AppIcon from '@/components/common/AppIcon.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
 const memory = useMemoryStore(),
   settings = useSettingsStore(),
   ui = useUIStore(),
@@ -169,12 +170,8 @@ function retryName() {
     </header>
     <section class="memory-scope">
       <label>{{ $t('记忆归属') }}
-        <select v-model="selectedScope" :disabled="memory.saving || memory.savingSettings">
-          <option v-for="folder in workspace.folders" :key="folder.id" :value="folder.id">
-            {{ folder.name }}
-          </option>
-          <option :value="unassigned">{{ $t('未归属的旧记忆') }}</option>
-        </select>
+        <InkSelect v-model="selectedScope" :disabled="memory.saving || memory.savingSettings"
+          :options="[...workspace.folders.map(folder => ({ value: folder.id, label: folder.name })), { value: unassigned, label: $t('未归属的旧记忆') }]" />
       </label>
       <p v-if="selectedScope === unassigned">{{ $t('这些记录仅供查看和编辑，不会自动带入任何对话。') }}</p>
       <template v-else>
@@ -183,9 +180,9 @@ function retryName() {
           @click="memory.setEnabled(!memory.enabled)">
           {{ memory.enabled ? $t('本工作区记忆：开启') : $t('本工作区记忆：关闭') }}
         </button>
-        <p v-if="runtimeMemory">{{ $t('默认关闭。开启后，还需在具体对话中开启；仅将本文件夹的已保存记忆提供给本对话已选择的模型服务。') }}</p>
-        <p v-else>{{ $t('当前服务未启用跨对话使用，已保存的记忆仍可管理。') }}</p>
-        <p>{{ $t('关闭或删除只影响后续请求，不会清除历史回复；需要干净上下文时，请新建关闭记忆的对话。') }}</p>
+        <p v-if="runtimeMemory">{{ $t('在对话中也开启记忆后，所选模型会收到本工作区的记忆。') }}</p>
+        <p v-else>{{ $t('记忆暂时不能用于对话，仍可查看和编辑。') }}</p>
+        <p>{{ $t('关闭或删除记忆不会清除已有对话内容。') }}</p>
         <p v-if="memory.settingsError" role="alert">{{ memory.settingsError }}</p>
       </template>
     </section>

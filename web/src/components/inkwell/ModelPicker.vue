@@ -152,7 +152,7 @@ onScopeDispose(() => {
     <dialog
       :id="id"
       ref="dialog"
-      class="model-menu"
+      class="model-menu inkline-shell"
       :style="position"
       :aria-label="$t('选择对话模型')"
       @cancel.prevent="close"

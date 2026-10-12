@@ -4,6 +4,7 @@ import { useSettingsStore } from '@/stores/settings'
 import SecretField from '@/components/common/SecretField.vue'
 import Pulse from '@/components/shell/Pulse.vue'
 import { t } from '@/i18n'
+import { confirmAction } from '@/utils/confirm-action'
 const settings = useSettingsStore()
 const tavilyKey = ref(''),
   googleKey = ref(''),
@@ -43,7 +44,8 @@ async function save(service: 'tavily' | 'google') {
   busyService.value = ''
 }
 async function remove(service: 'tavily' | 'google') {
-  if (busyService.value || !window.confirm(t('移除搜索凭证后，对应服务将不可用。继续？'))) return
+  if (busyService.value || !await confirmAction(t('移除搜索凭证后，对应服务将不可用。继续？'))) return
+  if (busyService.value) return
   busyService.value = service
   feedback.value[service] = ''
   errors.value[service] = ''

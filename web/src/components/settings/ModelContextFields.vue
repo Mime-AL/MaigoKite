@@ -10,7 +10,7 @@ function change(model: string, event: Event) {
 <template>
   <details v-if="models.length" class="model-context-fields">
     <summary>{{ $t('窗口容量（可选）') }}</summary>
-    <p>{{ $t('仅用于当前服务的这个模型；留空按服务资料或接入默认值计算，不改变服务的加载设置。') }}</p>
+    <p>{{ $t('留空自动获取；填写容量不会改变模型服务的设置。') }}</p>
     <label v-for="(model, index) in models" :key="model" class="context-field">
       <span>{{ model }}</span>
       <input

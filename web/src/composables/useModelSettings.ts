@@ -1,4 +1,5 @@
 import { t } from '@/i18n'
+import { confirmAction } from '@/utils/confirm-action'
 import { computed, onScopeDispose, reactive, ref, watch } from 'vue'
 import { COMPATIBLE_PROVIDER_PRESETS, getModelProvider, modelSettingsFingerprint } from '@/config/model-providers'
 import { findModelPreset as findPreset, groupModelProfiles, modelServiceName, normalizeEndpoint } from '@/config/model-groups'
@@ -319,7 +320,8 @@ export function useModelSettings() {
     const snapshot = { ...draft }
     const removed = originalModels.value.filter(item =>
       !selectedModels.value.includes(item.model) && settings.modelProfiles.some(profile => profile.id === item.id))
-    if (removed.length && !window.confirm(t("保存后将移除 {0} 个模型：{1}。继续？", [removed.length, removed.map(item => item.model).join('、')]))) return
+    if (removed.length && !await confirmAction(t("保存后将移除 {0} 个模型：{1}。继续？", [removed.length, removed.map(item => item.model).join('、')]))) return
+    if (!canSave.value || settings.saving || draft.id !== snapshot.id) return
     const targets = selectedModels.value.flatMap((model): ChatModelProfile[] => {
       const existing = originalModels.value.filter(item => item.model === model)
       const capacity = modelCapacity(model)
@@ -453,7 +455,9 @@ export function useModelSettings() {
   }
 
   async function remove() {
-    if (!draft.id || !window.confirm(t("删除服务“{0}”及其 {1} 个模型？", [draft.name, originalModels.value.length]))) return
+    const selected = draft.id
+    if (!draft.id || !await confirmAction(t("删除服务“{0}”及其 {1} 个模型？", [draft.name, originalModels.value.length]))) return
+    if (settings.saving || draft.id !== selected) return
     const ids = originalModels.value.map(item => item.id).filter(id => settings.modelProfiles.some(item => item.id === id))
     if (await settings.removeModelProfiles(ids)) {
       const message = settings.success

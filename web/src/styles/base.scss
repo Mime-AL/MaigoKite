@@ -1,5 +1,6 @@
 @use './tokens';
 @use './settings';
+@use './ink-controls';
 * {
   box-sizing: border-box;
 }
@@ -127,6 +128,36 @@ input[type='radio'] {
   accent-color: var(--accent);
   cursor: pointer;
 }
+input[type='checkbox'] {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: var(--size-18);
+  height: var(--size-18);
+  margin: 0;
+  padding: 0;
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--checkbox-radius);
+  background: var(--paper);
+  vertical-align: middle;
+}
+input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
+input[type='checkbox']::before {
+  content: '';
+  width: var(--checkbox-mark-width);
+  height: var(--checkbox-mark-height);
+  border: solid var(--on-accent);
+  border-width: 0 var(--focus-width) var(--focus-width) 0;
+  transform: rotate(var(--checkbox-mark-angle));
+  opacity: 0;
+}
+input[type='checkbox']:checked::before { opacity: 1; }
+input[type='checkbox']:indeterminate { background: var(--accent); border-color: var(--accent); }
+input[type='checkbox']:indeterminate::before { height: 0; width: var(--space-3); border-width: 0 0 var(--focus-width); transform: none; opacity: 1; }
+input[type='checkbox']:disabled { opacity: var(--opacity-disabled); }
+input[type='checkbox']:not(:disabled):active { background: var(--control-pressed); border-color: var(--accent); }
+input[type='checkbox']:not(:disabled):is(:checked, :indeterminate):active { background: var(--accent-pressed); }
 select:not(:disabled) {
   cursor: pointer;
 }
@@ -136,6 +167,10 @@ select:disabled {
   cursor: not-allowed;
 }
 @media (hover: hover) {
+  input[type='checkbox']:not(:disabled):hover { background: var(--control-hover); border-color: var(--accent); }
+  input[type='checkbox']:not(:disabled):hover:active { background: var(--control-pressed); }
+  input[type='checkbox']:not(:disabled):is(:checked, :indeterminate):hover { background: var(--accent-hover); }
+  input[type='checkbox']:not(:disabled):is(:checked, :indeterminate):hover:active { background: var(--accent-pressed); }
   input:not(:disabled, [type='checkbox'], [type='radio']):hover,
   textarea:not(:disabled):hover,
   select:not(:disabled):hover {
