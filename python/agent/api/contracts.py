@@ -149,6 +149,26 @@ class ToolSettings(Input):
     enabled: dict[str, StrictBool]
 
 
+class SafetySettings(Input):
+    """Prompt safety review settings; request/response share this shape.
+
+    `credential_configured` is read-only on write. `api_key` is write-only and
+    stored in the credential store, never echoed back. `request_format` stays a
+    plain string so the endpoint can reject it with SAFETY_FORMAT_UNSUPPORTED
+    instead of a generic validation error; the endpoint checks the enum.
+    """
+
+    enabled: StrictBool = False
+    request_format: str = Field(default="jev_like", max_length=32)
+    state: str = Field(default="", max_length=4000)
+    decision_base_url: str = Field(default="", max_length=2048)
+    decision_model: str = Field(default="", max_length=200)
+    credential_configured: StrictBool = False
+    trusted_model_ids: list[ModelID] = Field(default_factory=list, max_length=32)
+    risk_threshold: int = Field(default=75, ge=0, le=100)
+    api_key: str = Field(default="", max_length=8192, repr=False)
+
+
 class MemoryInput(Input):
     folder_id: str | None = Field(default=None, max_length=200)
     category: str = Field(min_length=1, max_length=32)

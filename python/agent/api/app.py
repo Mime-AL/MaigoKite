@@ -213,7 +213,7 @@ def create_app(core, web_dir: Path | None = None) -> FastAPI:
     async def capabilities():
         native = core._initialized and core._langgraph_runtime is not None
         flags = dict.fromkeys(("approval_note", "approval_detail", "task_inspection", "file_change_events",
-                               "process_list", "process_stop", "process_input"), True)
+                               "process_list", "process_stop", "process_input", "safety_review"), True)
         flags.update(dict.fromkeys(("structured_questions", "task_input", "structured_plan", "task_resume", "subagents",
                                     "subagent_model_selection", "conversation_fork", "context_estimate", "session_approval",
                                     "task_approval", "approval_authorization_revocation", "permission_boundary_v2",

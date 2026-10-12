@@ -13,6 +13,7 @@ from agent.api.sessions import owner
 from agent.errors import public_error
 from agent.models.discovery import discover_models
 from agent.models.native_model import normalize_base_url
+from agent.safety import SAFETY_CREDENTIAL_REFERENCE, SAFETY_FORMATS
 
 
 def routes(core, credentials) -> APIRouter:
@@ -185,6 +186,32 @@ def routes(core, credentials) -> APIRouter:
     @router.patch("/permissions", dependencies=owner_only)
     async def update_permissions(workspace_id: str, body: dto.Permissions):
         return await core.update_permission_settings(workspace_id, **body.model_dump())
+
+    async def safety_view(workspace_id: str):
+        # The key stays in the credential store; only its presence is exposed.
+        value = await core.get_safety_settings(workspace_id)
+        try:
+            configured = bool(await credentials.get(workspace_id, SAFETY_CREDENTIAL_REFERENCE))
+        except dto.APIError:
+            configured = False
+        return {**value, "credential_configured": configured}
+
+    @router.get("/settings/safety", dependencies=owner_only)
+    async def safety_settings(workspace_id: str):
+        return await safety_view(workspace_id)
+
+    @router.patch("/settings/safety", dependencies=owner_only)
+    async def update_safety(workspace_id: str, body: dto.SafetySettings):
+        if body.request_format not in SAFETY_FORMATS:
+            # A distinct code, not generic VALIDATION, per the API contract.
+            raise dto.APIError(400, "SAFETY_FORMAT_UNSUPPORTED", "不支持的决策模型请求格式。")
+        value = await core.update_safety_settings(
+            workspace_id, body.model_dump(exclude={"api_key", "credential_configured"})
+        )
+        if body.api_key:
+            await credentials.save(workspace_id, SAFETY_CREDENTIAL_REFERENCE, body.api_key)
+        await audit(workspace_id, "safety.settings.updated", "safety")
+        return await safety_view(workspace_id)
 
     @router.get("/tool-settings", dependencies=owner_only)
     async def tools(workspace_id: str):
