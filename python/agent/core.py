@@ -25,6 +25,7 @@ from agent.observability import Observability
 from agent.repository import ConversationBusyError, MessageReplay, SQLiteRepository, validate_subagent_model_ids
 from agent.process_registry import ProcessRegistry
 from agent.runtime import LangGraphRuntime, ProductToolSpec, RuntimeRunRequest
+from agent.safety import SAFETY_SETTING_KEY, normalize_safety_settings
 from agent.security.injection_filter import InjectionFilter
 from agent.security.whitelist import Whitelist
 from agent.skill_registry import SkillRegistry
@@ -547,6 +548,25 @@ class AgentCore:
             raise ValueError("invalid permission mode")
         value = {"default_mode": default_mode}
         await self.repository.save_workspace_setting(workspace_id, "permissions.policy", value)
+        return value
+
+    async def get_safety_settings(self, workspace_id: str) -> dict[str, Any]:
+        stored = await self.repository.get_workspace_setting(workspace_id, SAFETY_SETTING_KEY)
+        return normalize_safety_settings(stored)
+
+    async def update_safety_settings(
+        self, workspace_id: str, settings: dict[str, Any]
+    ) -> dict[str, Any]:
+        # The DTO already bounds threshold and list length; normalization drops
+        # unknown keys (credential_configured) and repairs legacy stored values.
+        value = normalize_safety_settings(settings)
+        if value["enabled"] and not (
+            value["decision_base_url"].strip() and value["decision_model"].strip()
+        ):
+            raise ValueError(
+                "decision_base_url and decision_model are required when safety review is enabled"
+            )
+        await self.repository.save_workspace_setting(workspace_id, SAFETY_SETTING_KEY, value)
         return value
 
     async def create_conversation(

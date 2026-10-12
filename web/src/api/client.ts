@@ -151,6 +151,25 @@ export interface PermissionSettings {
   default_mode: PermissionMode
 }
 
+export type SafetyRequestFormat = 'jev_like' | 'laya'
+
+/**
+ * Prompt safety review settings (`GET/PATCH settings/safety`).
+ * `api_key` is write-only and never returned; `credential_configured` is
+ * read-only on write. Contract only — UI adaptation belongs to the web team.
+ */
+export interface SafetySettings {
+  enabled: boolean
+  request_format: SafetyRequestFormat
+  state: string
+  decision_base_url: string
+  decision_model: string
+  credential_configured: boolean
+  trusted_model_ids: string[]
+  risk_threshold: number
+  api_key?: string
+}
+
 export interface AuditEvent {
   id: string
   action: string
@@ -887,6 +906,12 @@ export const api = {
   },
   updatePermissionSettings(settings: PermissionSettings): Promise<PermissionSettings> {
     return request(`${path}/permissions`, { method: 'PATCH', body: JSON.stringify(settings) })
+  },
+  getSafetySettings(): Promise<SafetySettings> {
+    return request(`${path}/settings/safety`)
+  },
+  updateSafetySettings(settings: SafetySettings): Promise<SafetySettings> {
+    return request(`${path}/settings/safety`, { method: 'PATCH', body: JSON.stringify(settings) })
   },
   async listAuditEvents(): Promise<AuditEvent[]> {
     const body = await request<{ events: AuditEvent[] }>(`${path}/audit-events`)

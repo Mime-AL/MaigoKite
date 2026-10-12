@@ -173,6 +173,8 @@ GET   /workspaces/{workspace_id}/settings
 PATCH /workspaces/{workspace_id}/settings
 GET   /workspaces/{workspace_id}/tool-settings
 PATCH /workspaces/{workspace_id}/tool-settings
+GET   /workspaces/{workspace_id}/settings/safety
+PATCH /workspaces/{workspace_id}/settings/safety
 GET   /workspaces/{workspace_id}/models
 GET   /workspaces/{workspace_id}/models/{model_id}/thinking
 GET   /workspaces/{workspace_id}/models/{model_id}/context
@@ -196,6 +198,32 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 按工具名合并选择并返回完整目录。未知工具、非布尔值和尝试开启启动配置已停用的工具均被拒绝。
 选择保存到既有 Workspace 设置，不修改 YAML、不授予权限、不启动新 MCP 服务；可见性与审批是独立边界。
 新增启用项在新任务/恢复生效，停用限制后续调用，不撤销已开始的副作用。
+
+`GET/PATCH settings/safety` 管理提示词安全审查配置，仅工作区所有者可读写。请求与响应使用同一结构：
+
+```json
+{
+  "enabled": false,
+  "request_format": "jev_like",
+  "state": "",
+  "decision_base_url": "",
+  "decision_model": "",
+  "credential_configured": false,
+  "trusted_model_ids": [],
+  "risk_threshold": 75
+}
+```
+
+`request_format` 只接受 `jev_like`、`laya`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举
+kev。发给决策模型的请求由 `state` 和 `question` 两部分组成：`state` 是本设置中的自定义状态文本，
+留空时使用请求构造库的内置默认值；`question` 由请求构造库根据审查输入生成，不在此处配置。
+`risk_threshold` 为 0–100 整数；`trusted_model_ids` 最多
+32 个，按当前实际调用的模型 ID 匹配，而不是默认模型。`enabled: true` 时必须提供 `decision_base_url`
+与 `decision_model`。PATCH 省略字段保留旧值，未知字段被拒绝。`api_key` 只出现在 PATCH 请求中，按
+`safety.decision_model` 凭证引用保存；GET 只返回 `credential_configured`，不回传密钥。格式不在枚举内
+返回 `SAFETY_FORMAT_UNSUPPORTED`，阈值或白名单越界返回 400 Validation 错误。
+`capabilities.safety_review` 表示当前部署支持该接口。配置按工作区持久化，不随会话变化；
+`enabled: false` 时运行时跳过审查。本批仅新增契约，未接入运行时审查，也未修改设置界面。
 
 读取凭证只返回引用和元数据，不返回敏感凭证值。
 
@@ -301,7 +329,7 @@ POST 接口为用户显式文件操作，限工作区所有者；不作为 Agent
 **能力边界。** `approval_note / approval_detail / task_inspection / file_change_events / process_list / process_stop` 为本批支持项。
 2026-10-11 增加 `process_input`，每个 job 返回 `stdin_available`。GUI 必须同时检查进程 live、stdin_available 和能力标志，不能把历史记录当成可操作进程。输入正文不保存到审计或对话，响应丢失不代表未送达；进程自行回显的输出仍可能包含输入。当前是有超时的标准管道，不提供 PTY 或断线后恢复进程。
 `structured_questions / task_input / structured_plan / context_estimate` 在 Core 的唯一 LangGraph Runtime 就绪时为 true；关闭或未就绪时不对外宣称可执行。这些标志表示后端能力，工具仍可能被工作区配置停用。
-`session_approval / task_approval / approval_authorization_revocation / permission_boundary_v2 / conversation_fork` 在 Runtime 就绪时为 true，表示支持上述新接口/语义，不代表前端已完成联调或主机沙箱可用。`auto_review / model_context_percentage / turn_rollback / automatic_memory_events` 为 false。回合回滚和审核 Agent 不在本批范围。
+`session_approval / task_approval / approval_authorization_revocation / permission_boundary_v2 / conversation_fork` 在 Runtime 就绪时为 true，表示支持上述新接口/语义，不代表前端已完成联调或主机沙箱可用。`auto_review / model_context_percentage / turn_rollback / automatic_memory_events` 为 false。回合回滚和审核 Agent 不在本批范围。`safety_review` 为 true，表示支持 `settings/safety` 配置读写与 `safety.reviewed` 事件契约；运行时审查尚未接入。
 
 **显式任务恢复。** `task_resume` 在 Runtime 就绪时为 true，表示提供受限恢复入口，不表示所有 interrupted 任务均可重放。API 先按现有凭证入口补齐 Core 的进程内模型密钥，再直接调用 `AgentCore.resume_task(workspace_id, task_id, principal_id, version)`。Core 只接受所有者、最新版本、最新会话回合、无活跃运行、未归档且存在未完成 checkpoint 的 `interrupted` 任务；等待审批的任务继续使用 Approval API，不走这个接口。旧任务无 checkpoint 也按不可恢复处理；状态/版本/checkpoint 不满足返回 409，越权返回 403，任务不在工作区内返回 404。
 
@@ -432,6 +460,7 @@ context.compaction.failed
 context.compaction.skipped
 context.compacted
 context.history
+safety.reviewed
 file.changed
 ```
 
@@ -440,6 +469,15 @@ file.changed
 `subagent.*` 的 `subagent_id` 对应父任务的 `delegate` 工具调用 ID，不是独立产品 task。queued 带 `used/limit/task/label/requested_model_id`；started 带 `task` 和实际 `model_id/name/provider/model/label`，progress 带相同模型身份及只读工具名/参数，completed 带摘要和模型身份，failed 带安全错误信息与请求 ID。前端将进度/结果映射到同一 delegate 活动；原 `tool.completed/failed` 投影继续保留，父任务终态保持不变。子 Agent 模型事件的 `purpose=subagent`、`subagent_id` 及实际模型身份用于用量归属，不复用主回复的 `message.delta`。
 
 `model.usage` 是可选的观测事件，不写入消息，也不表示任务完成。`payload.usage` 保存 Provider/SDK 提供的数值，例如 `input_tokens / output_tokens / total_tokens / cache_read_tokens / cache_creation_tokens / cache_miss_tokens / reasoning_tokens`；缺失缓存字段表示未提供。旧路径可能保留 `prompt_tokens / completion_tokens`。新路径同时覆盖主模型与摘要，通过 `purpose: response | summary`、`call_id` 区分；`model.call.started/failed` 记录调用次数和无完整结果的调用。SDK 内部重试与未返回的服务端用量无法据此补齐，因此不是完整账单。`context.compacted` 只给近似压缩前后/摘要 token 数和目标上限；`context.history` 标记 checkpoint 或可见历史导入，`execution_resumed: false` 表示开启新回合而非重放旧执行。未知事件类型不得阻断客户端的 sequence 推进。
+
+`safety.reviewed` 记录一次提示词安全审查，payload 含 `review_id / model_id / request_format /
+risk_score / threshold / skipped / skip_reason / blocked / reason`。`skipped: true` 表示当前模型命中
+可信白名单，`risk_score` 为 null；`blocked: true` 表示分值超过阈值，或请求构造、决策模型调用失败。
+`reason` 使用稳定值，例如 `risk_threshold_exceeded / review_error / format_unsupported`。
+事件先写入任务事件日志再转发，客户端按 `event_id` 去重。拦截后的暂停复用既有任务状态事件
+（`task.waiting_approval` / `task.interrupted`），不新增审批资源；人工决定通过既有任务恢复或取消接口
+提交，结果由 `task.*` 状态事件回执，`review_id` 用于把决定关联回该次审查。本事件由运行时审查接入后
+开始发送，本批仅定义契约。
 
 重复聊天提交由 Core 返回 `replayed` 回执，API 转为 HTTP 200，不持久化、不广播为 UI 事件，也不向前端泄漏 LangGraph 类型。
 

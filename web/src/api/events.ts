@@ -1,4 +1,4 @@
-import type { TaskInput } from './client'
+import type { SafetyRequestFormat, TaskInput } from './client'
 
 export type PulseState = 'idle' | 'thinking' | 'acting' | 'waiting' | 'error' | 'offline'
 export type Verdict = 'allow' | 'allow_session' | 'deny'
@@ -74,6 +74,23 @@ export interface ContextCompaction {
   message?: string
   errorType?: string
   reason?: string
+}
+/**
+ * Payload of the `safety.reviewed` task event (dotted journal type, carried on
+ * AgentEvent). Emitted from the runtime review hook; contract only for now.
+ * `risk_score` is null when `skipped` is true. `reason` uses stable values:
+ * `risk_threshold_exceeded | review_error | format_unsupported`.
+ */
+export interface SafetyReviewPayload {
+  review_id: string
+  model_id: string
+  request_format: SafetyRequestFormat
+  risk_score: number | null
+  threshold: number
+  skipped: boolean
+  skip_reason: string | null
+  blocked: boolean
+  reason: string
 }
 export type GatewayEvent = {
   seq: number
