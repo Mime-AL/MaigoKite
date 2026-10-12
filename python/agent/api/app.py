@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -217,9 +216,12 @@ def create_app(core, web_dir: Path | None = None) -> FastAPI:
                                "process_list", "process_stop", "process_input", "safety_review"), True)
         flags.update(dict.fromkeys(("structured_questions", "task_input", "structured_plan", "task_resume", "subagents",
                                     "subagent_model_selection", "conversation_fork", "context_estimate", "session_approval",
-                                    "task_approval", "approval_authorization_revocation", "permission_boundary_v2"), native))
+                                    "task_approval", "approval_authorization_revocation", "permission_boundary_v2",
+                                    "scoped_memory"), native))
         flags.update(dict.fromkeys(("model_context_percentage", "auto_review", "turn_rollback", "automatic_memory_events"), False))
-        flags["live_process_logs"] = hasattr(os, "pread")
+        # ProcessRegistry also reads named log files on Windows. A particular
+        # job's live_logs_available reports whether its handles are readable.
+        flags["live_process_logs"] = True
         return {"capabilities": flags}
 
     for router in (sessions.routes(core, execution, credentials), settings.routes(core, credentials), workspace.routes(core, execution)):

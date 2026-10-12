@@ -20,6 +20,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def folder_memory_scope(folder_id: str, root_path: str) -> str:
+    """Bind memories to a registered folder and its canonical path, including the default folder."""
+    return hashlib.sha256(json.dumps([folder_id, root_path], ensure_ascii=False).encode()).hexdigest()
+
+
 def validate_subagent_limits(calls: int, concurrent: int) -> None:
     if type(calls) is not int or not 0 <= calls <= 32:
         raise ValueError("每轮子 Agent 上限须为 0–32，0 表示关闭。")
@@ -220,6 +225,7 @@ class SQLiteRepository:
         if "response_mode" not in conversation_columns:
             connection.execute("ALTER TABLE conversations ADD COLUMN response_mode TEXT NOT NULL DEFAULT 'balanced'")
         for column, definition in (
+            ("memory_enabled", "INTEGER NOT NULL DEFAULT 0"),
             ("thinking", "TEXT NOT NULL DEFAULT ''"),
             ("forked_from_conversation_id", "TEXT NOT NULL DEFAULT ''"),
             ("forked_from_message_id", "TEXT NOT NULL DEFAULT ''"),
@@ -231,6 +237,12 @@ class SQLiteRepository:
         ):
             if column not in conversation_columns:
                 connection.execute(f"ALTER TABLE conversations ADD COLUMN {column} {definition}")
+        memory_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(user_memories)").fetchall()}
+        if "folder_scope" not in memory_columns:
+            # NULL preserves legacy records without guessing which project owns them.
+            connection.execute("ALTER TABLE user_memories ADD COLUMN folder_scope TEXT")
+        connection.execute("""CREATE INDEX IF NOT EXISTS idx_user_memories_folder
+                              ON user_memories(workspace_id,subject_user_id,folder_scope,updated_at DESC)""")
         tool_call_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(tool_calls)").fetchall()}
         if "continuation_json" not in tool_call_columns:
             connection.execute("ALTER TABLE tool_calls ADD COLUMN continuation_json TEXT NOT NULL DEFAULT '{}'")
@@ -315,6 +327,7 @@ class SQLiteRepository:
         max_concurrent_subagents: int = 1,
         subagent_model_ids: list[str] | None = None,
         thinking: str = "",
+        memory_enabled: bool = False,
     ) -> dict[str, Any]:
         validate_subagent_limits(max_subagent_calls, max_concurrent_subagents)
         model_ids = validate_subagent_model_ids([] if subagent_model_ids is None else subagent_model_ids)
@@ -326,10 +339,10 @@ class SQLiteRepository:
             self._db().execute(
                 """INSERT INTO conversations(
                      id,workspace_id,title,model_id,permission_mode,response_mode,created_at,updated_at,folder_id,
-                     max_subagent_calls,max_concurrent_subagents,subagent_model_ids_json,thinking
-                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     max_subagent_calls,max_concurrent_subagents,subagent_model_ids_json,thinking,memory_enabled
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (conversation_id, workspace_id, title, model_id, permission_mode, response_mode, now, now, folder_id,
-                 max_subagent_calls, max_concurrent_subagents, json.dumps(model_ids), thinking),
+                 max_subagent_calls, max_concurrent_subagents, json.dumps(model_ids), thinking, memory_enabled),
             )
             self._db().commit()
         return await self.get_conversation(workspace_id, conversation_id)
@@ -528,8 +541,16 @@ class SQLiteRepository:
                 for row in conversations:
                     self._revoke_authorizations(workspace_id, row["id"])
                 now = _now()
+                folder = db.execute("SELECT root_path FROM workspace_folders WHERE workspace_id=? AND id=?",
+                                    (workspace_id, folder_id)).fetchone()
+                scope = folder_memory_scope(folder_id, str(folder["root_path"]))
+                # Retain notes for explicit management, never adopt them into the default folder.
+                db.execute("UPDATE user_memories SET folder_scope=NULL WHERE workspace_id=? AND folder_scope=?",
+                           (workspace_id, scope))
+                db.execute("DELETE FROM user_preferences WHERE workspace_id=? AND key=?",
+                           (workspace_id, "memory.enabled." + scope))
                 db.execute(
-                    """UPDATE conversations SET folder_id='',updated_at=?
+                    """UPDATE conversations SET folder_id='',memory_enabled=0,updated_at=?
                        WHERE workspace_id=? AND folder_id=?""", (now, workspace_id, folder_id),
                 )
                 db.execute("DELETE FROM workspace_folders WHERE workspace_id=? AND id=?", (workspace_id, folder_id))
@@ -587,6 +608,7 @@ class SQLiteRepository:
         max_subagent_calls: int | None = None,
         max_concurrent_subagents: int | None = None,
         subagent_model_ids: list[str] | None = None,
+        memory_enabled: bool | None = None,
     ) -> dict[str, Any]:
         assignments: list[str] = []
         values: list[Any] = []
@@ -598,6 +620,7 @@ class SQLiteRepository:
             ("title", title),
             ("folder_id", folder_id),
             ("archived", archived),
+            ("memory_enabled", False if folder_id is not None else memory_enabled),
             ("max_subagent_calls", max_subagent_calls),
             ("max_concurrent_subagents", max_concurrent_subagents),
             ("subagent_model_ids_json", None if subagent_model_ids is None
@@ -1892,12 +1915,13 @@ class SQLiteRepository:
         return dict(row)
 
     async def list_user_memories(
-        self, workspace_id: str, subject_user_id: str, query: str = "", limit: int = 100
+        self, workspace_id: str, subject_user_id: str, query: str = "", limit: int = 100,
+        *, folder_scope: str | None = None,
     ) -> list[dict[str, Any]]:
         limit = min(max(limit, 1), 500)
         sql = """SELECT * FROM user_memories
-                 WHERE workspace_id=? AND subject_user_id=?"""
-        params: list[Any] = [workspace_id, subject_user_id]
+                 WHERE workspace_id=? AND subject_user_id=? AND folder_scope IS ?"""
+        params: list[Any] = [workspace_id, subject_user_id, folder_scope]
         normalized_query = query.strip().lower()
         if normalized_query:
             escaped = normalized_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -1908,6 +1932,54 @@ class SQLiteRepository:
         async with self._lock:
             rows = self._db().execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    async def prompt_memories(
+        self, workspace_id: str, subject_user_id: str, conversation_id: str, root_path: str,
+    ) -> list[dict[str, Any]]:
+        """Read both opt-ins and current folder facts under one product snapshot lock."""
+        async with self._lock:
+            db = self._db()
+            conversation = db.execute(
+                "SELECT folder_id,memory_enabled FROM conversations WHERE workspace_id=? AND id=?",
+                (workspace_id, conversation_id),
+            ).fetchone()
+            if conversation is None or not conversation["memory_enabled"]:
+                return []
+            folder_id = str(conversation["folder_id"])
+            if folder_id:
+                folder = db.execute("SELECT root_path FROM workspace_folders WHERE workspace_id=? AND id=?",
+                                    (workspace_id, folder_id)).fetchone()
+                if folder is None or folder["root_path"] != root_path:
+                    return []
+            scope = folder_memory_scope(folder_id, root_path)
+            setting = db.execute(
+                "SELECT value_json FROM user_preferences WHERE workspace_id=? AND subject_user_id=? AND key=?",
+                (workspace_id, subject_user_id, "memory.enabled." + scope),
+            ).fetchone()
+            if setting is None or json.loads(setting[0]) is not True:
+                return []
+            rows = db.execute(
+                """SELECT id,category,content FROM user_memories
+                   WHERE workspace_id=? AND subject_user_id=? AND folder_scope=? AND source_type='user'
+                   ORDER BY CASE WHEN category IN ('preference','constraint') THEN 0 ELSE 1 END,
+                            updated_at DESC,id LIMIT 100""",
+                (workspace_id, subject_user_id, scope),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    async def set_memory_enabled(self, workspace_id: str, user_id: str, scope: str, enabled: bool) -> None:
+        async with self._lock:
+            with self._db() as db:
+                now = _now()
+                db.execute(
+                    """INSERT INTO user_preferences VALUES(?,?,?,?,?)
+                       ON CONFLICT(workspace_id,subject_user_id,key)
+                       DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at""",
+                    (workspace_id, user_id, "memory.enabled." + scope, json.dumps(enabled), now),
+                )
+                db.execute("INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)",
+                           (f"audit_{uuid.uuid4().hex}", workspace_id, user_id, "memory.scope.updated", scope,
+                            "success", json.dumps({"enabled": enabled}), now))
 
     async def upsert_user_memory(
         self,
@@ -1920,6 +1992,7 @@ class SQLiteRepository:
         source_type: str = "user",
         source_id: str = "",
         confidence: float = 1.0,
+        folder_scope: str | None = None,
     ) -> dict[str, Any]:
         now = _now()
         creating = not memory_id
@@ -1931,8 +2004,8 @@ class SQLiteRepository:
                     self._db().execute(
                         """INSERT INTO user_memories(
                              id,workspace_id,subject_user_id,category,content,source_type,
-                             source_id,confidence,created_at,updated_at
-                           ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                             source_id,confidence,created_at,updated_at,folder_scope
+                           ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                         (
                             memory_id,
                             workspace_id,
@@ -1944,18 +2017,20 @@ class SQLiteRepository:
                             confidence,
                             now,
                             now,
+                            folder_scope,
                         ),
                     )
                 else:
                     cursor = self._db().execute(
                         """UPDATE user_memories
-                           SET category=?,content=?,confidence=?,updated_at=?
+                           SET category=?,content=?,confidence=?,updated_at=?,folder_scope=COALESCE(?,folder_scope)
                            WHERE workspace_id=? AND subject_user_id=? AND id=?""",
                         (
                             category,
                             content,
                             confidence,
                             now,
+                            folder_scope,
                             workspace_id,
                             subject_user_id,
                             memory_id,
@@ -1972,7 +2047,7 @@ class SQLiteRepository:
                         "memory.created" if creating else "memory.updated",
                         memory_id,
                         "success",
-                        json.dumps({"category": category}, ensure_ascii=False),
+                        json.dumps({"category": category, "folder_scope": folder_scope}, ensure_ascii=False),
                         now,
                     ),
                 )

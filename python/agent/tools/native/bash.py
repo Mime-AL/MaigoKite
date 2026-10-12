@@ -51,15 +51,15 @@ class BashParams(BaseModel):
     )
     network_access: bool = Field(default=False, description="Request network access for this command; requires approval in confined modes.")
     max_output_bytes: int = Field(default=8000, ge=256, le=32_000,
-                                  description="Preview bytes per stream. Full output is saved in workspace log files.")
-    interactive: bool = Field(default=False, description="Allow the user to send stdin from the process panel. Requires approval; not a terminal or detached job. Timeout still applies.")
+                                  description="Preview bytes per stream. Logs share an 8 MiB total cap; exceeding it stops the command.")
+    interactive: bool = Field(default=False, description="Allow user stdin from the process panel. Requires approval; not a terminal or detached job. Not supported by the native Windows sandbox; do not escalate just to enable it. Timeout still applies.")
 
 
 BASH_DESCRIPTION = (
     "Execute a command using the selected shell. PowerShell supports Chinese text, variables and pipelines. "
     "Direct argv has no shell expansion. Linux restricted commands use a workspace sandbox with no network. "
-    "Windows has no restricted process sandbox: explicitly request require_escalated plus network_access, "
-    "or use user-enabled full access; never silently fall back to host execution. "
+    "Windows restricted commands use the optional native SRT backend when installed and enabled; "
+    "otherwise report sandbox unavailable. Never silently fall back to host execution. "
     "Request network_access for networking within the sandbox, or require_escalated plus network_access for host execution; policy decides approval. "
     "Returns bounded stdout/stderr, exit code and log paths. Use file_read with offset to inspect more output."
 )
@@ -86,18 +86,23 @@ class ExecCommandTool(BaseTool):
             str(context.metadata.get("workspace_root") or arguments.get("workdir") or Path.cwd())
         ).expanduser().resolve()
         workdir = Path(str(arguments.get("workdir") or workspace_root)).expanduser().resolve()
+        limits = context.metadata.get("command_limits", {})
         executor = SandboxExecutor(
             {"workspace_root": str(workspace_root), "workdir": str(workdir),
              "sandbox_mode": context.metadata.get("sandbox_mode", "workspace"),
              "allow_network": context.metadata.get("allow_network", False),
              "output_limit": int(arguments.get("max_output_bytes", 8000)),
+             "cpu_seconds": limits.get("cpu_seconds", 0),
+             "address_space_mb": limits.get("address_space_mb", 0),
+             "windows_sandbox": context.metadata.get("windows_sandbox", {}),
              "output_directory": str(workspace_root / ".maigokite" / "outputs")}
         )
         registry = context.metadata.get("process_registry")
         def on_spawn(process, stdout, stderr, stop):
             if registry is not None:
                 registry.attach(context.step_id, str(context.metadata.get("workspace_id", "personal")),
-                                context.task_id, process, stdout, stderr, stop)
+                                context.task_id, process, stdout, stderr, stop,
+                                interactive=bool(arguments.get("interactive", False)))
         def on_exit():
             if registry is not None:
                 registry.detach(context.step_id)
@@ -117,6 +122,8 @@ class ExecCommandTool(BaseTool):
         parts = [f"Exit code {result.exit_code}"]
         if result.timed_out:
             parts.insert(0, "Timed out")
+        if result.output_limit_exceeded:
+            parts.insert(0, "Stopped: combined stdout/stderr log limit exceeded")
         parts.append(f"Duration: {result.duration_ms / 1000:.2f}s")
 
         return ToolResult(
@@ -127,6 +134,11 @@ class ExecCommandTool(BaseTool):
                 "duration_seconds": round(result.duration_ms / 1000, 3),
                 "timed_out": result.timed_out,
                 "output_truncated": result.output_truncated,
+                "output_limit_exceeded": result.output_limit_exceeded,
+                "output_bytes_limit": result.output_bytes_limit,
+                "process_limits": {"cpu_seconds": executor.cpu_seconds,
+                                   "address_space_mb": executor.address_space_mb,
+                                   "scope": "per_process"},
                 "sandboxed": result.sandboxed,
                 "stdout_path": result.stdout_path,
                 "stderr_path": result.stderr_path,
@@ -144,10 +156,13 @@ class ExecCommandTool(BaseTool):
                 "sandboxed": result.sandboxed,
             },
             success=result.exit_code == 0 and not result.timed_out,
-            user_hint=("外部程序输出包含非 UTF-8 字节；预览可能乱码，原始日志已保留。请显式配置该程序的输出编码。"
+            user_hint=("命令标准输出与错误输出合计超过日志上限，已请求停止。请缩小输出范围；日志仅保留上限内的部分。"
+                       if result.output_limit_exceeded else
+                       "外部程序输出包含非 UTF-8 字节；预览可能乱码，请显式配置该程序的输出编码。"
                        if result.output_decoding_errors else None),
-            error_code=("COMMAND_TIMEOUT" if result.timed_out else "COMMAND_FAILED")
-            if result.exit_code != 0 or result.timed_out else None,
+            error_code=("COMMAND_OUTPUT_LIMIT" if result.output_limit_exceeded else
+                        "COMMAND_TIMEOUT" if result.timed_out else "COMMAND_FAILED")
+            if result.exit_code != 0 or result.timed_out or result.output_limit_exceeded else None,
         )
 
 

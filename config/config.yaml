@@ -39,6 +39,17 @@ browser:
 tools:
   default_tools: [file_read, file_write, file_edit, glob, grep, exec_command, web_search, web_fetch, browser, skill]
   disabled_tools: []  # Startup ceiling; the settings UI cannot override this.
+  # Optional per-process Linux rlimits (util-linux prlimit). Zero preserves host
+  # limits; address space is not RSS or an aggregate process-tree memory quota.
+  # Windows rejects nonzero values until a native limit backend is integrated.
+  command_limits:
+    cpu_seconds: 0
+    address_space_mb: 0
+  # Optional native Windows backend. Provision explicitly with scripts/sandbox.ps1;
+  # enabling this alone never installs accounts, ACLs or WFP rules. Upstream is alpha.
+  windows_sandbox:
+    enabled: false
+    allow_read: []  # Exact, trusted per-user tool directories; not model-controlled.
 
 # Permission settings
 permissions:

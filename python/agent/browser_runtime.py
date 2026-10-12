@@ -131,7 +131,7 @@ class BrowserRuntime:
         async with self._lock:
             if self._browser is not None and self._browser.is_connected():
                 return self._browser
-            options: dict[str, Any] = {"headless": self.headless}
+            options: dict[str, Any] = {"headless": self.headless, "chromium_sandbox": True}
             if self.executable_path:
                 options["executable_path"] = self.executable_path
             try:
@@ -141,7 +141,8 @@ class BrowserRuntime:
                 if not isinstance(exc, Exception):
                     raise
                 raise BrowserRuntimeUnavailable(
-                    "Chromium could not start; configure browser.executable_path or install Playwright Chromium"
+                    "Chromium could not start with its native sandbox; use a supported non-root environment "
+                    "and install Playwright Chromium. Sandboxing will not be disabled automatically."
                 ) from exc
             return self._browser
 
@@ -185,6 +186,7 @@ class BrowserRuntime:
                 directory.chmod(0o700)
                 options: dict[str, Any] = {
                     "headless": False if visible else self.headless,
+                    "chromium_sandbox": True,
                     "accept_downloads": True, "service_workers": "block",
                 }
                 if self.executable_path:
@@ -193,7 +195,8 @@ class BrowserRuntime:
                     context = await driver.chromium.launch_persistent_context(str(directory), **options)
                 except Exception as exc:
                     raise BrowserRuntimeUnavailable(
-                        "无法打开独立浏览器配置；请检查 Chromium、配置目录是否被占用；可见登录窗口还需要桌面显示环境。"
+                        "无法带原生沙箱打开独立浏览器配置；请使用受支持的非 root 环境并检查 Chromium、"
+                        "配置目录是否被占用；可见登录还需要桌面显示环境。不会自动禁用沙箱。"
                     ) from exc
             else:
                 browser = await self._ensure_browser()

@@ -111,21 +111,21 @@ Agent 通过同一个 `exec_command` 执行命令，不需要另外安装 MCP �
 {
   "command": "Get-ChildItem -LiteralPath . | Select-Object Name,Length",
   "shell": "auto",
-  "sandbox_permissions": "require_escalated",
-  "network_access": true
+  "sandbox_permissions": "use_default",
+  "network_access": false
 }
 ```
 
-Windows 暂无受限进程沙箱。上面的参数是请求本次宿主执行及其不可隔离的网络权限，**不是授予权限**；非完全访问模式仍需用户批准。拒绝后不会执行。也可以由用户显式启用完全访问；不会因为检测到 Windows 而自动开启。PowerShell 脚本不能复用“以后都允许某个工具”的授权，现有命令白名单也不会只检查脚本开头。
+上例要求先安装并启用下节的原生沙箱；不可用时明确失败，不自动升级。PowerShell 脚本仍按现有不透明操作策略审批，沙箱接入不绕过 PermissionPolicy。确有宿主执行需要时，可以单次请求 `require_escalated` 和 `network_access=true`，**请求不等于授权**；非完全访问模式仍需用户批准。不会因为检测到 Windows 而自动开启完全访问。PowerShell 脚本不能复用“以后都允许某个工具”的授权，现有命令白名单也不会只检查脚本开头。
 
 中文与编码处理：
 
 - 原始脚本通过两版都支持的 UTF-16LE `-EncodedCommand` 传入，避免中文、反斜杠与多层引号被宿主 Shell 再解析；审批展示的仍是原始脚本。
-- 仅在新子进程内把 Console 输入/输出和 `$OutputEncoding` 设为 UTF-8，使用 `-NoProfile`，不修改系统代码页、用户 Profile 或执行策略。普通调用使用 `-NonInteractive`；`interactive=true` 仍需审批，只提供标准输入，不是交互终端。
+- 仅在新子进程内把 Console 输入/输出和 `$OutputEncoding` 设为 UTF-8，使用 `-NoProfile`，不修改系统代码页、用户 Profile 或执行策略。普通调用使用 `-NonInteractive`；宿主路径的 `interactive=true` 仍需审批，只提供标准输入，不是交互终端。当前 Windows 沙箱不支持交互 stdin，明确拒绝此参数。
 - **文件编码独立于命令输出编码**：5.1 的 `>` / `Out-File` 默认 UTF-16LE，`-Encoding UTF8` 带 BOM，且不能使用 `utf8NoBOM`；7 的常规文本输出默认 UTF-8 无 BOM。优先用文件工具，Shell 读写应显式指定所需编码。5.1 执行包含中文的 `.ps1` 文件时，该文件应使用可识别的编码，例如 UTF-8 BOM；命令传输编码不会修复已有脚本文件。
 - 外部程序可能忽略这些设置并输出 GBK 等字节。发现无法按 UTF-8 解码时，结果标记 `output_decoding_errors`、提示检查该程序编码并保留原始日志，不自动猜编码或改写文件。PowerShell 在内部已错误解码的文本无法据此可靠检测。
 
-超时与取消使用现有进程管理，Windows 通过 `taskkill /T /F` 请求停止所属进程树并等待返回；父进程先退出、后台脱离等情形没有 Job Object 级保证。日志面板支持 Windows 的独立文件句柄读取，不改变子进程的写入偏移。
+超时与取消使用现有进程管理：原生沙箱通过 SRT 的 Job 生命周期停止并等待 ACL 清理；宿主路径仍通过 `taskkill /T /F` 请求停止所属进程树并等待返回，父进程先退出、后台脱离等情形没有 Job Object 级保证。日志面板支持 Windows 的独立文件句柄读取，不改变子进程的写入偏移。
 
 Python 后端和命令子进程的管道输出显式使用 UTF-8；这不改变 PowerShell 5.1 的文件写入编码，也不自动转换其他程序的 GBK 输出。命令子进程使用隐藏控制台启动，Git 状态查询不再弹出控制台窗口。内部搜索/Python 调用直接传 argv，不再先拼命令字符串再拆分。`shell=direct` 在 Windows 不直接运行 `.cmd/.bat`，此类命令请显式使用 PowerShell。
 
@@ -134,6 +134,42 @@ Python 后端和命令子进程的管道输出显式使用 UTF-8；这不改变 
 本轮仅静态检查，尚未完成 Windows 实机验收。待验证：5.1/7 的中文输出与中文/空格路径、管道和错误退出码、UTF-8/BOM 文件差异、审批拒绝与恢复、中文 stdin、超时及 GUI 停止子进程树。Linux 原有 direct 行为也需回归；未执行项不视为通过。
 
 编码约定依据：[微软编码说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_character_encoding?view=powershell-7.5)、[EncodedCommand 参数](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_exe?view=powershell-5.1#-encodedcommand)、[taskkill](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill)。
+
+### Windows 原生命令沙箱
+
+源码接入 [Anthropic Sandbox Runtime 0.0.79](https://github.com/anthropics/sandbox-runtime/tree/v0.0.79)，锁定公开 SDK 与配套 helper，不自研 Windows Token/ACL/WFP/Job 实现。上游 Windows 后端仍为 **alpha**；本次没有运行 Windows 安装或实机验收，默认关闭。仅覆盖受限 `exec_command`，不接管 MCP Server、Playwright 或进程内文件工具。
+
+关闭 MaigoKite 和其他使用 SRT 的程序后，在仓库根目录执行：
+
+```powershell
+# 只安装锁定依赖；普通 Windows setup 已包含此步，不修改系统权限。
+.\scripts\setup.ps1 sandbox
+# 先阅读下方边界，再确认系统安装；会弹出 UAC。
+.\scripts\sandbox.ps1 install -ConfirmSystemChanges
+.\scripts\sandbox.ps1 status
+```
+
+在**实际加载的配置文件**中合并以下内容，再重启后端。源码启动默认读取 `config/config.dev.yaml`，指定了 `MAIGOKITE_CONFIG` 时以该文件为准，不要只改未加载的模板。
+
+```yaml
+tools:
+  windows_sandbox:
+    enabled: true
+    allow_read: []
+```
+
+安装委托官方 helper 创建机器级 `srt-sandbox` 账户、相关组、注册表凭证、ACL 和 WFP 规则。普通 setup 只安装 npm 依赖；启用配置不会触发 UAC 或自动安装。拒绝 UAC 不报告成功。卸载入口为 `scripts/sandbox.ps1 uninstall -ConfirmSystemChanges`，会删除共享沙箱账户及其 profile，可能影响其他 SRT 程序，必须先停止它们；官方保留的 ProgramData/LocalAppData 状态目录不由脚本递归删除。不安装 TLS 拦截证书，也不修改证书吊销检查。
+
+执行边界与限制：
+
+- 使用专用账户、受限 Token、NTFS ACL、WFP 与 Job；`workspace` 临时授予工作区修改，`read_only` 明确禁止工作区写入，已知敏感路径与 `.git` 另加拒绝规则。目录扫描失败、超额、重解析点/junction 或 UNC 工作区均拒绝执行。它不是 Linux 的 mount namespace，公开可读的其他目录不保证不可读；也不是完整 DLP。
+- **网络不等于完全断网**：未批准联网时代理目的地为空，并校验 WFP 防直连；系统 DNS 解析不在隔离内。已批准联网只开放上游代理支持的访问，不承诺任意 UDP/网络协议。不能用此能力处理“绝无网络外泄”的任务。
+- SDK 使用机器级共享沙箱账户。同一用户的 MaigoKite 实例通过文件锁串行运行沙箱命令，避免工作区授权重叠；不能隔离其他用户/其他 SRT 产品的并发授权和代理。不要在同机并行使用这些客户端。
+- Node.js 宿主与安装目录中的 `scripts/windows-sandbox` 必须位于当前工作区之外，避免工具改写后续要以宿主身份运行的 SDK/helper；默认 `.workspace` 布局满足要求，不能把整个 MaigoKite 安装目录选作受限命令工作区。`MAIGOKITE_NODE` 可指定可信 `node.exe` 的绝对路径。优先使用机器级 PowerShell/工具安装；确需用户目录内的工具，才在 `allow_read` 添加其确切目录，**不要加入整个用户主目录或凭证目录**。规则属于启动配置，不由模型扩大。
+- 日志、超时和停止保留；停止等待 helper 退出及临时 ACL 回收，回执缺失/失败不会报告成功。Core 控制管道关闭会请求停止；强杀/系统崩溃后依赖 SRT 后续初始化的恢复，不能保证断电前完成清理。不要在清理异常后立即启动另一个 SRT 客户端。
+- 当前锁定版 SDK 不透传交互 stdin，沙箱内 `interactive=true` 明确失败，GUI 不会把桥接控制管道作为可输入终端。CPU/内存总配额、磁盘配额未交付，见下节资源限制。
+
+`sandbox.ps1 status` 仅检查官方安装记录，`provisioned=true` 也不是可执行验收。API 状态刷新只查依赖：启用且依赖存在时为 `unverified / verification_on_execute`，不在读取设置时启动命令或修改 ACL。每次实际执行仍由 SDK 校验账户、防火墙和目录授权，成功进入后才具备该次沙箱边界；失败不回退宿主运行。
 
 ### 对话中的子 Agent
 
@@ -161,10 +197,28 @@ tools:
 `default_tools: []` 关闭默认内置工具，不关闭已显式连接的 MCP 工具。MCP 加载范围由
 服务级工具列表控制，再由设置页选择。`glob/grep` 需要安装 ripgrep（`rg`），缺失会提示；
 grep 使用 Rust 正则语法而非 Python 正则语法。非 Windows 的 `exec_command` 默认使用 direct argv，不解释管道、重定向或 Shell 展开；Windows 行为见本节 PowerShell 说明。
-受限 `glob/grep` 同时依赖进程沙箱：Linux 需要可用的 bubblewrap，Windows 目前未接入受限搜索后端，仅安装 ripgrep 或批准文件读取不能解除此限制；明确开启完全访问才使用宿主搜索，系统不会自动切换权限模式。
+Linux 受限 `glob/grep` 需要可用的 bubblewrap。Windows 普通搜索和只读子 Agent 改用固定参数的可信 ripgrep，无需完全访问或 WSL；`rg.exe` 必须安装在工作区、搜索目录之外的绝对 PATH 目录。文件名发现复用 ripgrep 的 glob/ignore 规则，内容搜索通过已校验的文件句柄制作临时快照，再由 ripgrep 匹配；不允许模型指定程序、shell 或额外命令参数。这是应用级只读能力，不是 Windows 通用进程沙箱。
+Windows 受限搜索拒绝 UNC 路径、目录 junction/reparse point，过滤各层已知敏感路径。每次最多检查 2000 个候选文件、每文件 2 MiB、内容快照共 32 MiB；超过限额或跳过不可读取项时返回 `truncated=true`，不要将零匹配理解为完整扫描。请缩小搜索路径继续。临时快照在完成、失败或协作取消后删除；后端被强制终止时可能留下系统临时目录残留。
 历史 `bash` 名称只兼容旧显式调用，不再交给模型。
 
-同页下方可以为 Web 搜索配置可选服务。未配置凭证时使用无需密钥的 DuckDuckGo；保存
+### 命令资源限制
+
+`max_output_bytes` 仅控制回复中的每路预览。后端从管道保存日志，stdout/stderr 每次调用合计最多 **8 MiB**，超出后请求停止所属进程、等待清理并返回 `COMMAND_OUTPUT_LIMIT`；日志只保留上限内的字节。这不限制命令直接写文件、历史日志累计或整个工作区磁盘占用。
+
+可选的部署限制只对 `exec_command` 生效，不是模型可调整的参数：
+
+```yaml
+tools:
+  command_limits:
+    cpu_seconds: 0
+    address_space_mb: 0
+```
+
+零保留宿主原有上限。Linux 非零值通过 util-linux 的 `prlimit` 在执行前设置软/硬上限；CPU 是单进程累计秒数（向上取整），地址空间是虚拟内存 MiB，不是 RSS 或所有后代合计内存。后代继承 rlimit，但每个进程分别计量。地址空间设得过低会使 Node/浏览器等无法启动。缺少 prlimit 或 Windows 配置非零值时明确失败，不忽略配置；Windows 原生 CPU/内存限制与全工作区磁盘配额尚未接入。修改启动 YAML 后需重启后端。
+
+### 联网服务
+
+工具设置页下方可以为 Web 搜索配置可选服务。未配置凭证时使用无需密钥的 DuckDuckGo；保存
 Tavily 后优先使用 Tavily。Google Programmable Search 需要 API 密钥和搜索引擎 ID（CX）。
 
 敏感凭证保存在操作系统密钥链，界面只接收引用状态。Python API 在任务开始前，将当前工作区的凭证同步到智能体核心内存，不写入会话、ToolResult 或普通配置。
@@ -275,14 +329,18 @@ Core 重启后，MCP 内存凭证需要重新注入。可点击“恢复已有�
 
 ## 10. 记忆（阶段 2）
 
-“用户记忆”页面已经支持当前用户在工作区内手动添加、查询、修改和遗忘长期信息，数据由智能体核心持久化，写操作进入审计日志。自动从对话提取记忆、语义检索和注入模型上下文尚未启用。
+“用户记忆”页面支持按工作区文件夹手动添加、查询、修改和遗忘长期信息，写操作进入审计日志。要让当前对话使用这些信息，需同时开启该页面的文件夹开关和聊天栏的对话开关，二者均默认关闭；旧的未归属记忆不会自动使用。功能源码已接入，当前批次尚未运行验收。
+
+每次主模型调用前重新读取开关和有效条目，仅在本次请求中附带给已配置的当前模型，不把参考区写死进聊天历史或 checkpoint。预算不足时部分或全部省略，自动提取与语义检索尚未实现；此功能不扫描其他聊天或文件，也不增加服务。
 
 “向量嵌入与索引”入口已提前注册，但目前是只读状态页，没有可保存的模型提供方控件。保留期、自动抽取、向量嵌入模型提供方和索引重建需要等对应 API、版本化索引、删除闭环和测试完成后再开放。
 
-后续记忆与索引配置必须保持以下约束：
+记忆与后续索引配置保持以下约束：
 
 - 敏感凭证不进入记忆。
-- 个人数据范围之间隔离；同一 `personal` 下的文件夹工作区共享个人记忆，不能视为记忆或凭证安全隔离边界。
+- 同一 `personal` 范围内也按文件夹隔离记忆；未归属旧记录不会自动进入任一目录。文件夹不是宿主进程或凭证的安全隔离边界。
+- 文件夹与单个对话分别控制记忆使用，两层开关默认关闭。移动对话/创建分岔不自动继承开启状态；同目录不同工作流也可以独立关闭。
+- 关闭、修改或删除影响后续重新组装的请求，不会撤回已发出的请求或 SDK 对该请求的内部重试，也不会擦除既有回复中引用过的事实。需要干净上下文时新建关闭记忆的对话。
 - 当前可查看、修改和遗忘用户记忆；导出尚未完整交付。
 - 原始消息/文档删除后派生索引必须清理。
 

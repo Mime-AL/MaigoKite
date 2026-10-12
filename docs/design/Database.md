@@ -51,7 +51,7 @@
 | `approvals` | 任务/工具调用、principal、参数摘要值、风险、版本、过期和决定时间；`reuse_scope_json / authorization_scope / authorization_expires_at / authorization_revoked_at` 保存有限期窄授权 |
 | `audit_events` | 工作区、actor、action、resource、result、脱敏详情和时间 |
 | `todos` | 工作区内的文本、完成状态和时间 |
-| `user_memories` | 工作区 + subject user、类别、内容、来源、置信度和时间 |
+| `user_memories` | 工作区 + subject user + `folder_scope`、类别、内容、来源、置信度和时间；旧记录归属为 NULL，不自动归入默认目录 |
 
 User Preference 与用户记忆不合并：前者是显式产品设置，后者是用户可管理的长期信息。当前用户记忆只有手动 CRUD 和关键词查询，不会自动抽取信息、使用向量嵌入检索或注入模型上下文。
 

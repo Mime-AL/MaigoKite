@@ -920,7 +920,7 @@ export const useSessionStore = defineStore('session', () => {
   }
   async function manageSession(
     id: string,
-    patch: { title?: string; archived?: boolean; folder_id?: string },
+    patch: { title?: string; archived?: boolean; folder_id?: string; memory_enabled?: boolean },
   ) {
     const item = retainedWorkspace(await api.updateConversationSettings(id, patch))
     const index = sessions.value.findIndex((session) => session.id === id)

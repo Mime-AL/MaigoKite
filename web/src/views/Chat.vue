@@ -23,6 +23,7 @@ import RailTrack from '@/components/rail/RailTrack.vue'
 import RailMinimap from '@/components/rail/RailMinimap.vue'
 import InputBox from '@/components/chat-area/InputBox.vue'
 import SubagentSettings from '@/components/chat-area/SubagentSettings.vue'
+import StatPopover from '@/components/inkwell/StatPopover.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
 import WelcomeSheet from '@/components/chat-area/WelcomeSheet.vue'
 import PendingReminder from '@/components/chat-area/PendingReminder.vue'
@@ -59,6 +60,9 @@ const draftSubagents = ref(0),
   draftConcurrent = ref(1),
   savingSubagents = ref(false)
 const draftSubagentModels = ref<string[]>([])
+const draftMemory = ref(false), savingMemory = ref(false)
+const memoryEnabled = computed(() => sessionId.value ? session.activeSession?.memory_enabled === true : draftMemory.value)
+watch(() => workspace.selectedId, () => { draftMemory.value = false })
 const turns = computed(() => run.turns[sessionId.value] || [])
 const forkDisabled = computed(() => sending.value || restoring.value ||
   Boolean(session.runningTaskIds[sessionId.value]?.length) ||
@@ -203,6 +207,7 @@ watch(
     else {
       session.activeSessionId = null
       draftPermissionChosen = false
+      draftMemory.value = false
       mode.value = settings.permissions.default_mode
     }
     resume()
@@ -243,10 +248,12 @@ async function send(content: string, intent: 'send' | 'guide' | 'later' = 'send'
     await controls
     if (controlError) throw new Error(controlError)
     if (!id) {
+      const useMemory = draftMemory.value
       const item = await session.createSession('新对话')
       id = item.id
       await router.replace('/chat/' + id)
       await session.setPermissionMode(mode.value, id)
+      if (useMemory) await session.manageSession(id, { memory_enabled: true })
       await session.setConversationRuntime(
         draftModel.value || settings.defaultModelId,
         draftThinking.value,
@@ -315,6 +322,21 @@ function subagents(value: { calls: number; concurrent: number; modelIds?: string
     } finally {
       savingSubagents.value = false
     }
+  })
+}
+function toggleMemory() {
+  const enabled = !memoryEnabled.value
+  const id = sessionId.value
+  if (!id) { draftMemory.value = enabled; return }
+  savingMemory.value = true
+  configure(async () => {
+    try {
+      await session.manageSession(id, { memory_enabled: enabled })
+    } catch (reason) {
+      // Refresh persisted state if the response was lost; never resend a toggle.
+      await session.loadSessions()
+      throw reason
+    } finally { savingMemory.value = false }
   })
 }
 function model(value: string) {
@@ -416,6 +438,20 @@ watch(
         :disabled="sending"
         @change="subagents"
       />
+    </Teleport>
+    <Teleport v-if="session.capabilities.scoped_memory === true && !session.activeSession?.archived" to="#chat-session-actions">
+      <StatPopover :label="$t('本对话记忆')" :title="memoryEnabled ? $t('本对话记忆：开启') : $t('本对话记忆：关闭')" placement="below" toolbar>
+        <template #trigger>{{ $t('记忆') }}</template>
+        <div class="conversation-memory">
+          <button class="secondary-button" type="button" role="switch" :aria-checked="memoryEnabled"
+            :disabled="sending || savingMemory" @click="toggleMemory">
+            {{ memoryEnabled ? $t('本对话记忆：开启') : $t('本对话记忆：关闭') }}
+          </button>
+          <p>{{ $t('只有本工作区和本对话都开启时才使用保存的记忆；不会读取其他工作区。') }}</p>
+          <p>{{ $t('所选模型会收到这些记忆；关闭只影响后续请求，不会清除历史回复。') }}</p>
+          <RouterLink to="/memory">{{ $t('管理工作区记忆') }}</RouterLink>
+        </div>
+      </StatPopover>
     </Teleport>
     <!-- Stable wrapper and one InputBox: a paper composition, not a second composer. -->
     <div
@@ -695,4 +731,11 @@ watch(
 </template>
 <style scoped lang="scss">
 @use '@/styles/chat';
+.conversation-memory {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 24rem;
+  font-size: var(--type-small);
+  p { margin: 0; }
+}
 </style>

@@ -70,7 +70,7 @@ if ($LASTEXITCODE -eq 0) { .\scripts\start.ps1 desktop built }
 if ($LASTEXITCODE -eq 0) { .\scripts\start.ps1 web built }
 ```
 
-Windows 命令工具支持 PowerShell 7 / 5.1，但尚未完成实机验收，也没有受限进程沙箱。命令执行需单次授权或显式开启完全访问，编码差异见 [配置指南](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
+Windows 命令工具支持 PowerShell 7 / 5.1。原生受限执行已接入可选的 SRT 后端（alpha，默认关闭、尚未 Windows 实机验收），不依赖 WSL；未启用时拒绝受限命令，不自动改为完全访问。首次安装会涉及系统账户与防火墙，须按 [Windows 沙箱配置](docs/user-guide/Configuration.md#windows-原生命令沙箱) 单独确认；普通 setup/start 不做这些系统更改。编码差异见 [PowerShell 说明](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
 
 `setup` 安装 Python 运行依赖及 Web/Electron 工具。执行前先退出应用；仅更新后端或安装开发工具的选项见 [开发指南](docs/development/DevelopmentGuide.md#2-初始化)。
 

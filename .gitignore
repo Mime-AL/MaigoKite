@@ -1,7 +1,6 @@
 # Dependencies
 node_modules/
 vendor/
-go/pkg/
 
 # Virtual environments
 .venv/
@@ -68,7 +67,6 @@ htmlcov/
 # Local tests (retain files locally, do not version them)
 tests/
 __tests__/
-*_test.go
 test_*.py
 *_test.py
 conftest.py

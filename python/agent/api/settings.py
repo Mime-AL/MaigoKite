@@ -222,8 +222,17 @@ def routes(core, credentials) -> APIRouter:
         return await core.update_tool_settings(workspace_id, body.enabled)
 
     @router.get("/memories")
-    async def memories(workspace_id: str, q: str = Query(default="", max_length=200)):
-        return {"memories": await core.list_memories(workspace_id, dto.Principal, q, 200)}
+    async def memories(workspace_id: str, q: str = Query(default="", max_length=200),
+                       folder_id: str | None = Query(default=None, max_length=200)):
+        return {"memories": await core.list_memories(workspace_id, dto.Principal, q, 200, folder_id)}
+
+    @router.get("/memory-settings")
+    async def memory_settings(workspace_id: str, folder_id: str = Query(max_length=200)):
+        return await core.get_memory_settings(workspace_id, dto.Principal, folder_id)
+
+    @router.patch("/memory-settings")
+    async def update_memory_settings(workspace_id: str, body: dto.MemorySettings):
+        return await core.set_memory_settings(workspace_id, dto.Principal, body.folder_id, body.enabled)
 
     @router.post("/memories", status_code=201)
     async def add_memory(workspace_id: str, body: dto.MemoryInput):

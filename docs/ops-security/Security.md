@@ -21,7 +21,22 @@ loopback/Origin 限制不是完整设备认证。当前未完成本次启动的�
 
 AccessPolicy 和 ToolPolicy 都需通过。模型/技能/MCP 自报能力不能授权；具体参数、范围、摘要值/版本和单次审批规则只在工具权限文档维护。
 
-exec_command 的受限模式要求可用的系统沙箱，默认断网，沙箱不可用时不静默回退；不能把进程内文件工具的路径校验称为完整 OS 隔离。MCP 当前信任边界是部署者显式配置，最小环境和受限 cwd 已有，全面资源隔离/独立 Grant 尚未交付。详见 [MCP](../agent-capabilities/mcp/mcp-integration.md)。
+exec_command 的受限模式要求可用的系统沙箱，默认不批准联网；Linux 使用网络 namespace，Windows SRT 不隔离系统 DNS，不能统称完全断网。沙箱不可用时不静默回退；不能把进程内文件工具的路径校验称为完整 OS 隔离。MCP 当前信任边界是部署者显式配置，最小环境和受限 cwd 已有，全面资源隔离/独立 Grant 尚未交付。详见 [MCP](../agent-capabilities/mcp/mcp-integration.md)。
+
+当前没有覆盖整个 Agent 的统一 OS 沙箱，各能力的实际边界如下：
+
+| 执行路径 | 当前边界 | 不提供的保证 |
+|---|---|---|
+| Linux 受限命令/搜索 | bubblewrap 文件挂载、网络/PID namespace；启动时嵌套敏感路径遮蔽 | 内容 DLP、硬链接别名检测、工作区总磁盘配额 |
+| Windows 受限搜索 | 固定可信 ripgrep、句柄校验、有限只读内容快照 | 任意 PowerShell/程序隔离；被替换或恶意安装的 ripgrep 隔离 |
+| Windows 受限命令（可选、默认关闭） | SRT 0.0.79 alpha：专用账户、Token、ACL、WFP、Job；启动前检查，停止等待清理 | DNS 阻断、公开可读路径隐藏、其他 SRT 客户端隔离、交互 stdin、进程树资源配额；未实机验收 |
+| 原生文件工具 | 进程内路径与授权检查 | 整个 Core 的文件系统隔离、所有 TOCTOU 防护 |
+| MCP stdio | 部署者显式信任程序、最小环境、工具调用审批 | 服务进程的宿主文件/网络权限限制；cwd 不是 chroot |
+| Browser | Playwright 启用 Chromium 原生沙箱，独立 profile 和产品 URL/文件策略 | Playwright driver/浏览器父进程的工作区隔离、完整网络出口隔离 |
+
+嵌套遮蔽只针对启动扫描时已存在的已知敏感名称，不识别改名凭证、硬链接别名或秘密内容，也不防止并发的宿主进程在扫描和挂载之间更改目录。扫描不完整时拒绝启动，而不是忽略错误后执行。不能据此宣称完整防泄露。
+
+Windows 原生后端只通过公开 SDK 接入，普通安装依赖不修改系统账户/ACL/防火墙；管理员安装与卸载必须显式确认。同一用户的 MaigoKite 沙箱命令串行运行，不与其他 SRT 客户端并用。详情与上游限制见 [工具权限](../agent-capabilities/security/tool-permission.md) 和 [配置指南](../user-guide/Configuration.md#windows-原生命令沙箱)。
 
 本地技能是声明文件，不执行目录代码；包摘要值/签名/安装检查是未来门槛，不能伪装当前安装流程。显式禁用工具、部署限制及操作系统权限不因批准而消失；用户明确选择 danger_full_access 则取消工作区隔离与逐项审批。旧 full_access 保留受限语义。精确边界与当前限制见 [工具权限](../agent-capabilities/security/tool-permission.md)。
 
@@ -40,6 +55,8 @@ exec_command 的受限模式要求可用的系统沙箱，默认断网，沙箱�
 Python API 的 HTTP 来源边界与 WebSocket 升级校验均允许本机回环连接使用精确的 `null` 或 `file://` 来源，兼容 Electron 从本地 HTML 加载的渲染进程。判断依据是 ASGI 的直接连接地址与 Host，不信任转发头；不允许远程连接凭借这两种来源访问，也不接受任意 `file:` 地址。该兼容规则不是桌面身份认证，远程接入仍需独立设备认证。
 
 浏览器当前公开 HTTP(S)/地址检查是应用防护，不保证 Chromium 所有出站请求都隔离；DNS 重绑定、重定向、下载和资源访问需实测及主机/容器出口策略。不能把 URL 检查写成完整 SSRF 沙箱。
+
+临时浏览器和持久化登录 profile 均显式设置 `chromium_sandbox=True`。启动失败不以 `--no-sandbox` 重试；Linux 需受支持的非 root 环境。这不改变 MCP 或 Python 文件工具的执行权限。
 
 远程入口须 HTTPS/WSS、受限 Origin/CORS、设备会话和最小开放资源。Electron 当前安全窗口基线见 [前端与桌面交互设计](../design/FrontendDesign.md)，任意导航/下载、资源替换和 IPC 参数安全仍须发布验收。
 

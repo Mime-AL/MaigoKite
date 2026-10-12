@@ -27,6 +27,14 @@ h1 {
   min-width: 0;
   width: 100%;
 }
+.memory-scope {
+  display: grid;
+  gap: var(--space-3);
+  color: var(--ink-2);
+  font-size: var(--type-small);
+  .secondary-button { justify-self: start; }
+  p { margin: 0; }
+}
 .memory-identity {
   display: grid;
   grid-template-columns: var(--memory-identity-width) minmax(0, 1fr);

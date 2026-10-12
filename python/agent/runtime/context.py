@@ -32,6 +32,7 @@ from agent.models.context_capacity import (
     resolve_context_capacity,
 )
 from agent.models.usage import message_usage
+from agent.runtime.memory import project_memories
 
 
 class ContextBudgetExceeded(UserFacingError):
@@ -135,12 +136,14 @@ async def _charge_call(context: Any) -> None:
 async def _publish_context(
     context: Any, model: Any, capacity: ContextCapacity, configured: int, used: int, *,
     call_id: str, measurement: str = "estimate", purpose: str = "response",
+    memory: dict[str, Any] | None = None,
 ) -> None:
     await _emit(context, "context.updated", {
         **context_payload(model, capacity, configured),
         "call_id": call_id, "estimated_input_tokens": used,
         "measurement": measurement, "purpose": purpose,
         "context_percent": used / capacity.tokens * 100 if capacity.tokens else None,
+        **({"memory": memory} if memory is not None else {}),
     })
 
 
@@ -443,11 +446,31 @@ class ContextBudgetMiddleware(AgentMiddleware):
             if context is not None:
                 context.context_capacity = capacity
         input_budget = effective_input_budget(request.model, self.max_tokens, capacity)
+        # Memory is optional reference material. Limit its share and use only
+        # spare input room after compaction, so it cannot crowd out this turn.
+        projected, memory = await project_memories(
+            request.messages, context,
+            token_limit=max(0, min(1500, input_budget // 20, input_budget - estimated - 32)),
+        )
+        if memory["included_count"]:
+            outbound = [*([request.system_message] if request.system_message is not None else []), *projected]
+            projected_tokens = count_tokens_approximately(
+                outbound, tools=request.tools, use_usage_metadata_scaling=False,
+            )
+            if projected_tokens <= input_budget:
+                memory["estimated_tokens"] = max(0, projected_tokens - estimated)
+                estimated = projected_tokens
+            else:
+                # Count the complete request as well; block formatting can add
+                # overhead beyond the conservative reference-only estimate.
+                projected = request.messages
+                memory.update(included_count=0, ids=[], estimated_tokens=0)
         if context is not None and hasattr(context, "result_budget"):
             history = count_tokens_approximately(request.messages, use_usage_metadata_scaling=False)
             context.result_budget = (input_budget, max(0, estimated - history))
         call_id = f"call_{uuid.uuid4().hex}"
-        await _publish_context(context, request.model, capacity, self.max_tokens, estimated, call_id=call_id)
+        await _publish_context(context, request.model, capacity, self.max_tokens, estimated,
+                               call_id=call_id, memory=memory)
         if capacity.tokens is not None and estimated > input_budget:
             raise ContextBudgetExceeded(
                 f"保留的请求约 {estimated} tokens，超过可用输入预算 {input_budget}；"
@@ -477,14 +500,16 @@ class ContextBudgetMiddleware(AgentMiddleware):
         observed = request.model.model_copy(update=options)
         started_at = time.perf_counter()
         try:
-            response = await handler(request.override(model=observed))
+            # Keep request/state unchanged: overflow recovery must summarize
+            # the real history and read fresh notes for its next invocation.
+            response = await handler(request.override(model=observed, messages=projected))
         except (Exception, asyncio.CancelledError) as exc:
             if receipt := capacity_from_error(exc):
                 reported, used = receipt
                 if context is not None:
                     context.context_capacity = reported
                 await _publish_context(context, request.model, reported, self.max_tokens, used,
-                                       call_id=call_id, measurement="provider")
+                                       call_id=call_id, measurement="provider", memory=memory)
             await _emit(context, "model.call.failed", {
                 "call_id": call_id, "purpose": "response", "error_type": type(exc).__name__,
             })

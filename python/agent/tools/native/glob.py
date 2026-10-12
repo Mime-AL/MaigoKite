@@ -48,17 +48,20 @@ class GlobTool(BaseTool):
             "allow_network": full_access,
         })
         try:
-            result = await executor.execute_argv([
-                "rg", "--no-config", "--files", "--null", "--sort", "path", "--glob", args.pattern,
-                *([] if full_access else search_exclusions()), ".",
-            ])
+            if os.name == "nt" and not full_access:
+                from agent.tools.native.windows_search import search
+                result = await search(root, workspace=workspace, pattern=args.pattern, files_only=True)
+            else:
+                result = await executor.execute_argv([
+                    "rg", "--no-config", "--files", "--null", "--sort", "path", "--glob", args.pattern,
+                    *([] if full_access else search_exclusions()), ".",
+                ])
         except FileNotFoundError:
             return ToolResult.failure({}, "ripgrep is not installed.", error_code="RIPGREP_UNAVAILABLE",
-                                      user_hint="文件搜索需要 ripgrep（rg），请安装后重试。")
+                                      user_hint="文件搜索需要 ripgrep（rg）。Windows 请安装在工作区之外的可信 PATH 目录。")
         except SandboxUnavailableError as exc:
             return ToolResult.failure({}, str(exc), error_code="SANDBOX_UNAVAILABLE",
-                                      user_hint=("Windows 受限文件搜索尚未接入；可在工作区文件栏查看文件。"
-                                                 "不会为搜索自动开启完全访问。" if os.name == "nt" else exc.user_hint))
+                                      user_hint=exc.user_hint)
         if result.timed_out or result.exit_code not in {0, 1}:
             return ToolResult.failure({}, result.stderr or "File search failed.", error_code="FILE_SEARCH_FAILED")
         # A capped output can end in half a filename; never present it as real.

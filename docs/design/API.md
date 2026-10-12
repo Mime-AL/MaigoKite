@@ -128,6 +128,8 @@ GUI 审批卡已接 scope 选择，只展示该审批版本允许的选项；会
 
 ```text
 GET    /workspaces/{workspace_id}/memories
+GET    /workspaces/{workspace_id}/memory-settings?folder_id=
+PATCH  /workspaces/{workspace_id}/memory-settings
 POST   /workspaces/{workspace_id}/memories
 PATCH  /workspaces/{workspace_id}/memories/{memory_id}
 DELETE /workspaces/{workspace_id}/memories/{memory_id}
@@ -135,6 +137,12 @@ GET    /workspaces/{workspace_id}/data-summary
 ```
 
 `GET memories?q=` 当前执行大小写不敏感的关键词查询。所有记忆操作都使用认证主体作为 `subject_user_id`，客户端不能指定其他用户。写入、修改或删除操作与对应审计事件在同一数据库事务中提交。`data-summary` 仅工作区所有者可读，返回权威数据计数，不返回内容。
+
+记忆列表的 `folder_id` 参数区分三种情况：不传只返回未归属旧记录，空字符串选择默认目录，非空值选择注册文件夹。创建/修改的 `folder_id` 由服务端解析成文件夹 ID + 根路径的归属；修改时不传则保留原归属，不自动迁移旧记录。返回 `folder_scope` 为不透明归属值，不作为查询权限凭据。
+
+`memory-settings` PATCH 使用 `{folder_id, enabled}`，GET 返回同形对象；这是文件夹级开关，默认 false。会话创建/PATCH 与返回 DTO 增加 `memory_enabled`，同样默认 false，允许运行中关闭供后续请求读取。移动会话重置为 false，分岔不继承开启状态。只有两层同时开启才允许注入；UI 另以 `scoped_memory` 能力位判断当前服务是否接通模型路径，不能仅凭开关已保存宣称模型使用了记忆。
+
+主模型调用前重新读取当前主体/文件夹的手工记录与两层开关，仅改本次 `ModelRequest` 副本；不把记忆参考区写入消息或 checkpoint。`scoped_memory` 随 Runtime 就绪开启，`automatic_memory_events` 仍为 false。关闭/删除不撤回已组装在途请求，也不清除历史回复中已经引用的事实。
 
 文档导入、检索和索引重建接口尚未注册；只有能力闭环时再定义契约，范围见 [记忆与检索](../agent-capabilities/memory/memory-system.md)。
 
@@ -283,9 +291,13 @@ LM Studio 仅原生 API 暴露的 on/off 尚不映射到兼容接口，返回 `n
 
 `runtime-status` 是工作区所有者可见的只读投影，返回规范化工作区根目录及来源、单一 `backend` 服务状态和版本、即时生效项与需重启项。它不修改部署配置，也不声称能够检测运行期间手工编辑的外部 YAML。
 
-响应新增 `sandbox: {platform, backend, status, reason, network_isolation, cpu_memory_limits, hint}`。
+响应包含 `sandbox: {platform, backend, status, reason, network_isolation, cpu_memory_limits, hint}`，另含 `scope / other_boundaries / per_process_rlimits_available / captured_log_limit_bytes / disk_quota`。
 这是宿主能力而非当前对话的授权结果：Linux 通过带断网、禁用嵌套 user namespace 和去除 capabilities 的最小 bubblewrap 启动探测才返回 `available`；探测在线程中执行、单次最多 2 秒，结果在后端进程内缓存。修改系统配置后需重启后端重新探测。它不保证特定工作区挂载成功，也不代表完全访问任务启用了隔离。
-未安装、探测失败、平台未接入分别返回 `bubblewrap_not_installed / bubblewrap_probe_failed / native_backend_not_integrated`；Windows 当前为 `backend: none, status: unavailable`，不根据 PowerShell 是否安装猜测沙箱能力。CPU/内存配额尚未实现，`cpu_memory_limits` 为 `false`。旧客户端可以忽略新增字段；本批未修改设置界面。
+Linux 未安装、探测失败及其他平台未接入分别返回 `bubblewrap_not_installed / bubblewrap_probe_failed / native_backend_not_integrated`。Windows 为 `backend: srt-windows, experimental: true`：未启用/缺依赖返回 `unavailable` 与 `windows_sandbox_disabled / dependency_unavailable`；配置启用且本地依赖存在返回 `unverified / verification_on_execute`，不冒充 `available`。设置查询不启动 sandbox 进程或修改 ACL；账户、WFP 与路径授权由实际命令启动时的官方 SDK 校验。增加 `dns_isolation=false / interactive_stdin=false / read_boundary=dedicated_account_acl_and_explicit_denies`。Windows 的 `network_isolation=false` 表示状态查询未验证，不是命令可绕过网络策略。
+
+`scope=command_processes`，不是整个 Agent 的安全状态。`other_boundaries` 单独说明 Windows 受控搜索、进程内文件策略、MCP 宿主进程与 Chromium 原生沙箱；这些说明不代表对应依赖已安装或启动成功。Windows 沙箱进程日志/停止沿用原 API，进程快照的 `stdin_available=false`；不得将内部停止管道投影为用户 stdin。
+
+`per_process_rlimits_available` 仅表示 Linux 系统位置存在 prlimit；是否配置见启动 YAML，实际应用失败时命令不会执行。它不是 cgroup/Job Object 总资源配额，因此原 `cpu_memory_limits` 继续为 `false`。`captured_log_limit_bytes=8388608` 表示单次命令捕获日志总量上限，`disk_quota=false` 明确没有工作区磁盘配额。工具结果新增 `output_limit_exceeded / output_bytes_limit / process_limits`；`process_limits` 的零值表示未额外施加该限制，超量输出返回 `COMMAND_OUTPUT_LIMIT`。旧客户端可忽略新增字段；本批未修改设置界面。
 
 ### 3.7 工作区文件与变更
 
@@ -329,7 +341,9 @@ POST 接口为用户显式文件操作，限工作区所有者；不作为 Agent
 **能力边界。** `approval_note / approval_detail / task_inspection / file_change_events / process_list / process_stop` 为本批支持项。
 2026-10-11 增加 `process_input`，每个 job 返回 `stdin_available`。GUI 必须同时检查进程 live、stdin_available 和能力标志，不能把历史记录当成可操作进程。输入正文不保存到审计或对话，响应丢失不代表未送达；进程自行回显的输出仍可能包含输入。当前是有超时的标准管道，不提供 PTY 或断线后恢复进程。
 `structured_questions / task_input / structured_plan / context_estimate` 在 Core 的唯一 LangGraph Runtime 就绪时为 true；关闭或未就绪时不对外宣称可执行。这些标志表示后端能力，工具仍可能被工作区配置停用。
-`session_approval / task_approval / approval_authorization_revocation / permission_boundary_v2 / conversation_fork` 在 Runtime 就绪时为 true，表示支持上述新接口/语义，不代表前端已完成联调或主机沙箱可用。`auto_review / model_context_percentage / turn_rollback / automatic_memory_events` 为 false。回合回滚和审核 Agent 不在本批范围。`safety_review` 为 true，表示支持 `settings/safety` 配置读写与 `safety.reviewed` 事件契约；运行时审查尚未接入。
+
+`scoped_memory` 同样跟随 Runtime 就绪，表示提供两层显式开关控制的请求记忆投影，不代表某个文件夹/对话已开启，也不代表已实现自动提取。
+`session_approval / task_approval / approval_authorization_revocation / permission_boundary_v2 / conversation_fork` 在 Runtime 就绪时为 true，表示支持上述新接口/语义，不代表前端已完成联调或主机沙箱可用。`auto_review / model_context_percentage / turn_rollback / automatic_memory_events` 为 false。回合回滚和审核 Agent 不在本批范围。
 
 **显式任务恢复。** `task_resume` 在 Runtime 就绪时为 true，表示提供受限恢复入口，不表示所有 interrupted 任务均可重放。API 先按现有凭证入口补齐 Core 的进程内模型密钥，再直接调用 `AgentCore.resume_task(workspace_id, task_id, principal_id, version)`。Core 只接受所有者、最新版本、最新会话回合、无活跃运行、未归档且存在未完成 checkpoint 的 `interrupted` 任务；等待审批的任务继续使用 Approval API，不走这个接口。旧任务无 checkpoint 也按不可恢复处理；状态/版本/checkpoint 不满足返回 409，越权返回 403，任务不在工作区内返回 404。
 
@@ -354,6 +368,8 @@ Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能�
 **插话。** 仅接受当前活跃的普通模型任务，不接受 `/tool` 或正在等待交互的任务。content 最多 10000 字符，每任务最多 20 条未消费输入；幂等键最多 128 字节，同键不同内容返回 409。`task.input.queued` 是接收回执；下一模型步骤在原生 middleware 中追加 `HumanMessage`，包含该输入的模型调用成功返回后才保存可见用户消息并发出 `task.input.consumed`。预算拒绝、失败和取消不冒充已消费；Provider 可能已收到但响应丢失的情况仍不能确认，`not_consumed` 不是“服务端一定没收到”的证明。`consumed` 也不保证后续工具或整个任务成功。尚未开始的旧工具提议会收到未执行结果，让模型读取新输入后重新判断；不抢停已经开始的工具或模型流。若当前回合结束前未确认消费，查询状态为 `not_consumed`，不自动新建回合或重发。客户端按 input ID 合并状态，不能因迟到的 queued 回执把 consumed 状态改回 queued。
 
 **计划与上下文。** 计划直接复用 LangChain `TodoListMiddleware / write_todos`；`plan.updated.items` 是 `{content, status}` 数组，status 为 `pending / in_progress / completed`，只作用于当前任务，不是工作区 TODO。`context.updated` 提供 `call_id / model_name / estimated_input_tokens / input_budget_tokens / measurement`；本地估算为 `estimate`，显式超限回执提供的输入计数为 `provider`，沿用 `estimated_input_tokens` 字段兼容现有消费者，不表示计费成功。`model_context_window / context_percent` 在容量已知时有值，否则为 null，绝不把产品预算冒充模型窗口。
+
+正式调用的 `context.updated.memory` 为可选对象：`included_count / candidate_count / ids / estimated_tokens / token_limit`，不含记忆原文。`candidate_count` 是通过两层开关和归属筛选后有界查询的条目数（最多 100），不是总库存；未启用时为 0。`estimated_input_tokens` 已包含参考区，不能再加一次 `memory.estimated_tokens`。压缩前的预检和辅助摘要不提供此字段，不据此覆盖本次正式调用的收据。
 
 容量附加字段：`capacity_source` 包括 `lmstudio.loaded_instance / ollama.loaded_instance / ollama.model_info / model_profile / provider_metadata / provider_error / models.dev / sdk_profile / route_config / route_default / null`，分别表示加载实例、Ollama 模型资料、显式模型覆盖、当前服务资料、拒绝回执、当前路由目录/SDK 资料、YAML 路由默认值、内置路由假定值和未知。目录是资料上限，不冒充实际加载窗口；未知远端路由默认容量为 262,144，`route_default` 对应 `capacity_status=assumed`，不是实测。`capacity_status` 还可为 `known / cached / unknown / model_catalog_unavailable / metadata_unavailable / unsupported_metadata / unauthorized / not_loaded / model_not_found / ambiguous_instance`；`capacity_checked_at` 为 UTC 解析/观测时间。`output_reserved_tokens / safety_margin_tokens / compaction_trigger_tokens` 分别是输出预留、估算余量和自动压缩阈值，均不是已消耗 token。`purpose` 区分 `response / summary`。压缩前和正式调用前均可发布，预检的 `context_*` call ID 不是模型调用次数，只有 `model.call.started` 才代表请求开始；不能对多个 `context.updated` 求和。模型真实计费计数继续通过既有 `model.usage` 提供。
 

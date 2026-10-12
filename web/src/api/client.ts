@@ -35,6 +35,7 @@ export interface ToolSettings {
 }
 
 export interface Conversation {
+  memory_enabled?: boolean
   subagent_model_ids?: string[]
   max_subagent_calls?: number
   max_concurrent_subagents?: number
@@ -289,6 +290,7 @@ export interface WorkspaceRuntimeStatus {
 export type MemoryCategory = 'preference' | 'fact' | 'constraint' | 'project' | 'other'
 
 export interface UserMemory {
+  folder_scope?: string | null
   id: string
   workspace_id: string
   subject_user_id: string
@@ -302,6 +304,7 @@ export interface UserMemory {
 }
 
 export interface MemoryInput {
+  folder_id?: string
   category: MemoryCategory
   content: string
   confidence: number
@@ -645,10 +648,21 @@ export const api = {
       method: 'DELETE',
     })
   },
-  async listMemories(query = ''): Promise<UserMemory[]> {
-    const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''
+  async listMemories(query = '', folderId: string | null = null): Promise<UserMemory[]> {
+    const params = new URLSearchParams()
+    if (query.trim()) params.set('q', query.trim())
+    if (folderId !== null) params.set('folder_id', folderId)
+    const suffix = params.size ? `?${params}` : ''
     const body = await request<{ memories: UserMemory[] }>(`${path}/memories${suffix}`)
     return body.memories || []
+  },
+  getMemorySettings(folderId: string): Promise<{ folder_id: string; enabled: boolean }> {
+    return request(`${path}/memory-settings?folder_id=${encodeURIComponent(folderId)}`)
+  },
+  setMemorySettings(folderId: string, enabled: boolean): Promise<{ folder_id: string; enabled: boolean }> {
+    return request(`${path}/memory-settings`, {
+      method: 'PATCH', body: JSON.stringify({ folder_id: folderId, enabled }),
+    })
   },
   saveMemory(memory: MemoryInput & { id?: string }): Promise<UserMemory> {
     const url = memory.id ? `${path}/memories/${encodeURIComponent(memory.id)}` : `${path}/memories`
@@ -658,6 +672,7 @@ export const api = {
         category: memory.category,
         content: memory.content,
         confidence: memory.confidence,
+        folder_id: memory.folder_id,
       }),
     })
   },
@@ -785,6 +800,7 @@ export const api = {
     })
   },
   createConversation(data: {
+    memory_enabled?: boolean
     subagent_model_ids?: string[]
     max_subagent_calls?: number
     max_concurrent_subagents?: number
@@ -806,6 +822,7 @@ export const api = {
   updateConversationSettings(
     id: string,
     settings: {
+      memory_enabled?: boolean
       permission_mode?: PermissionMode
       model_id?: string
       response_mode?: ResponseMode

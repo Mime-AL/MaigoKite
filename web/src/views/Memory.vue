@@ -5,7 +5,8 @@ import { t } from '@/i18n'
 import { useMemoryStore } from '@/stores/memory'
 import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
-import type { UserMemory } from '@/api/client'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { api, type UserMemory } from '@/api/client'
 import { memoryGroup } from '@/utils/work-records'
 import MemoryGroup from '@/components/message/MemoryGroup.vue'
 import type { MemoryDraft } from '@/components/message/MemoryEditor.vue'
@@ -14,7 +15,20 @@ import AppIcon from '@/components/common/AppIcon.vue'
 const memory = useMemoryStore(),
   settings = useSettingsStore(),
   ui = useUIStore(),
+  workspace = useWorkspaceStore(),
   route = useRoute()
+const selectedScope = ref(workspace.selectedId)
+const runtimeMemory = ref(false)
+const unassigned = '__unassigned__'
+function reload() {
+  return memory.load(search.value, selectedScope.value === unassigned ? null : selectedScope.value)
+}
+watch(() => workspace.selectedId, (id) => { selectedScope.value = id })
+watch(selectedScope, () => {
+  draft.value = undefined
+  search.value = ''
+  void reload()
+})
 const search = ref(memory.query),
   name = ref(settings.profile.assistantName)
 const draft = ref<MemoryDraft>(),
@@ -55,7 +69,7 @@ const editingGroup = computed(() =>
 watch(focusedId, (id) => {
   if (id) {
     search.value = ''
-    void memory.load('')
+    void reload()
   }
 })
 watch(
@@ -71,7 +85,10 @@ watch(
 )
 onMounted(async () => {
   if (focusedId.value) search.value = ''
-  await Promise.all([memory.load(search.value), settings.loadPreferences()])
+  await workspace.load()
+  await Promise.all([reload(), settings.loadPreferences(), api.getCapabilities().then((flags) => {
+    runtimeMemory.value = flags.scoped_memory === true
+  }).catch(() => { runtimeMemory.value = false })])
   name.value = settings.profile.assistantName
 })
 onUnmounted(() => {
@@ -134,7 +151,7 @@ function retryName() {
       <h1>{{ $t('它记得') }}</h1>
       <form
         class="memory-search"
-        @submit.prevent="memory.load(search)"
+        @submit.prevent="reload()"
       >
         <input
           v-model="search"
@@ -150,6 +167,28 @@ function retryName() {
         </button>
       </form>
     </header>
+    <section class="memory-scope">
+      <label>{{ $t('记忆归属') }}
+        <select v-model="selectedScope" :disabled="memory.saving || memory.savingSettings">
+          <option v-for="folder in workspace.folders" :key="folder.id" :value="folder.id">
+            {{ folder.name }}
+          </option>
+          <option :value="unassigned">{{ $t('未归属的旧记忆') }}</option>
+        </select>
+      </label>
+      <p v-if="selectedScope === unassigned">{{ $t('这些记录仅供查看和编辑，不会自动带入任何对话。') }}</p>
+      <template v-else>
+        <button class="secondary-button" type="button" role="switch" :aria-checked="memory.enabled"
+          :disabled="!runtimeMemory || !memory.settingsReady || memory.loading || memory.savingSettings"
+          @click="memory.setEnabled(!memory.enabled)">
+          {{ memory.enabled ? $t('本工作区记忆：开启') : $t('本工作区记忆：关闭') }}
+        </button>
+        <p v-if="runtimeMemory">{{ $t('默认关闭。开启后，还需在具体对话中开启；仅将本文件夹的已保存记忆提供给本对话已选择的模型服务。') }}</p>
+        <p v-else>{{ $t('当前服务未启用跨对话使用，已保存的记忆仍可管理。') }}</p>
+        <p>{{ $t('关闭或删除只影响后续请求，不会清除历史回复；需要干净上下文时，请新建关闭记忆的对话。') }}</p>
+        <p v-if="memory.settingsError" role="alert">{{ memory.settingsError }}</p>
+      </template>
+    </section>
     <p
       class="memory-notice"
       role="status"
@@ -173,7 +212,7 @@ function retryName() {
       }}<button
         class="secondary-button"
         :disabled="memory.loading"
-        @click="memory.load(search)"
+        @click="reload()"
       >
         {{ $t('重试') }}
       </button>
