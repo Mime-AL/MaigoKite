@@ -7,6 +7,19 @@
 
 ## 尚未发布
 
+### 2026-10-13 LAYA 审查格式联调修正
+
+- 修正 `laya` 请求构造与服务端契约不符（原单数 `question` 载荷被 422 拒绝）：改为
+  `questions` 映射，待审查增量放 `state.message`、`score` 类型 criteria 为
+  `safe`/`dangerous`；`state` 设置留空省略附加字段，非空作为 `state.guidance` 附加。
+- `decision_model` 增加白名单：只接受 `english`/`typed-decisions`，留空默认
+  `typed-decisions`；`multilingual` 实测对良性/注入反向误判，禁用，审查请求必须
+  显式指定检查点。`reviewer` 对 `laya` 自动补 `/predict` 后缀，构造失败保守拦截。
+- 本机 Laya 服务完成 HTTP 联调与语言覆盖矩阵（EN/ZH/RU 通过，FR 边缘，JA 漏拦、
+  AR 误拦、HI 触发服务端 XPU 崩溃，后两者记为未覆盖语言）；`python/tests`
+  38 passed（新增 `test_safety_laya.py`）。证据与限制见
+  [提示词安全审查计划](../Prompt-security/plan.md)。
+
 ### 2026-10-12 安全设置接入
 
 - 设置页在「权限」之后新增「安全」页签，接入已合并的安全配置 API：审查开关、独立决策模型与密钥、JEV/KEV 或 LAYA 请求格式、状态文本、风险阈值和可信模型列表。支持设置搜索、深链、保存反馈、错误重试与未保存提醒，无新增依赖。

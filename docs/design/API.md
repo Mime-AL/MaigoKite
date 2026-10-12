@@ -222,7 +222,7 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 }
 ```
 
-`request_format` 只接受 `jev_like`、`laya`、`openai`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举 kev；`openai` 为 OpenAI 兼容 API 的结构化输出模式。审查请求由 `state` 和 `question` 两部分组成：`state` 使用设置中的自定义文本，留空时采用请求构造库的默认值；`question` 由该库根据审查输入生成，不在此处配置。
+`request_format` 只接受 `jev_like`、`laya`、`openai`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举 kev；`openai` 为 OpenAI 兼容 API 的结构化输出模式。审查请求由 `state` 和 `question` 两部分组成：`state` 使用设置中的自定义文本，留空时采用请求构造库的默认值（`laya` 格式留空省略附加字段，见下）；`question` 由该库根据审查输入生成，不在此处配置。
 
 `risk_threshold` 为 0–100 整数；`trusted_model_ids` 最多 32 个，匹配当前实际调用的模型 ID，不匹配默认模型设置。`enabled: true` 时必须提供 `decision_base_url` 与 `decision_model`。当前 PATCH 实现会补齐 DTO 默认值，前端须先读取、再提交完整配置，以保留其他字段；未知字段被拒绝。格式不在枚举内时返回 `SAFETY_FORMAT_UNSUPPORTED`，阈值或白名单越界返回 400 Validation 错误。
 
@@ -230,6 +230,16 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 `probabilities` 中与 `legend` 值 `dangerous` 对应的概率会乘以 100，作为事件和
 运行时使用的 `risk_score`；返回体中的 `score` 不作为风险值读取。因而
 `risk_threshold` 仍保持 0–100 配置语义，`risk_score > risk_threshold` 时拦截。
+
+对于 `laya`，审查请求发送到 `{decision_base_url}/predict`（不以 `/predict` 结尾时
+自动补后缀）。待审查增量放入 `state.message`；`state` 设置非空时作为 `state.guidance`
+附加，instructions 引用两者。`questions.prompt_safety` 固定为 `score` 类型、criteria
+为 `safe`/`dangerous`，响应按 `legend` 对应的 `probabilities[dangerous]` 乘以 100 形成
+`risk_score`，阈值语义与 `jev_like` 相同。`decision_model` 只接受 `english` 与
+`typed-decisions`（留空默认 `typed-decisions`），其余值在请求构造时失败并按审查失败
+保守拦截；`multilingual` 因实测反向误判被排除，审查请求必须显式指定检查点，不使用
+服务端自动路由。语言覆盖矩阵与已知限制（JA 漏拦、AR 误拦、HI 触发服务端崩溃）见
+[提示词安全审查计划](../Prompt-security/plan.md)的验证结果。
 
 对于 `openai`，审查请求发送到 `{decision_base_url}/chat/completions`：`state` 作为
 system 消息、`question` 作为 user 消息，`response_format` 优先使用 `json_schema` 约束
@@ -249,7 +259,7 @@ API 密钥的注入提示返回 `risk_probability: 1.0` 并转换为 `risk_score
 
 配置按工作区持久化，不随会话变化。设置页「安全」位于「权限」之后，支持配置读取、保存、审查凭证移除，以及 `?tab=safety` 和字段搜索定位。
 
-`capabilities.safety_review` 表示配置与运行时审查能力可用。启用后，主模型每次调用前审查新增的人类提示词；可信模型跳过审查，审查失败保守拦截，高于阈值时复用结构化提问/恢复链路等待人工决定。接口和 GUI 测试已完成，KEV HTTP 联调已完成；LAYA 联调仍待执行。验收记录见 [交付路线与状态](../project/Roadmap.md)。
+`capabilities.safety_review` 表示配置与运行时审查能力可用。启用后，主模型每次调用前审查新增的人类提示词；可信模型跳过审查，审查失败保守拦截，高于阈值时复用结构化提问/恢复链路等待人工决定。接口和 GUI 测试已完成，KEV 与 LAYA HTTP 联调已完成；完整端到端验收仍待执行。验收记录见 [交付路线与状态](../project/Roadmap.md)。
 
 读取凭证只返回引用和元数据，不返回敏感凭证值。
 

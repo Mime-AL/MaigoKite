@@ -10,7 +10,11 @@ from typing import Any
 import httpx
 
 from agent.safety.formats.openai import degrade_to_json_object
-from agent.safety.request_builders import SafetyReviewInput, build_review_request
+from agent.safety.request_builders import (
+    SafetyFormatError,
+    SafetyReviewInput,
+    build_review_request,
+)
 
 logger = logging.getLogger("maigokite.agent.safety")
 
@@ -124,16 +128,21 @@ class SafetyReviewer:
         threshold: int,
     ) -> SafetyReviewResult:
         review_id = "safety_" + uuid.uuid4().hex
-        payload = build_review_request(
-            request_format, state=state,
-            decision_model=decision_model, review=review,
-        )
+        try:
+            payload = build_review_request(
+                request_format, state=state,
+                decision_model=decision_model, review=review,
+            )
+        except SafetyFormatError as exc:
+            raise SafetyReviewError("safety review request construction failed") from exc
         endpoint = base_url.rstrip("/")
         if request_format == "jev_like":
             if endpoint.endswith("/v1"):
                 endpoint += "/systemone"
             elif not endpoint.endswith("/v1/systemone"):
                 endpoint += "/v1/systemone"
+        elif request_format == "laya" and not endpoint.endswith("/predict"):
+            endpoint += "/predict"
         elif request_format == "openai" and not endpoint.endswith("/chat/completions"):
             endpoint += "/chat/completions"
         headers = {"Authorization": "Bearer " + api_key} if api_key else {}

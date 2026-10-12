@@ -1,6 +1,6 @@
 # Plan: Prompt Safety Review（提示词安全审查）
 
-> 状态：Phase A–D 已完成，Phase E 验收进行中。KEV 已完成本机 HTTP 联调和二分类概率接入；LAYA 联调和完整端到端验收仍待执行，进度与证据见 [交付路线与状态](../project/Roadmap.md)。`openai` 结构化输出格式已实现请求构造、降级与解析，单测覆盖通过，并已用本机 LM Studio（`google/gemma-4-12b-qat`，`json_schema` 直连无需降级）完成真实联调：良性提示返回归一化概率 0.0、转换为 0 分并放行；注入提示返回 1.0、转换为 100 分并拦截。
+> 状态：Phase A–D 已完成，Phase E 验收进行中。KEV 已完成本机 HTTP 联调和二分类概率接入；LAYA 已完成本机 HTTP 联调、请求契约修正与语言覆盖验证，完整端到端验收仍待执行，进度与证据见 [交付路线与状态](../project/Roadmap.md)。`openai` 结构化输出格式已实现请求构造、降级与解析，单测覆盖通过，并已用本机 LM Studio（`google/gemma-4-12b-qat`，`json_schema` 直连无需降级）完成真实联调：良性提示返回归一化概率 0.0、转换为 0 分并放行；注入提示返回 1.0、转换为 100 分并拦截。
 > 接口契约以 [API 设计](../design/API.md#36-设置模型和凭证引用) 为准，本文件只记录计划与边界。
 
 这是一个增量改造。目标是把安全检查接到模型调用前，先取当前步相对上一轮的提示词增量，再交给独立审查模型打分。分值超过阈值时，任务进入可人工接管的暂停态，前端复用现有继续和恢复交互，让用户决定是否放行。
@@ -96,6 +96,7 @@
 - `python/agent/core.py` — 若需要把配置纳入核心工作区设置或审计事件，这里通常会接线。
 - `python/agent/repository.py` — 若新增配置表、审查记录或事件持久化字段，这里会涉及。
 - `docs/design/API.md` — 请求格式和安全审查 API、事件约定。
+- `docs/Prompt-security/configuration.md` — KEV/LAYA/OpenAI 兼容三种格式的配置指南。
 - `docs/agent-capabilities/models/model-routing.md` — 审查模型和请求格式边界。
 
 **Verification**
@@ -107,7 +108,7 @@
 
 当前后端验证结果：
 
-- `python/tests`：24 passed（新增 `openai` 结构化输出、降级、保守拦截与 `jev_like` 回归用例；按仓库约定测试文件仅本地保留）。
+- `python/tests`：38 passed（`openai` 结构化输出、降级、保守拦截、`jev_like` 回归，以及 `laya` 契约/白名单/端点后缀/概率解析用例；按仓库约定测试文件仅本地保留）。
 - Python 编译检查和 `git diff --check` 通过。
 - 本机 KEV endpoint：`POST http://127.0.0.1:8009/v1/systemone`。
 - 已验证二分类响应中的 `probabilities` 可转换为 0–100 `risk_score`，并驱动阈值判断。
@@ -115,6 +116,23 @@
   `google/gemma-4-12b-qat`；已验证 `risk_probability` 的 0–1 归一化输出可转换为
   0–100 `risk_score` 并驱动阈值判断。良性样例为 `0.0 → 0`，注入样例为 `1.0 → 100`；
   两次均未触发 `json_object` 降级。
+- 本机 Laya endpoint：`POST http://127.0.0.1:8000/predict`（`/health` `/models`
+  `/qtypes` `/presets` 同时可用；`/health` 不反映推理可用性，后端故障时仍返回 200）。
+  原 `laya` 构造的单数 `question` 载荷被服务端 422 拒绝，已改为 `questions` 映射契约；
+  `reviewer` 对 `laya` 不以 `/predict` 结尾的地址自动补后缀，构造失败转为审查失败保守拦截。
+  已验证响应中 `legend`/`probabilities` 的 `dangerous` 概率可转换为 0–100 `risk_score`
+  并驱动阈值判断，同输入重复请求结果一致。
+- Laya 语言覆盖（阈值 75，`risk_score > risk_threshold` 拦截，括号内为良性/注入分值）：
+  EN `7/95`、ZH `10/87`、RU `22/86` 在 `english` 与 `typed-decisions` 上均通过；
+  FR 在 `typed-decisions` 为 `24/97`、在 `english` 为 `69/84`（良性分接近阈值）；
+  JA 注入漏拦（`40/62`）、AR 良性误拦（`82/94`），两种检查点均不达标；
+  HI 注入触发服务端 XPU 崩溃（`level_zero ... UR_RESULT_ERROR_UNKNOWN`），与检查点无关。
+  语言前置路由经实测无收益（`typed-decisions` 在已测语言上持平或优于 `english`），
+  审查路径不引入语言判断，固定使用检查点且必须显式指定（自动路由会选中不可用的
+  `multilingual`）。JA/AR/HI 视为当前未覆盖语言，其风险分不可信。
+- Laya 服务端已知问题（服务端自身缺陷，非本仓库代码）：`guidance` 字段叠加中文注入
+  文本同样触发上述 XPU 崩溃；崩溃后进程可能退出，`/health` 200 与 `/predict` 可用性
+  无关，恢复需重启服务。
 
 **Decisions**
 - 审查模型按工作区独立配置，不和主模型共用。
@@ -125,6 +143,16 @@
 - KEV 风险值使用 `probabilities["dangerous"] * 100` 的归一化概率映射；不使用
   KEV 的 `score` 索引值。
 - `openai` 格式要求决策模型输出包含 0–1 归一化 `risk_probability` 的结构化 JSON；解析失败不回退自由文本打分，沿用保守拦截。
+- LAYA 请求布局：待审查增量放 `state.message`，`questions.prompt_safety` 用 `score`
+  类型与 `safe`/`dangerous` criteria；`state` 设置留空时不携带附加字段，非空时作为
+  `state.guidance` 附加并在 instructions 中引用。指令内嵌增量的 jev_like 式布局在
+  Laya 上无区分度（良性 80 / 注入 77），不采用。
+- LAYA `decision_model` 白名单为 `english` 与 `typed-decisions`，留空默认
+  `typed-decisions`，其余值在请求构造时失败并保守拦截；`multilingual` 实测对
+  良性/注入反向误判（良性 93–99 / 注入 86–94），禁用。审查请求必须显式指定检查点，
+  不使用服务端自动路由（自动路由可选中 `multilingual`）。
+- LAYA 不引入语言前置路由：`typed-decisions` 在已测语言上持平或优于 `english`，
+  语言覆盖限制按上文矩阵如实记录，不为未验证语言推断可用性。
 
 **Further Considerations**
 1. 需要明确审查输入是只看“本步增量”，还是还要附带最近一轮上下文摘要；建议先做“增量 + 必要少量上下文”，减少误判。

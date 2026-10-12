@@ -58,4 +58,6 @@
 - [x] KEV score 校准：不再把 KEV 的 `score` 当作风险值。`jev_like` 现发送 `safe` /
   `dangerous` 两个 criterion，并读取 `legend` 对应的 `probabilities[dangerous]`，
   乘以 100 得到 0–100 `risk_score`；`risk_threshold` 保持 0–100。
-- [ ] LAYA 服务联调：待服务可用后验证。
+- [x] LAYA 服务联调：`POST /predict` 已在本机 `127.0.0.1:8000` 验证；原单数 `question`
+  载荷被 422 拒绝，已改为 `questions` 映射契约。检查点白名单、语言覆盖矩阵与服务端
+  XPU 崩溃限制见 [plan](plan.md) 验证结果，`python/tests` 38 passed。
