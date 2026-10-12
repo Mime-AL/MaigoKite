@@ -33,7 +33,7 @@ async function usablePython(command: string, root: string, signal: AbortSignal, 
   try {
     // Matches pyproject.toml; sys.executable retains the selected virtual environment.
     return await commandOutput(command, [...args, '-I', '-c',
-      'import sys; sys.exit("Python 3.11+ required") if sys.version_info < (3, 11) else print(sys.executable)',
+      'import sys; sys.exit("Python 3.14.x required") if sys.version_info[:2] != (3, 14) else print(sys.executable)',
     ], root, signal)
   } catch {
     signal.throwIfAborted()
@@ -48,7 +48,7 @@ export async function resolveCorePython(root: string, signal: AbortSignal): Prom
     const command = /[/\\]/.test(override) ? hostPath(override, root) : override
     const python = await usablePython(command, root, signal)
     if (python) return python
-    throw new Error(t('指定的 Python 不可用或版本低于 3.11：{0}', [override]))
+    throw new Error(t('指定的 Python 不可用或不是 3.14.x：{0}', [override]))
   }
   // Match uv's project-root-relative environment path rather than shell expansion.
   const environment = path.resolve(root, process.env.UV_PROJECT_ENVIRONMENT || '.venv')
@@ -56,7 +56,7 @@ export async function resolveCorePython(root: string, signal: AbortSignal): Prom
   if (existsSync(projectPython)) {
     const python = await usablePython(projectPython, root, signal)
     if (python) return python
-    throw new Error(t('项目 Python 环境不可用：{0}。请运行 scripts/setup.sh。', [environment]))
+    throw new Error(t('项目环境需要 Python 3.14.x：{0}。请退出应用后使用 uv 重新运行 setup.sh / setup.ps1；没有 uv 时先重命名旧环境目录。', [environment]))
   }
   if (process.env.VIRTUAL_ENV) {
     const python = await usablePython(environmentPython(hostPath(process.env.VIRTUAL_ENV, root)), root, signal)
@@ -64,19 +64,19 @@ export async function resolveCorePython(root: string, signal: AbortSignal): Prom
   }
   try {
     // uv owns managed Python / .python-version discovery. Starting the app never downloads Python.
-    const candidate = await commandOutput('uv', ['python', 'find', '--no-python-downloads'], root, signal)
+    const candidate = await commandOutput('uv', ['python', 'find', '3.14', '--no-python-downloads'], root, signal)
     const python = await usablePython(candidate, root, signal)
     if (python) return python
   } catch {
     signal.throwIfAborted()
   }
-  for (const command of ['python', 'python3']) {
+  for (const command of ['python3.14', 'python', 'python3']) {
     const python = await usablePython(command, root, signal)
     if (python) return python
   }
   if (process.platform === 'win32') {
-    const python = await usablePython('py', root, signal, ['-3'])
+    const python = await usablePython('py', root, signal, ['-3.14'])
     if (python) return python
   }
-  throw new Error(t('找不到可用的 Python。请运行 scripts/setup.sh，或设置 MAIGOKITE_PYTHON。'))
+  throw new Error(t('找不到 Python 3.14.x。请运行 setup.sh / setup.ps1，或设置 MAIGOKITE_PYTHON。'))
 }

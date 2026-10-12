@@ -15,15 +15,15 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:web && npm run electron:compile",
-    "build:web": "vue-tsc --noEmit && vite build",
+    "build": "node ../scripts/lib/web-build.cjs desktop",
+    "build:web": "node ../scripts/lib/web-build.cjs web",
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "lint": "eslint . --ext .vue,.ts,.tsx --fix",
     "format": "prettier --write src/",
     "electron:dev": "node ../scripts/local.cjs start desktop dev",
-    "electron:compile": "vite build --config electron.vite.config.ts && vite build --config electron.vite.config.ts --mode preload",
+    "electron:compile": "node ../scripts/lib/web-build.cjs electron",
     "electron:build": "npm run build && electron-builder",
     "electron:preview": "node ../scripts/local.cjs start desktop built",
     "test:run": "vitest run"

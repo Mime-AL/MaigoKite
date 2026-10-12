@@ -7,17 +7,16 @@
 
 | 入口 | 当前产物 / 限制 |
 | --- | --- |
-| `bash scripts/build.sh all` / `scripts/build.ps1 all` | 本机 Go Gateway、Web 资源与 Electron 编译；不构建 Python 安装运行时 |
-| `build.sh web` / `build.ps1 web` | Gateway + Web，启动用对应的 `start web built` |
-| `build.sh desktop` / `build.ps1 desktop` | Gateway + Web + Electron，启动用对应的 `start desktop built`，直接加载本地 HTML |
-| `build.sh go` / `build.ps1 go` | 网关到 `dist/maigokite-api[.exe]`；成套脚本拒绝与本机不符的 GOOS/GOARCH，CGO_ENABLED 默认 0、可覆盖 |
+| `bash scripts/build.sh all` / `scripts/build.ps1 all` | Web 资源与 Electron 编译；不构建 Python 安装运行时 |
+| `build.sh web` / `build.ps1 web` | Web 静态资源，启动用对应的 `start web built` |
+| `build.sh desktop` / `build.ps1 desktop` | Web + Electron，启动用对应的 `start desktop built`，直接加载本地 HTML |
 | `build.sh python` / `build.ps1 python` | 从根项目生成 wheel/sdist，不等于带解释器和依赖的可执行运行时 |
 | `web/ npm run build` | Vue 静态资源与 Electron 主进程/预加载层编译 |
-| `web/ npm run electron:build` | electron-builder 入口；不证明已包含正确的 Go/Python/Chromium 资源 |
+| `web/ npm run electron:build` | electron-builder 入口；不证明已包含正确的 Python/Chromium 资源 |
 
-Electron packaged 分支会查找 `resources/bin/agent-core` 和 `resources/bin/gateway`，Windows 使用 `.exe` 后缀。尚未验证源码构建产物是否满足这些路径和跨平台执行要求。打包时不能假定用户机器上已经安装开发机使用的 Go/Python、依赖或浏览器。
+Electron packaged 分支会查找 `resources/bin/agent-core`，Windows 使用 `.exe` 后缀。尚未验证源码构建产物是否满足这些路径和跨平台执行要求。打包时不能假定用户机器上已经安装开发机使用的 Python、依赖或浏览器。
 
-Linux/Windows 的 `start desktop built` 仍从源码目录启动，不进入 Electron `app.isPackaged` 分支。它使用本地 Python 环境运行 Core，并启动已编译的 Gateway。Web `built` 使用 Vite preview，只监听本机 loopback，不是公网服务器。
+Linux/Windows 的 `start desktop built` 仍从源码目录启动，不进入 Electron `app.isPackaged` 分支。它使用本地 Python 环境运行后端。Web `built` 由同一 Python 后端在 8080 提供静态页面和 API，仅支持本机 loopback，不是远程认证入口。
 
 脚本不会自动安装浏览器或运行软件测试。脚本调整仅做了静态检查，Windows 和 Linux 实机的整套启停仍未完成验收。
 
@@ -27,14 +26,14 @@ Python 构建与安装统一读取根目录的 `pyproject.toml`，依赖锁定�
 
 ## 2. 个人桌面发布闭环
 
-默认工作区位于安装根目录下的 `.workspace`，不得放入 `app.asar`、AppImage 挂载点或 macOS 签名包内部。启动器会把安装根目录传给 Core/Gateway。安装位置不可写时会报错，不会自动换目录或提权；可显式设置 `MAIGOKITE_WORKSPACE_ROOT` 指定可写位置。
+默认工作区位于安装根目录下的 `.workspace`，不得放入 `app.asar`、AppImage 挂载点或 macOS 签名包内部。启动器会把安装根目录传给 Python 后端。安装位置不可写时会报错，不会自动换目录或提权；可显式设置 `MAIGOKITE_WORKSPACE_ROOT` 指定可写位置。
 
 源码已接入上述路径处理，但各平台的安装、升级和卸载仍须验收。升级或卸载不能自动删除工作区中的用户文件。详细路径和覆盖规则见 [配置指南](../user-guide/Configuration.md#默认工作区)。
 
 ```text
 确定目标平台与版本
 → 契约/测试检查
-→ 构建受锁定依赖的 Go + Python runtime
+→ 构建受锁定依赖的 Python runtime
 → 打包 Vue/Electron 与所需 Browser 资源
 → 校验、签名和安装
 → 干净机器完整 E2E
@@ -45,9 +44,9 @@ Python 构建与安装统一读取根目录的 `pyproject.toml`，依赖锁定�
 必须验证：
 
 - [ ] 目标平台的可执行格式、架构、路径与权限正确，不从任意可写位置执行替换资源。
-- [ ] 用户不装 Go/系统 Python，也能完成首次聊天、文件读取、写入审批和关闭。
+- [ ] 用户不装系统 Python，也能完成首次聊天、文件读取、写入审批和关闭。
 - [ ] 浏览器资源可用，错误提示能定位缺失依赖；不得默默依赖开发机浏览器。
-- [ ] 网关/核心服务默认 loopback；本地认证缺口明确，端口不可当作安全认证。
+- [ ] Python API 默认 loopback；本地认证缺口明确，端口不可当作安全认证。
 - [ ] 启动就绪、异常退出、重启策略和退出等待经过测试，无孤儿核心服务/MCP/浏览器进程。
 - [ ] 取消确认后没有持续执行和新的非终态 UI 事件。
 - [ ] 旧 SQLite 升级、检查点恢复和文件 crash/replay 通过；范围见 TestPlan。
@@ -58,7 +57,7 @@ Python 构建与安装统一读取根目录的 `pyproject.toml`，依赖锁定�
 
 ## 3. 最小质量门
 
-验收场景见 [测试与验收](../testing/TestPlan.md)，执行命令见 DevelopmentGuide。至少覆盖适用的静态检查/type、Go/Python/Vue 测试、协议兼容、授权安全、数据库升级、真实进程恢复和桌面 package-smoke。
+验收场景见 [测试与验收](../testing/TestPlan.md)，执行命令见 DevelopmentGuide。至少覆盖适用的静态检查/type、Python/Vue 测试、协议兼容、授权安全、数据库升级、真实进程恢复和桌面 package-smoke。
 
 缺少工具、凭证或平台时，须标记未运行/跳过，不能标记通过。模型提供方验收分别记录 PROTOCOL、LIVE 和 UNVERIFIED；不能根据模拟服务推断真实缓存收益和成本。优先复用现成 CI，不为个人项目另建发布平台或值班系统。
 
@@ -78,6 +77,6 @@ Repository 在启动时执行兼容升级，不使用 Alembic 或独立 Migratio
 
 失效的根目录 `Dockerfile`、`docker-compose.yml` 及 `scripts/deploy.sh` 已删除，不提供 Docker 部署入口。当前只使用仓库的 Web/桌面构建启动脚本；不要用历史提交中的容器配置部署当前版本。
 
-未来如需容器部署，再处理构建上下文、非 root 运行、敏感凭证、仅公开网关、gRPC health、数据一致性和进程关闭，并通过真实容器 E2E。个人桌面发布不要求 PostgreSQL、多副本 lease 或 Kubernetes。
+未来如需容器部署，再处理构建上下文、非 root 运行、敏感凭证、受保护的 HTTP 入口、健康接口、数据一致性和进程关闭，并通过真实容器 E2E。个人桌面发布不要求 PostgreSQL、多副本 lease 或 Kubernetes。
 
 手机远程访问的设计见 [手机远程访问](../design/RemoteAccess.md)。交付前必须完成设备配对和受保护的入口；部署旧 Compose 或公开 loopback 端口不能替代这些要求。

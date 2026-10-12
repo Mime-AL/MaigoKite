@@ -1,7 +1,7 @@
 # 个人智能体手机远程访问设计
 
 > 状态：规划中，首版范围待审阅。2026-10-09 本轮仅更新设计与路线图，未实现移动客户端、设备配对或远程入口。
-> 权威范围：手机远程访问的产品范围、连接边界、交付顺序与验收。具体接口和数据字段在实施时分别进入 API、Proto 与数据库设计。
+> 权威范围：手机远程访问的产品范围、连接边界、交付顺序与验收。具体接口和数据字段在实施时分别进入 API 与数据库设计。
 
 ## 1. 使用方式
 
@@ -29,22 +29,22 @@
 
 以下放到后续：独立 Android/iOS App、锁屏系统推送、语音/拍照上传、系统分享入口、多主机切换、运行中补充指令/消息队列、远程桌面和浏览器视频控制、手机离线执行、免配置公网中继。首版只有前台状态提醒；不能把它描述成后台推送。
 
-主机必须开机、可联网并保持智能体运行。桌面最小化后可以继续工作；关闭窗口后留在托盘运行的能力仍需补齐并验证。明确退出应用或电脑休眠会影响可用性，首版不提供远程唤醒或云端接管。
+主机必须开机、可联网并保持智能体运行。桌面最小化后可以继续工作；已接入关闭窗口留在托盘的行为，移动联合场景仍待验收。明确退出应用或电脑休眠会影响可用性，首版不提供远程唤醒或云端接管。
 
 ## 3. 连接与执行边界
 
 ```mermaid
 flowchart LR
-    Desktop[桌面 Vue 客户端] --> Gateway[同一个 Go 网关]
+    Desktop[桌面 Vue 客户端] --> API[同一个 Python HTTP API]
     Phone[手机 Web 或 PWA] --> Access[私有网络 HTTPS 入口]
-    Access --> Device[网关设备认证与远程路由白名单]
-    Device --> Gateway
-    Gateway --> Core[同一个 Python 智能体核心]
+    Access --> Device[待实现的设备认证与远程路由白名单]
+    Device --> API
+    API --> Core[同一个 Python 智能体核心]
     Core --> Tools[模型 浏览器 文件 MCP]
     Core --> State[主机上的执行与产品状态]
 ```
 
-- 手机消费现有 REST 和 界面事件 DTO，不连接 gRPC、不持有模型提供方敏感凭证、不运行第二套智能体主循环。
+- 手机消费现有 REST 和 界面事件 DTO，不持有模型提供方敏感凭证、不运行第二套智能体主循环。
 - 运行时恢复依据主机检查点；会话、审批和 UI 查询使用主机产品投影。移动端不同步 SQLite/检查点，不建立双主状态。
 - 用户身份仍是同一个个人主体；设备身份单独用于配对、撤销和访问审计。现有 `workspace_id`、`principal_id` 保留，不能用客户端提交的主体冒充认证。
 - 手机接入复用唯一 LangGraph Runtime，不扩展当前工具覆盖范围；执行边界见 [智能体运行时设计](AgentRuntime.md)。
@@ -69,23 +69,22 @@ Capacitor 提供将 Web 应用接入 iOS/Android 原生能力的现成容器，�
 
 网页与 API 同源部署，设备会话采用 Secure/HttpOnly Cookie。状态修改请求校验 CSRF 和允许的 Origin；WebSocket 握手同样需要认证。长期凭据不进入二维码 URL、查询参数、localStorage 或日志。撤销设备后，拒绝该设备的新请求并关闭其现有事件连接；已启动的任务通过显式取消管理。
 
-必须有独立的远程入口路由白名单，且身份验证覆盖全部远程请求。反向代理请求到达本机时，来源常表现为 loopback，不能因此免除认证，也不能只依靠客户端可伪造的转发头。gRPC 保持本机可见。
+必须有独立的远程入口路由白名单，且身份验证覆盖全部远程请求。反向代理请求到达本机时，来源常表现为 loopback，不能因此免除认证，也不能只依靠客户端可伪造的转发头。当前 Python API 只接受本机连接与来源，不能在设备认证落地前通过反向代理公开。
 
 首版远程入口只提供会话、任务、审批及授权范围内结果读取。凭证修改、任意主机路径访问、MCP 安装和安全策略放宽不随整个现有 API 一起开放；手机选择已配置模型不需要拿到模型密钥。
 
 ## 4. 已有基础与实际缺口
 
-以下为 2026-10-09 的代码检查结果，不代表远程功能已交付。
+以下按 2026-10-12 的 Python 后端入口更新，不代表远程功能已交付；旧 Go/gRPC 文件已删除。
 
 | 代码入口 | 可复用部分 | 实施前要解决的问题 |
 |---|---|---|
-| [router.go](../../gateway/internal/api/router.go) | 会话、任务、审批、文件与事件路由 | 主体固定为 `local-user`；Origin 限制不是设备认证，没有配对或撤销 |
-| [message_handler.go](../../gateway/internal/api/message_handler.go) | 返回任务 ID，后台消费核心服务流 | 没有按客户端命令 ID 去重；手机请求超时后重试可能新建重复任务 |
-| [grpc_server.py](../../python/agent/grpc_server.py) | `ProcessMessage` 的运行任务独立于调用方连接 | 要实测手机断线、网关断开与核心服务重启的不同结果 |
-| [approval_handler.go](../../gateway/internal/api/approval_handler.go) | 现有决定接口、版本校验与恢复入口 | 使用 `BroadcastEvent` 丢弃核心服务持久事件 ID/sequence；必须与普通消息转发一致 |
-| [task_handler.go](../../gateway/internal/api/task_handler.go) 和 [session.ts](../../web/src/stores/session.ts) | 历史读取、连接后补拉、按 ID 去重 | 历史单次上限 1000；缺少完整分页，实时事件推进最大游标可能越过未补齐缺口 |
-| [client.ts](../../web/src/api/client.ts) | 集中的 API Client 和稳定 DTO | 加入设备会话和过期处理、移动前后台重连；保持与 Electron 运行环境兼容 |
-| [main.ts](../../web/src/electron/main.ts) | Electron 持有本地进程 | 非 macOS 关闭所有窗口会退出；需明确托盘继续运行与主动退出的行为 |
+| [app.py](../../python/agent/api/app.py) | 本机来源、工作区归属、REST/WS | 主体固定为 local-user；没有配对、设备会话或撤销 |
+| [sessions.py](../../python/agent/api/sessions.py) | 聊天幂等提交、审批版本、显式取消/恢复 | 需要远程路由白名单与多设备并发验收 |
+| [execution.py](../../python/agent/api/execution.py) | 请求接纳后持有执行、稳定事件身份、有界订阅 | 需要移动断线/重连和后台切换验收 |
+| [socket.ts](../../web/src/api/socket.ts) | 注册确认后按连续游标补拉、缓冲实时事件 | 需要真实长会话与手机前后台网络场景 |
+| [client.ts](../../web/src/api/client.ts) | 稳定产品 DTO | 加入设备会话及过期处理，保持桌面兼容 |
+| [main.ts](../../web/src/electron/main.ts) | Electron 拥有单 Python 后端和托盘退出 | 安装包与手机控制联合场景未验收 |
 
 手机连接断开只影响观察，不触发取消。停止请求到达主机、且运行清理结束后，才显示已停止；未收到确认时，显示状态待确认。审批请求网络超时后，先查询当前状态，再决定是否重试。禁止缓存并自动提交离线批准。
 

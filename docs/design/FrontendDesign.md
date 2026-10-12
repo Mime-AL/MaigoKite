@@ -9,7 +9,7 @@
 Views / Feature Components
 → Pinia Stores / Composables
 → 集中 API / Event Client
-→ Go Gateway
+→ Python FastAPI
 ```
 
 页面组合界面，状态仓库保存客户端投影而非服务端状态机；业务请求携带工作区，所有端点集中封装。实际代码在 `web/src/views / components / stores / composables / api / types`，Electron 在 `web/src/electron`。不为架构整洁预建 features/events/supervisor 等空目录。
@@ -51,7 +51,7 @@ API 密钥不回显，模型提供方/端点变化不得复用旧凭证。字段
 
 用户只选三个稳定权限模式，不编辑 L1–L5。审批展示工具、规范化参数、目标和副作用、风险/有效期；提交后等待服务端确认，不本地标记成功，也不添加尚无服务支持的永久授权按钮。
 
-运行状态只显示服务返回的真实路径、网关/核心服务独立状态、版本与生效范围；不得根据浏览器/Node 猜路径。当前页面不编辑启动参数，也不宣称检测到外部 YAML 的“待重启变化”。凭证存储等说明可置于帮助/详情，不在主要界面持续展示工程说明。
+运行状态只显示服务返回的真实路径、单一 Python 后端状态、版本与生效范围；不得根据浏览器/Node 猜路径。当前页面不编辑启动参数，也不宣称检测到外部 YAML 的“待重启变化”。凭证存储等说明可置于帮助/详情，不在主要界面持续展示工程说明。
 
 ### 工作区文件
 
@@ -93,7 +93,7 @@ UI 在读取消息、任务和审批快照之前开始缓冲收到的事件，�
 
 当前 BrowserWindow 使用 `contextIsolation=true / nodeIntegration=false / sandbox=true / webSecurity=true`。导航和新窗口受控，渲染进程不获任意 Node、Shell 或文件权限。
 
-当前预加载白名单包含运行状态/错误订阅、窗口控制、外观、托盘状态、通知、工作区路径打开与速记；真实 IPC 在主进程校验窗口来源和参数。renderer 类型由实际 preload 对象派生，不再维护一份超前的方法承诺。业务请求仍统一走网关；这些接线不代表 runtime bundling 或桌面发布已验收。
+当前预加载白名单包含运行状态/错误订阅、窗口控制、外观、托盘状态、通知、工作区路径打开与速记；真实 IPC 在主进程校验窗口来源和参数。renderer 类型由实际 preload 对象派生，不再维护一份超前的方法承诺。业务请求仍统一走 Python API；这些接线不代表 runtime bundling 或桌面发布已验收。
 
 Electron 持有自己启动的 Go/Python 子进程并协调关闭；启动、退出等待和平台差异见 [开发指南](../development/DevelopmentGuide.md)。源码中的生命周期处理不等于完整进程监督或跨平台安装验收。打包路径、签名和干净机器验收由 [构建与发布指南](../deployment/ReleaseGuide.md) 定义。
 
@@ -106,7 +106,7 @@ Electron 持有自己启动的 Go/Python 子进程并协调关闭；启动、退
 - 弹窗关闭恢复焦点，关键操作键盘可用，允许暂停自动滚动。性能目标需要长会话实测，不以视觉效果代替指标。
 - 命令面板与收件箱使用原生 modal dialog，不自建焦点陷阱；审批键不穿透弹层，Escape 优先关闭当前弹层或输入候选菜单。
 
-Web 依赖网关；Vite/preview 代理来源按当前配置，不能独立提供业务。桌面构建与手机适配不在 Vue 业务代码复制第二套 API/状态。
+Web 开发模式由 Vite 代理 Python API；构建版由 Python 同时提供页面和 API，Vite 不能独立提供业务。桌面构建与手机适配不在 Vue 业务代码复制第二套 API/状态。
 
 ## 8. 视觉设计覆盖范围
 

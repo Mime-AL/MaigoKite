@@ -9,7 +9,7 @@ description = "MaigoKite AI Agent - Python backend"
 readme = "README.md"
 license = "MPL-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.14,<3.15"
 authors = [
     { name = "NanamiKite" },
 ]
@@ -26,9 +26,14 @@ dependencies = [
     "aiosqlite>=0.20.0",
     # Maintained 1.x SDK: stdio parity without the v2 protocol/HTTP-stack migration.
     "mcp>=1.28,<2",
-    "grpcio>=1.65.0",
-    "protobuf>=5.0.0",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.51,<1",
+    "websockets>=13,<17",
+    "anyio>=4,<5",
+    "keyring>=25,<26",
     "httpx>=0.27.0",
+    # Model discovery pins validated IPs while keeping TLS host verification through proxies.
+    "aiohttp>=3.14.2,<4",
     "pydantic>=2.0.0",
     "jsonschema>=4.26.0,<5",
     "referencing>=0.37.0,<1",
@@ -41,15 +46,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "grpcio-tools>=1.65.0",
-    "aiohttp>=3.9.0",
     "build>=1.2.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
-    "ruff>=0.8.0",
-    "mypy>=1.13.0",
-    "black>=24.3.0",
+    "ruff>=0.14.0",
+    "mypy>=1.19.0",
+    "black>=25.11.0",
     "pre-commit>=3.7.0",
 ]
 vectorstores = [
@@ -67,7 +70,7 @@ packages = ["python/agent"]
 
 # ---- Ruff ----
 [tool.ruff]
-target-version = "py311"
+target-version = "py314"
 line-length = 120
 
 [tool.ruff.lint]
@@ -75,7 +78,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
 
 # ---- MyPy ----
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 strict = true
 warn_return_any = true
 

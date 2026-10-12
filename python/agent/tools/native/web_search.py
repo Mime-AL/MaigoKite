@@ -59,7 +59,7 @@ class WebSearchTool(BaseTool):
         requested_engine = arguments.get("engine")
         max_results = arguments.get("max_results", 5)
 
-        # Secrets are injected into execution memory by the Gateway and never enter
+        # Secrets are injected into execution memory by the local API and never enter
         # the conversation, ToolResult, or persisted workspace settings.
         api_keys = context.metadata.get("api_keys", {})
         if not isinstance(api_keys, dict):

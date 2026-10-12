@@ -3,22 +3,22 @@
 > **状态**：当前有效
 > **架构版本**：v1
 > **基线核验**：2026-09-18；后续增量的验证范围见 [交付路线与状态](../project/Roadmap.md)。
-> **权威范围**：REST 资源、gRPC 服务、WebSocket 事件及兼容规则
+> **权威范围**：REST 资源、WebSocket 事件及兼容规则
 
-最终机器契约应分别由 OpenAPI、Proto 和事件 Schema 表达；本文档说明稳定资源与行为，不复制生成代码。
+请求模型由 FastAPI 生成 OpenAPI，事件继续沿用稳定产品 DTO；本文档说明稳定资源与行为，不复制生成代码。
 
 ## 1. 协议边界
 
 | 边界 | 协议 | 服务端 |
 |---|---|---|
-| UI → 网关 | HTTPS REST | Go 网关 |
-| UI ↔ 网关 | WSS | Go 网关 |
-| 网关 → 智能体核心 | gRPC | Python 智能体核心 |
+| UI → Python API | 本机 HTTP REST | FastAPI / Uvicorn |
+| UI ↔ Python API | 本机 WebSocket | FastAPI / Uvicorn |
+| API → AgentCore | 同进程调用 | Python |
 | 智能体核心 ↔ MCP Server | MCP stdio | MCP Server |
 
 ## 2. 通用调用上下文
 
-外部请求应经过网关身份/资源校验形成可信上下文。以下是目标关联字段；当前请求仅携带部分主体/工作区字段，request/trace/deadline 尚未统一传播：
+外部请求应经过API 层身份/资源校验形成可信上下文。以下是目标关联字段；当前请求仅携带部分主体/工作区字段，request/trace/deadline 尚未统一传播：
 
 ```text
 request_id
@@ -39,7 +39,7 @@ deadline
 
 ### 3.1 身份与工作区
 
-当前版本没有独立的 `/me`、工作区 CRUD 或成员管理 REST。所有已注册资源都位于 `/workspaces/{workspace_id}` 下，受本地访问中间件与智能体核心成员关系检查共同约束。网关当前固定映射到 `local-user`，这不构成远程设备认证。团队身份、工作区 CRUD 与成员管理已移出当前路线，不在本文保留未注册接口草案。
+当前版本没有独立的 `/me`、工作区 CRUD 或成员管理 REST。所有已注册资源都位于 `/workspaces/{workspace_id}` 下，受本地访问中间件与智能体核心成员关系检查共同约束。API 层当前固定映射到 `local-user`，这不构成远程设备认证。团队身份、工作区 CRUD 与成员管理已移出当前路线，不在本文保留未注册接口草案。
 
 文件夹工作区位于既有个人数据范围内，不增加租户或身份系统：
 
@@ -52,9 +52,9 @@ DELETE /workspaces/{workspace_id}/folders/{folder_id}
 
 POST 仅所有者可用，接受 `root_path` 与可选 `name`，由 Core 校验并登记规范化的实际目录，同目录重复添加返回已有记录。GET 返回 `id / name / root_path`，空 ID 表示启动配置的默认目录。模型、凭证、个人记忆仍以 `workspace_id` 为范围，不以 `folder_id` 隔离。
 
-`DELETE folders/{folder_id}` 仅 owner 可用，Gateway/Core 均检查身份；成功返回 204。只删除文件夹登记，不读取或删除磁盘文件、消息、任务、checkpoint、模型或记忆。关联对话（含归档）在同一 SQLite 事务中移至默认目录，撤销原目录下的复用审批授权，并写入 `workspace_folder.deleted` 审计；之后的文件操作使用默认目录。默认空 ID 不可删除（400），不存在或不属于当前个人范围的登记为 404。存在未结束任务、仍在清理的 Runtime run、运行进程或最新可恢复 interrupted 任务时返回 409；整项操作失败，不部分迁移。磁盘目录已消失不影响移除登记。界面提供二次确认并同步已载入对话的目录归属，迟到的旧列表不重新显示被移除的工作区。
+`DELETE folders/{folder_id}` 仅 owner 可用，API/Core 均检查身份；成功返回 204。只删除文件夹登记，不读取或删除磁盘文件、消息、任务、checkpoint、模型或记忆。关联对话（含归档）在同一 SQLite 事务中移至默认目录，撤销原目录下的复用审批授权，并写入 `workspace_folder.deleted` 审计；之后的文件操作使用默认目录。默认空 ID 不可删除（400），不存在或不属于当前个人范围的登记为 404。存在未结束任务、仍在清理的 Runtime run、运行进程或最新可恢复 interrupted 任务时返回 409；整项操作失败，不部分迁移。磁盘目录已消失不影响移除登记。界面提供二次确认并同步已载入对话的目录归属，迟到的旧列表不重新显示被移除的工作区。
 
-`folders/browse` 为本机 Web 文件夹选择器提供目录列表，要求 owner 且请求直接连接地址为 loopback（不信任转发头来判定本机）。可选 `path` 为已有绝对目录，省略时从网关进程用户的主目录开始；`show_hidden=true` 包含点开头目录。响应为 `{path, parent, home, root, entries: [{name, path}], truncated}`，根目录的 parent 为空。只枚举目录，不返回文件或读取内容；每次最多扫描 5000 项、返回 500 个文件夹，不缓存响应。注册路径仍调用上述 POST，由 Core 做最终校验。它不是工作区文件预览接口，也不是远程设备文件选择协议；Gateway/Core 必须共享文件系统，反向代理不应将此本机专用入口公开到远程。
+`folders/browse` 为本机 Web 文件夹选择器提供目录列表，要求 owner 且请求直接连接地址为 loopback（不信任转发头来判定本机）。可选 `path` 为已有绝对目录，省略时从API 层进程用户的主目录开始；`show_hidden=true` 包含点开头目录。响应为 `{path, parent, home, root, entries: [{name, path}], truncated}`，根目录的 parent 为空。只枚举目录，不返回文件或读取内容；每次最多扫描 5000 项、返回 500 个文件夹，不缓存响应。注册路径仍调用上述 POST，由 Core 做最终校验。它不是工作区文件预览接口，也不是远程设备文件选择协议；API/Core 必须共享文件系统，反向代理不应将此本机专用入口公开到远程。
 
 手机访问为规划中，范围以 [手机远程访问](RemoteAccess.md) 为准。配对设备关联同一个个人主体；首版复用会话、任务、审批和 UI Event DTO，仅开放明确列出的远程资源。配对、会话和撤销的具体契约在实施时补充，本文不将它们列成已存在的端点。
 
@@ -84,13 +84,13 @@ GET    /workspaces/{workspace_id}/conversations/{conversation_id}/snapshot
 
 发送消息可带 `Idempotency-Key`（1–128 个无空格可打印 ASCII 字符）。键按工作区、会话、主体隔离，内容指纹覆盖 content 与 attachments；新请求返回 202，相同键/相同内容返回原任务的 200 `{task_id, conversation_id, status, replayed: true}` 和 `Idempotency-Replayed: true`，不同内容返回 409。返回旧任务不会重新发模型请求、写消息或广播历史事件；中断/失败任务也不会因重发键自动恢复。相同文本的新操作必须用新键。省略键保持旧行为；GUI 已为每次逻辑提交生成键，网络/5xx 错误时保留原键，用户点击确认才重试。4xx 明确拒绝会释放键；成功回执后刷新失败不等于提交失败。键仅保留在当前页面会话内，刷新页面后应先查询任务记录，不保证找回原键。服务端的键随任务保留，删除会话/任务后不再保留去重记录。最新 GUI 接线未验收。
 
-`snapshot` 返回 `messages / tasks / approvals / questions / last_sequence / truncated`，其中 approvals/questions 只含待处理项，嵌套审批和问题沿用 protobuf JSON（`arguments_json / options_json`），客户端 API 边界将审批参数和问题选项转换为界面 DTO。在单 Core 的同一个 Repository 锁内读取，每类最多 200 条最新记录并按时间返回，条目合用约 900 KB 序列化预算；省略时明确 `truncated: true`。这解决多个列表分开读取的观察窗口，不提供跨进程一致性或完整事件快照。GUI 已先订阅并缓冲，再取快照、补拉历史并按 event_id 合并；快照水位内的活动卡片与未完成回复仍回放，但不得覆盖较新的任务状态或重新触发排队发送。待审批/待回答卡片直接使用真实快照水位，不制造伪事件。`truncated` 会提示较早记录可能不完整，客户端不能因缺少某个待处理 ID 就关闭对应卡片。接线不等同于断线恢复验收。
+`snapshot` 返回 `messages / tasks / approvals / questions / last_sequence / truncated`，其中 approvals/questions 只含待处理项，嵌套审批和问题沿用已发布的 JSON 字符串字段（`arguments_json / options_json`），客户端 API 边界将审批参数和问题选项转换为界面 DTO。在单 Core 的同一个 Repository 锁内读取，每类最多 200 条最新记录并按时间返回，条目合用约 900 KB 序列化预算；省略时明确 `truncated: true`。这解决多个列表分开读取的观察窗口，不提供跨进程一致性或完整事件快照。GUI 已先订阅并缓冲，再取快照、补拉历史并按 event_id 合并；快照水位内的活动卡片与未完成回复仍回放，但不得覆盖较新的任务状态或重新触发排队发送。待审批/待回答卡片直接使用真实快照水位，不制造伪事件。`truncated` 会提示较早记录可能不完整，客户端不能因缺少某个待处理 ID 就关闭对应卡片。接线不等同于断线恢复验收。
 
 会话包含 `folder_id / archived`；创建可指定 `folder_id`，PATCH 可更新 `title / folder_id / archived`。既有会话迁移后仍使用默认目录且未归档。前端按文件夹与归档状态显示列表；直接进入会话时切换到其归属目录。归档会话拒绝发送消息；未结束的任务禁止移动、归档、删除（409）。DELETE 清理产品任务、消息及 LangGraph checkpoint，不删除工作区文件，保留安全审计。
 
 归档仅禁止新执行，不禁止相同幂等键/内容查询已存在的提交回执。幂等请求中的会话若已删除，返回 404，不悄悄新建会话。`snapshot` 的空列表返回 `[]`，不返回 `null`。
 
-`files / files/content / changes / changes/diff / runtime-status` 支持可选 `folder_id` 查询参数，Gateway 通过 Core 解析已登记目录，客户端不能直接传任意根目录。Runtime 权限校验与工具上下文使用会话所属目录，不变更共享全局根目录；MCP 进程启动目录和技能加载目录不因切换而变化。
+`files / files/content / changes / changes/diff / runtime-status` 支持可选 `folder_id` 查询参数，API 通过 Core 解析已登记目录，客户端不能直接传任意根目录。Runtime 权限校验与工具上下文使用会话所属目录，不变更共享全局根目录；MCP 进程启动目录和技能加载目录不因切换而变化。
 
 ### 3.3 任务、工具调用与审批
 
@@ -154,7 +154,7 @@ POST /workspaces/{workspace_id}/extension-settings/apply
 
 PUT 完整替换 `config`（2 MiB 上限）：`revision / mcp_servers / skill_directories / skills / disabled_skills`，校验通过后递增 revision，写现有 `workspace_settings` 并记审计，不操作运行中的进程。MCP 项包括 `namespace / transport=stdio / command / args / cwd / enabled / env_allowlist / secret_env / enabled_tools / disabled_tools`；托管 Skill 项包括 `name / content / enabled`，每个 Markdown 最大 256 KiB。只接受声明字段，不接受原始 env/secret 值。
 
-apply 默认接受 `{"revision": <保存后的版本>}`，应用新配置。Gateway 按 `secret_env` 从现有密钥链读取引用 `mcp.<namespace>.<ENV_NAME>`，经内部 RPC 瞬时传值。Core 拒绝旧版本、重复应用或仍有运行/待审批/待回答的任务（409）；无效配置 400，非 owner 403。
+apply 默认接受 `{"revision": <保存后的版本>}`，应用新配置。API 按 `secret_env` 从现有密钥链读取引用 `mcp.<namespace>.<ENV_NAME>`，在进程内传递凭证给 Core。Core 拒绝旧版本、重复应用或仍有运行/待审批/待回答的任务（409）；无效配置 400，非 owner 403。
 
 同一接口接受 `{"revision": <active_config.revision>, "restore_only": true}`，只恢复已生效配置的 MCP 连接、复用已加载 Skill；允许等待审批/回答，不允许活动运行，不应用尚未生效的编辑。新聊天、回答、任务恢复和批准入口均先准备已生效配置的凭证与连接；缺凭证或恢复失败时不准入本次执行，也不消费审批决定。批准 MCP 工具时还检查对应连接，成功后仍由 Core 校验审批 hash/version/策略。拒绝审批无需恢复 MCP 连接。
 
@@ -197,7 +197,7 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 
 读取凭证只返回引用和元数据，不返回敏感凭证值。
 
-**模型窗口查询。** `models/{model_id}/context` 由 Gateway 恢复当前配置的凭证，再调用
+**模型窗口查询。** `models/{model_id}/context` 由 API 恢复当前配置的凭证，再调用
 Core 的 `GetChatModelContext`。与执行路径复用同一个容量解析函数和 Core 所有的模型客户端；
 不生成消息、不创建任务、不自动加载模型、不修改配置。返回 `model_id / model_key / model_name`、
 `model_context_window / capacity_source / capacity_status / capacity_checked_at`，以及
@@ -210,12 +210,12 @@ Core 的 `GetChatModelContext`。与执行路径复用同一个容量解析函�
 **会话思考控制。** `models/{model_id}/thinking` 返回 `kind: effort | toggle | unavailable`、
 `options: string[]`、`default`、`source` 和 `reason`；列表由 Core 确认，前端不按模型名称猜测。
 `default` 为空表示默认值未知，不等于关闭思考。查询只读取能力资料，不发生成请求、不自动加载模型。
-Gateway 在读取能力、保存显式思考设置之前，沿用 OS 凭证存储恢复所选模型的 Core 内存凭证，
+API 在读取能力、保存显式思考设置之前，沿用 OS 凭证存储恢复所选模型的 Core 内存凭证，
 不启动 MCP/Skill，不返回 Secret。
 
 创建/PATCH 会话接受 `thinking: string`；PATCH 省略保持原值，`""` 恢复服务默认（不发送推理参数）。
 模型变更且未指定 thinking 时自动清空；非法档位由 Core 拒绝，活跃或等待批准的任务不允许更改。
-GET/List 返回相同字段；protobuf JSON 省略空值时客户端按 `""` 解读。
+GET/List 返回相同字段；客户端仍将历史数据的缺失值按 `""` 解读。
 旧 `response_mode` 暂留作兼容字段，但不再改变输出 token 预算，也不被转换为推理强度。
 
 当前控制范围：OpenAI 使用原生 SDK `profile.reasoning_effort_levels`（原始 GPT-5 使用官方档位修正），
@@ -227,31 +227,31 @@ LM Studio 仅原生 API 暴露的 on/off 尚不映射到兼容接口，返回 `n
 
 模型目录支持多选及手动追加 ID；每个选中模型保存为既有的独立配置，共享本次填写的服务连接信息。前端使用稳定配置 ID，串行调用现有 `PUT models/{model_id}`，避免配置目录的读改写发生并发覆盖；部分失败保留已保存项和草稿，重试更新同一 ID，不承诺跨配置事务。
 
-模型保存请求可携带 `credential_source_id`，由 Gateway 从同工作区、同接口协议、同规范化基础地址的已保存配置复用密钥；来源无效时在写入前拒绝。显式提交 `api_key` 优先，密钥仍按目标模型 ID 存储，不回传前端。此字段不建立新的 Provider 注册表或共享密钥域。
+模型保存请求可携带 `credential_source_id`，由 API 从同工作区、同接口协议、同规范化基础地址的已保存配置复用密钥；来源无效时在写入前拒绝。显式提交 `api_key` 优先，密钥仍按目标模型 ID 存储，不回传前端。此字段不建立新的 Provider 注册表或共享密钥域。
 
 模型 API 管理工作区的聊天模型配置集合，并保证最多一个默认模型。`models/actions/validate` 使用提交的草稿配置做一次最小模型调用，不保存草稿。`models/actions/discover` 根据模型提供方与基础地址查询服务端模型目录：OpenAI、Anthropic 和兼容端点使用 `/models`，Ollama 使用 `/api/tags`。
 
-目录发现优先使用本次草稿中的 Key。仅当模型提供方与基础地址同已保存配置完全匹配时，才读取该配置的凭证存储引用。结果和敏感凭证都不持久化。目录请求禁用重定向、系统代理和链路本地地址，防止 Key 被转发到非预期端点。
+目录发现优先使用本次草稿中的 Key。仅当模型提供方与基础地址同已保存配置完全匹配时，才读取该配置的凭证存储引用。结果和敏感凭证都不持久化。目录请求禁用重定向并检查链路本地地址；只有本地端点绕过系统代理，公网兼容服务遵循用户的代理环境。不按端口猜厂商。
 
-设置写入、目录发现、连接验证和凭证管理只允许工作区所有者。模型凭证按模型配置 ID 隔离（`model-profile.{id}`）。保存后，网关将凭证同步到智能体核心内存；发送消息前，再次从 OS 凭证存储同步当前会话选择的配置。修改模型提供方/基础地址会使旧凭证失效。敏感凭证不进入领域数据库或事件。
+设置写入、目录发现、连接验证和凭证管理只允许工作区所有者。模型凭证按模型配置 ID 隔离（`model-profile.{id}`）。保存后，API 层将凭证同步到智能体核心内存；发送消息前，再次从 OS 凭证存储同步当前会话选择的配置。修改模型提供方/基础地址会使旧凭证失效。敏感凭证不进入领域数据库或事件。
 
-联网搜索凭证使用 `tavily`、`google` 引用名。网关保存或删除引用时通过内部 gRPC 同步智能体核心，并在每次消息任务开始前重新同步，以覆盖核心服务重启场景。搜索失败事件只携带稳定错误码、用户提示和设置路由，不携带敏感凭证。
+联网搜索凭证使用 `tavily`、`google` 引用名。API 层保存或删除引用时直接同步智能体核心，并在每次消息任务开始前重新同步，以覆盖核心服务重启场景。搜索失败事件只携带稳定错误码、用户提示和设置路由，不携带敏感凭证。
 
 `GET/PATCH /workspaces/{workspace_id}/permissions` 管理默认执行模式：`read_only / workspace / danger_full_access`；不向普通客户端暴露逐工具风险矩阵。`PATCH conversations/{conversation_id}` 可修改当前会话的 `model_id`、`thinking` 和 `permission_mode`（旧 `response_mode` 仅保留兼容）。服务端验证模型属于当前工作区；L1–L5 风险、参数升级和 hard-deny 由 ToolPolicy 内部维护。
 
 2026-10-11 兼容约定：旧 `full_access` 请求仍被接受，但规范化为 `workspace_auto`，保留原工作区限制而非自动提权；历史会话、YAML/环境变量与默认设置同样处理。前端要把 `workspace_auto` 显示为兼容的“旧版受限自动”，不作为新的完全访问档位。真正完全访问须显式提交 `{"permission_mode":"danger_full_access"}` 或 `{"default_mode":"danger_full_access"}`，界面接入时应明确告知将取消工作区沙箱与逐项审批。设置默认仅影响后续新会话。
 
-创建/PATCH 会话还接受 `max_subagent_calls`（0–32，默认 0 关闭）和 `max_concurrent_subagents`（1–8，默认 1；启用时不能超过前者）。省略字段保留旧值，`0` 不当作省略。GET/List 返回会话设置；Go JSON 可能省略值为 0 的字段，客户端以 0 解读。Core 在持久化事务内校验组合；新任务原子快照限额，运行中修改仅影响后续回合。`capabilities.subagents` 表示支持此接口/执行入口，不绕过工具停用设置和共享模型调用预算。执行限制见 [运行时设计第 7 节](AgentRuntime.md#7-技能子任务与工作流边界)。
+创建/PATCH 会话还接受 `max_subagent_calls`（0–32，默认 0 关闭）和 `max_concurrent_subagents`（1–8，默认 1；启用时不能超过前者）。省略字段保留旧值，`0` 不当作省略。GET/List 返回会话设置及真实 0 值；客户端仍容忍旧数据字段缺失。Core 在持久化事务内校验组合；新任务原子快照限额，运行中修改仅影响后续回合。`capabilities.subagents` 表示支持此接口/执行入口，不绕过工具停用设置和共享模型调用预算。执行限制见 [运行时设计第 7 节](AgentRuntime.md#7-技能子任务与工作流边界)。
 
-`capabilities.subagent_model_selection` 表示支持多模型子 Agent。创建/PATCH 会话接受 `subagent_model_ids: string[]`，最多 32 个、不重复、必须是同工作区已配置模型 ID。PATCH 省略保留旧值，`[]` 清空额外选择（仍可跟随父模型）；GET/List 返回相同字段，空值被 Go JSON 省略时按 `[]` 解读。gRPC PATCH 使用 `ModelIdList subagent_models` 的 message presence 区分省略/清空。Task 返回准入时保存的 `subagent_model_ids`，供重启后的凭证准备使用；不是另一份执行状态。
+`capabilities.subagent_model_selection` 表示支持多模型子 Agent。创建/PATCH 会话接受 `subagent_model_ids: string[]`，最多 32 个、不重复、必须是同工作区已配置模型 ID。PATCH 省略保留旧值，`[]` 清空额外选择（仍可跟随父模型）；GET/List 返回相同字段，空值返回 `[]`。PATCH 使用 Pydantic 的字段提供状态区分省略与清空。Task 返回准入时保存的 `subagent_model_ids`，供重启后的凭证准备使用；不是另一份执行状态。
 
-权限设置请求与响应仅包含 `default_mode`。REST 写入拒绝未知字段（包括旧的 `tool_levels / grants`），不再静默接受无效设置。内部 Proto 的旧 `tool_levels` 字段号 2 和名称均保留为 reserved，Gateway/Core 需一起更新；旧产品库无需删表，旧风险配置不生效，下一次保存只写默认档位。
+权限设置请求与响应仅包含 `default_mode`。REST 写入拒绝未知字段（包括旧的 `tool_levels / grants`），不再静默接受无效设置。旧产品库无需删表，旧风险配置不生效，下一次保存只写默认档位。
 
-审批 `deny` 只拒绝当前操作，不取消整轮或关闭其他待审批操作。Gateway 尽力准备模型凭证供后续续接，但凭证不可用不能阻止拒绝保存，也不为被拒绝的操作启动 MCP。决定仍验证主体、任务状态、参数 hash、版本及过期时间并保存审计；后续续接失败通过 `task.failed` 报告。`allow` 继续使用凭证准备和原生 HITL 恢复路径。授权有期限且可撤销，不存在永久会话授权或独立审核 Agent；批次续接语义见 3.8。
+审批 `deny` 只拒绝当前操作，不取消整轮或关闭其他待审批操作。API 尽力准备模型凭证供后续续接，但凭证不可用不能阻止拒绝保存，也不为被拒绝的操作启动 MCP。决定仍验证主体、任务状态、参数 hash、版本及过期时间并保存审计；后续续接失败通过 `task.failed` 报告。`allow` 继续使用凭证准备和原生 HITL 恢复路径。授权有期限且可撤销，不存在永久会话授权或独立审核 Agent；批次续接语义见 3.8。
 
 `preferences` 是当前主体在工作区中的用户级偏好。`assistant_name`（1–32 个字符）用于界面称呼，只修改当前个人主体的显示偏好，不改变工作区名称。
 
-`runtime-status` 是工作区所有者可见的只读投影，返回规范化工作区根目录及来源、网关/智能体核心状态和版本、即时生效项与需重启项。它不修改部署配置，也不声称能够检测运行期间手工编辑的外部 YAML。
+`runtime-status` 是工作区所有者可见的只读投影，返回规范化工作区根目录及来源、单一 `backend` 服务状态和版本、即时生效项与需重启项。它不修改部署配置，也不声称能够检测运行期间手工编辑的外部 YAML。
 
 ### 3.7 工作区文件与变更
 
@@ -268,10 +268,10 @@ GET 接口是受工作区根目录约束的只读投影，拒绝绝对路径、`
 
 POST 接口为用户显式文件操作，限工作区所有者；不作为 Agent 工具、审批续接或自动执行入口：
 
-- `POST /files` 正文为 `{"name":"notes.md","type":"file"}` 或 `{"name":"notes","type":"directory"}`。只在已存在的相对父目录创建一个空文件或文件夹，不递归创建路径、不覆盖、不写正文。成功返回 201 与 `name / path / type / size / modified_at` 文件树条目；同名返回 409 `ALREADY_EXISTS`，非法名称 / 路径返回 400，权限失败返回 403。拒绝路径分隔符、控制字符、保留名称以及 `.git` 路径。复用系统相对目录句柄创建能力，防止校验后替换符号链接或 junction 令写入逃逸；现有 `x/sys` 依赖版本不变。
-- `POST /files/open-folder` 另外要求直接连接地址为本机 loopback。只可打开工作区内已存在目录；Gateway 以固定文件管理器程序加路径参数启动，不经 shell。快速成功返回 204；启动器仍在运行时返回 202 `{"launched":true}`，仅表示启动已接受，不保证窗口已打开；启动或快速退出失败返回 503 `OPEN_FAILED`。Electron 优先使用已有 `openPath` IPC，不调用此接口。
+- `POST /files` 正文为 `{"name":"notes.md","type":"file"}` 或 `{"name":"notes","type":"directory"}`。只在已存在的相对父目录创建一个空文件或文件夹，不递归创建路径、不覆盖、不写正文。成功返回 201 与 `name / path / type / size / modified_at` 文件树条目；同名返回 409 `ALREADY_EXISTS`，非法名称 / 路径返回 400，权限失败返回 403。拒绝路径分隔符、控制字符、保留名称以及 `.git` 路径。复用系统相对目录句柄创建能力，防止校验后替换符号链接或 junction 令写入逃逸，由 POSIX 目录句柄或 Windows 系统 API 实现。
+- `POST /files/open-folder` 另外要求直接连接地址为本机 loopback。只可打开工作区内已存在目录；API 以固定文件管理器程序加路径参数启动，不经 shell。快速成功返回 204；启动器仍在运行时返回 202 `{"launched":true}`，仅表示启动已接受，不保证窗口已打开；启动或快速退出失败返回 503 `OPEN_FAILED`。Electron 优先使用已有 `openPath` IPC，不调用此接口。
 
-这两项源码已接线，尚未执行运行验收；使用新接口需重启 Gateway。
+这两项源码已接线，尚未执行运行验收；使用新接口需重启 API。
 
 ### 3.8 GUI 交互与执行检查接口（2026-10-10）
 
@@ -297,11 +297,11 @@ POST 接口为用户显式文件操作，限工作区所有者；不作为 Agent
 `structured_questions / task_input / structured_plan / context_estimate` 在 Core 的唯一 LangGraph Runtime 就绪时为 true；关闭或未就绪时不对外宣称可执行。这些标志表示后端能力，工具仍可能被工作区配置停用。
 `session_approval / task_approval / approval_authorization_revocation / permission_boundary_v2 / conversation_fork` 在 Runtime 就绪时为 true，表示支持上述新接口/语义，不代表前端已完成联调或主机沙箱可用。`auto_review / model_context_percentage / turn_rollback / automatic_memory_events` 为 false。回合回滚和审核 Agent 不在本批范围。
 
-**显式任务恢复。** `task_resume` 在 Runtime 就绪时为 true，表示提供受限恢复入口，不表示所有 interrupted 任务均可重放。Gateway 先按现有凭证入口补齐 Core 的进程内模型密钥，再调用流式 gRPC `ResumeTask(workspace_id, task_id, principal_id, version)`。Core 只接受所有者、最新版本、最新会话回合、无活跃运行、未归档且存在未完成 checkpoint 的 `interrupted` 任务；等待审批的任务继续使用 Approval API，不走这个接口。旧任务无 checkpoint 也按不可恢复处理；状态/版本/checkpoint 不满足返回 409，越权返回 403，任务不在工作区内返回 404。
+**显式任务恢复。** `task_resume` 在 Runtime 就绪时为 true，表示提供受限恢复入口，不表示所有 interrupted 任务均可重放。API 先按现有凭证入口补齐 Core 的进程内模型密钥，再直接调用 `AgentCore.resume_task(workspace_id, task_id, principal_id, version)`。Core 只接受所有者、最新版本、最新会话回合、无活跃运行、未归档且存在未完成 checkpoint 的 `interrupted` 任务；等待审批的任务继续使用 Approval API，不走这个接口。旧任务无 checkpoint 也按不可恢复处理；状态/版本/checkpoint 不满足返回 409，越权返回 403，任务不在工作区内返回 404。
 
 首版恢复只接受保留的 checkpoint 中工具调用均为 `file_read / file_write` 的任务，以及这两种直接 `/tool` 命令。保留历史若包含旧回合的其他工具也会保守拒绝；命令、Browser、MCP 等不自动重放。恢复不等于重新授权：未批准的调用仍暂停等待，已批准的调用仍核对当前策略及审批 hash/version。文件内容匹配时可零写入核对；不同内容可能被再次覆盖，接口不提供外部编辑冲突保护、回滚或 exactly-once 保证。调用者应先检查目标文件，确认重放意图。
 
-接受事件 `task.resumed` 使用既有 AgentEvent DTO 和持久 event_id/sequence/occurred_at，payload 包含 `execution_resumed: true` 与本次 `trace_id`。Gateway 收到该请求的确认才返回 202，后续事件透传原 WS 通道；并发拒绝请求不会冒领其他恢复请求的事件。执行与订阅分离：断线不取消；用户停止与 Core shutdown 都取消并等待同一根任务。UI 不接触 checkpoint/continuation，不新增前端状态机。当前批次只补后端接口与样例，验收状态见 [交付路线与状态](../project/Roadmap.md)。
+接受事件 `task.resumed` 使用既有 AgentEvent DTO 和持久 event_id/sequence/occurred_at，payload 包含 `execution_resumed: true` 与本次 `trace_id`。API 收到该请求的确认才返回 202，后续事件透传原 WS 通道；并发拒绝请求不会冒领其他恢复请求的事件。执行与订阅分离：断线不取消；用户停止与 Core shutdown 都取消并等待同一根任务。UI 不接触 checkpoint/continuation，不新增前端状态机。当前批次只补后端接口与样例，验收状态见 [交付路线与状态](../project/Roadmap.md)。
 
 **任务详情。** `tool_calls` 返回工具名、参数、结果、状态和时间；不暴露 checkpoint、运行时对象或 `continuation_json`。
 `projection` 包含 `plan / context / changes / summary / questions / usage / truncated`；问题包含 `options` 数组和已保存回答。快照在同一 Repository 锁内读取。最多 50 条工具调用、50 条审批和最近 100 条相关事件；工具结果、审批、文件差异与问题另外共用约 900 KB 的输出预算，过大条目省略并标记 `truncated`。`usage` 独立汇总该任务全部已保存的用量事件，不受最近 100 条活动限制；按 purpose 返回 `calls / failed_calls / reported_calls / tokens`，另有 `compactions`。它仅汇总已有回执，不将缺失字段填零，不计算价格；cached/reasoning 不额外加到总 token。`last_sequence` 是该任务的事件水位，不是整个会话所有任务的完整快照水位。截断时应补读既有事件历史，不能将省略的内容判为不存在。
@@ -313,7 +313,7 @@ GUI 的收件箱与活动卡片已接入问题选项、自由文本及“回答�
 普通聊天输入不隐式充当问题回答：运行中 Enter 通过 `/tasks/{task_id}/inputs` 引导，
 Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能稍后发送，或就地处理卡片。
 驳回理由通过 Approval API 的 note 保存并交给模型。`deny` 只拒绝该操作，`scope` 必须为 `once`；任务继续或等待同批下一项审批，不发布 `task.cancelled`。批次审阅完成后，被拒绝调用通过既有 `tool.failed`（`error_code=APPROVAL_REJECTED`）投影，产品工具状态为 `denied`。续接失败另发 `task.failed`，拒绝决定仍有效；显式 cancel 才停止整轮。
-阶段 3a 的补充输入、计划恢复与运行抽屉已进行真实 Gateway/Core 验收，见
+阶段 3a 的补充输入、计划恢复与运行抽屉已进行真实 API/Core 验收，见
 [UI 设计的阶段 3a 记录](agent-ui-design.md#10-阶段-3a--数据链路)。
 该验收不代表审批/回答的跨进程恢复通过；Mock 未实现问题续接，返回空问题列表。
 
@@ -331,13 +331,13 @@ Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能�
 固定指令和工具定义本身超预算的失败带 `reason=fixed_overhead_exceeded`，显示输入预算不足，
 不称为历史摘要失败。现有 `context.max_tokens` 只作未知容量下恢复工作的预算，不能声明服务端窗口。
 
-模型配置使用可选 `context_window`（正的安全整数；省略/0 表示没有模型覆盖），从设置页获取的服务目录按精确模型 ID 保存，经既有 REST / protobuf / Repository 传递，无数据库增列。换服务或换模型不能沿用另一模型的容量。
+模型配置使用可选 `context_window`（正的安全整数；省略/0 表示没有模型覆盖），从设置页获取的服务目录按精确模型 ID 保存，经既有 REST / Repository 传递，无数据库增列。换服务或换模型不能沿用另一模型的容量。
 
 Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取精确模型项的 `context_window / context_length / contextWindow / max_model_len`。LM Studio 加载实例接口只对 `models.routes` 中明确设置 `metadata_api: lmstudio` 的 compatible 路由启用，不凭端口或本地地址探测。models.dev/SDK 资料只适用于已识别的当前路由，不跨厂商匹配模型 ID，也不把目录内 localhost 样例当作本机服务身份；自定义 Anthropic/OpenAI 协议地址不等于官方路由。
 
 无资料的远端接入使用 `models.routes[].default_context_window`，未配置时采用 262,144 的 `assumed` 回退，本地/Ollama 无默认云端回退。输出上限与旧产品预算仍不冒充窗口。持久容量记录使用内部 `capacity_policy / catalog_route`，本次策略升级使旧推断缓存失效，不删除聊天和用量。
 
-`context.updated` 保持 `model_id / model_key`：后者为 `[provider, normalized_base_url, model, context_window_or_null]` 的紧凑 JSON，仅用于配置关联，不含密钥。前端同时匹配配置 ID 与该关联值；旧事件缺少关联值时不把历史容量套到当前配置，新请求发布新的观测。路由配置由现有 YAML 读取，不新增 REST/protobuf 字段或设置系统。
+`context.updated` 保持 `model_id / model_key`：后者为 `[provider, normalized_base_url, model, context_window_or_null]` 的紧凑 JSON，仅用于配置关联，不含密钥。前端同时匹配配置 ID 与该关联值；旧事件缺少关联值时不把历史容量套到当前配置，新请求发布新的观测。路由配置由现有 YAML 读取，不新增 REST 字段或设置系统。
 
 压缩状态通过 `context.compaction.started / failed / skipped` 与既有 `context.compacted` 发布。started 带 `before_tokens / input_budget_tokens / model_context_window / measurement`；failed 带 `message / error_type / model_context_window` 且保留原历史；skipped 的 `reason=no_compressible_history` 不代表完成压缩。前端按事件投影独立压缩状态，不从普通“思考中”推断；窗口仪表保留 measurement、容量来源、获取状态与观测时间，未知窗口只显示已有 Token 计数/估算、不绘制占用比例。聊天过程与底部显示压缩失败原因，关闭窗口用量显示不隐藏失败反馈。本次前端接入未运行测试或真实服务验收，后端没有手动压缩接口，界面不提供该按钮。
 
@@ -355,13 +355,13 @@ Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取
 - `Idempotency-Key` 用于任务插话和可选的聊天提交；不扩展为通用幂等写入框架。ETag、任务重试动作仍是规划中。
 - 取消、审批和重试使用显式动作，不伪装成普通字段 PATCH。
 
-## 5. gRPC 服务
+## 5. Python HTTP 服务
 
-Python 核心服务当前由一个 `AgentService` 提供消息、会话、任务、事件、审批、模型与技能/MCP 等 RPC。准确方法和字段以 `proto/agent.proto` 为准；不预设为了分层另拆三套领域服务。
+`python/agent/api/app.py` 将所有原工作区 REST/WS 路由挂到同一个 FastAPI 应用，默认本机 8080；`/health` 在 Core 初始化完成后提供健康状态，`/openapi.json` 由请求模型生成。内部 gRPC、Proto 及 Go/Python 绑定已删除。
 
-当前各请求直接携带 `workspace_id`、`principal_id` 等必要字段，统一 `CallContext` 尚未完成。Proto 字段发布后不得重编号，删除字段必须 `reserved`；绑定生成入口见 [开发指南](../development/DevelopmentGuide.md)。
+生命周期只允许一个 worker。HTTP 入口完成输入与工作区归属校验，Core 决定执行、审批、取消及恢复；客户端不能自选可信 principal。请求体上限 2 MiB，系统文件/凭证操作在工作线程中完成，HTTP 断线不取消已接纳任务。
 
-当前 Proto 使用自定义 `Health` RPC，网关对外提供 HTTP `/health`。切换到标准 gRPC Health Checking 属于后续兼容性改造，不能按已实现能力部署探针。
+原有会话、消息、任务、审批与事件 JSON 保持兼容；`runtime-status` 的 `gateway / agent_core` 合并为 `backend`，前端需同步更新。Web 构建版由同一后端提供页面，未知 API 地址不返回 SPA 页面。2026-10-12 迁移仅完成源码与接口清单核对，未运行测试或构建。
 
 ## 6. WebSocket 事件
 
@@ -435,13 +435,13 @@ file.changed
 
 `model.usage` 是可选的观测事件，不写入消息，也不表示任务完成。`payload.usage` 保存 Provider/SDK 提供的数值，例如 `input_tokens / output_tokens / total_tokens / cache_read_tokens / cache_creation_tokens / cache_miss_tokens / reasoning_tokens`；缺失缓存字段表示未提供。旧路径可能保留 `prompt_tokens / completion_tokens`。新路径同时覆盖主模型与摘要，通过 `purpose: response | summary`、`call_id` 区分；`model.call.started/failed` 记录调用次数和无完整结果的调用。SDK 内部重试与未返回的服务端用量无法据此补齐，因此不是完整账单。`context.compacted` 只给近似压缩前后/摘要 token 数和目标上限；`context.history` 标记 checkpoint 或可见历史导入，`execution_resumed: false` 表示开启新回合而非重放旧执行。未知事件类型不得阻断客户端的 sequence 推进。
 
-重复聊天提交的 gRPC `task.accepted / code: MESSAGE_REPLAY` 只是传输回执，Gateway 转为 HTTP 200，不持久化、不广播为 UI 事件，也不向前端泄漏 LangGraph 类型。
+重复聊天提交由 Core 返回 `replayed` 回执，API 转为 HTTP 200，不持久化、不广播为 UI 事件，也不向前端泄漏 LangGraph 类型。
 
-客户端按 `event_id` 去重，按 `sequence` 检测缺口。断线不取消任务。Gateway 在同一订阅注册锁内，先排入 `{"type":"stream.ready","payload":{}}`，再允许实时事件入队。该帧是传输控制消息，不属于产品事件，不分配 `event_id / sequence`，不写活动区。
+客户端按 `event_id` 去重，按 `sequence` 检测缺口。断线不取消任务。API 在同一事件循环不让出执行的区间内，先排入 `{"type":"stream.ready","payload":{}}`，再允许实时事件入队。连接队列最多 64 项，发送超时或队列满时断开，客户端通过持久历史补拉。该帧是传输控制消息，不属于产品事件，不分配 `event_id / sequence`，不写活动区。
 
 客户端收到 `stream.ready` 后才通过 REST `events/history?after=` 连续分页重放（每页最多 1000 条），期间缓冲实时事件；回放成功再释放缓冲。历史游标只由已确认的 HTTP 历史推进，不能用较新的实时序号或会话快照跳过活动历史。补拉失败则重连，不先释放越过缺口的实时事件；注册确认超过 10 秒同样重连。慢订阅者被断开后沿用这一恢复路径。
 
-这提供“注册屏障 → 历史补拉 → 实时缓冲”的衔接，不是跨数据库/WebSocket 原子事务或新的 Event Sourcing。Core 持久日志是事件身份的唯一来源；Gateway 不再为缺身份的错误或业务事件发明 ID/序列，转发异常只触发重连。Gateway 与 Web 需一起更新，旧 Gateway 不会发送注册确认。后端注册顺序、身份保持和超过 1000 条历史的定向验收范围见 [交付路线与状态](../project/Roadmap.md)；本次不包含浏览器 GUI E2E。
+这提供“注册屏障 → 历史补拉 → 实时缓冲”的衔接，不是跨数据库/WebSocket 原子事务或新的 Event Sourcing。Core 持久日志是事件身份的唯一来源；API 不再为缺身份的错误或业务事件发明 ID/序列，转发异常只触发重连。API 与 Web 需一起更新，旧 API 不会发送注册确认。后端注册顺序、身份保持和超过 1000 条历史的定向验收范围见 [交付路线与状态](../project/Roadmap.md)；本次不包含浏览器 GUI E2E。
 
 ## 7. 错误模型
 
@@ -465,6 +465,6 @@ file.changed
 
 - REST 主版本位于路径。
 - Event 使用 `schema_version`。
-- Proto 遵循字段兼容规则。
+- 请求模型与 JSON DTO 的兼容性独立于内部实现语言；不再维护 Proto。
 - Breaking change 必须新增版本并记录 ADR。
 - Markdown 示例应接受机器契约校验；当前没有完整自动文档校验流水线，不能把要求写成已通过。

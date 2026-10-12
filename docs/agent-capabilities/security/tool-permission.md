@@ -10,7 +10,7 @@
 ## 1. 分层
 
 ```text
-Go AccessPolicy                  Python ToolPolicy
+API 资源归属检查                  Python ToolPolicy
 谁能访问哪个 Workspace 资源       Agent 能否执行具体能力与参数
 ```
 
@@ -64,7 +64,7 @@ Go AccessPolicy                  Python ToolPolicy
 ## 5. 决策输入与结果
 
 ```text
-Gateway：验证主体能访问工作区
+Python API：验证主体能访问工作区
 ToolRegistry：工具存在且当前启用，校验 schema
 PermissionManager.evaluate(tool_name, arguments, approved, risk_override, mode)
     → allow | approval_required | deny
@@ -116,7 +116,7 @@ version
 - 决定只接受仍等待审批的任务，不能用遗留 pending 记录重新激活已结束任务。
 - `allow` 恢复可能调用模型，先准备凭证，再消费审批；LangGraph 路径继续使用原生 HITL 恢复。
 - `deny` 仅拒绝本次操作，不创建授权、不取消整轮。拒绝、单项工具状态与审计同事务提交；其他操作保持原权限要求。批次逐项审阅结束后，LangGraph 原生 `reject` 将未执行结果和 note 返回模型，让它继续允许部分或说明限制，不得重试/绕过拒绝。
-- 拒绝本身不依赖可用模型；Gateway 尽力恢复模型凭证而不启动被拒绝的 MCP，续接无法进行时另行报告 `task.failed`。已拒绝的调用在工具边界重放时也不得执行。`cancel` 才终止整轮、关闭剩余审批并等待运行清理；历史已取消回合不自动恢复。
+- 拒绝本身不依赖可用模型；Python API 尽力恢复模型凭证而不启动被拒绝的 MCP，续接无法进行时另行报告 `task.failed`。已拒绝的调用在工具边界重放时也不得执行。`cancel` 才终止整轮、关闭剩余审批并等待运行清理；历史已取消回合不自动恢复。
 
 ### 窄范围复用
 

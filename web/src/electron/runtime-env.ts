@@ -27,16 +27,10 @@ const RUNTIME_ENV_ALLOWLIST = [
   'UV_PROJECT_ENVIRONMENT',
   'UV_PYTHON_INSTALL_DIR',
   'UV_CACHE_DIR',
-  'GOCACHE',
-  'GOMODCACHE',
-  'GOPATH',
-  'GOROOT',
-  'GOPROXY',
-  'GOSUMDB',
-  'GOPRIVATE',
-  'GONOPROXY',
-  'GONOSUMDB',
-  'GOTOOLCHAIN',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+  'no_proxy',
   'MAIGOKITE_WORKSPACE_ROOT',
   'MAIGOKITE_INSTALL_DIR',
 ] as const
@@ -47,7 +41,7 @@ export function createRuntimeEnvironment(source: NodeJS.ProcessEnv = process.env
   for (const key of RUNTIME_ENV_ALLOWLIST) {
     // Windows commonly spells these Path/SystemRoot; Node's explicit env is case-sensitive.
     const sourceKey = process.platform === 'win32'
-      ? Object.keys(source).find((entry) => entry.toUpperCase() === key)
+      ? Object.keys(source).find((entry) => entry.toUpperCase() === key.toUpperCase())
       : key
     const value = sourceKey ? source[sourceKey] : undefined
     if (value) target[key] = value

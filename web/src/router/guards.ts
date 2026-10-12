@@ -1,7 +1,7 @@
 /**
  * 路由守卫
  *
- * 统一处理页面标题更新。当前本地主体访问由 Gateway 校验。
+ * 统一处理页面标题更新。当前本地主体访问由 Python API 校验。
  */
 
 import type { Router } from 'vue-router'

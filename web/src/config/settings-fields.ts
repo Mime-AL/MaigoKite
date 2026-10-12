@@ -53,7 +53,7 @@ export const settingsFields: SettingsField[] = [
     id: 'runtime-status',
     tab: 'workspace',
     label: '运行状态',
-    keywords: 'gateway core version 工作区 路径',
+    keywords: 'backend core version 工作区 路径',
   },
 ]
 export function searchSettings(query: string, fields = settingsFields) {

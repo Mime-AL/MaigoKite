@@ -2,18 +2,17 @@
 // Shared source-tree entry point. Bash/PowerShell wrappers only forward arguments.
 // Process fan-out and failure propagation use concurrently, not a custom supervisor.
 const { spawn, spawnSync } = require('node:child_process')
-const { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync } = require('node:fs')
+const { accessSync, constants, existsSync, readFileSync, statSync } = require('node:fs')
 const { createRequire } = require('node:module')
 const net = require('node:net')
 const os = require('node:os')
 const path = require('node:path')
+const { requireBuild } = require('./lib/web-build.cjs')
 
 const root = path.resolve(__dirname, '..')
 const web = path.join(root, 'web')
-const gateway = path.join(root, 'gateway')
 const windows = process.platform === 'win32'
 const requireWeb = createRequire(path.join(web, 'package.json'))
-const gatewayBinary = path.join(root, 'dist', `maigokite-api${windows ? '.exe' : ''}`)
 const [action, targetArg, modeArg, ...extra] = process.argv.slice(2)
 
 function run(command, args, cwd = root, env = process.env) {
@@ -48,7 +47,7 @@ function projectEnvironment() {
 
 function probePython(command, args = []) {
   return output(command, [...args, '-I', '-c',
-    'import sys; sys.exit(1) if sys.version_info < (3, 11) else print(sys.executable)'])
+    'import sys; sys.exit(1) if sys.version_info[:2] != (3, 14) else print(sys.executable)'])
 }
 
 function findPython() {
@@ -56,32 +55,32 @@ function findPython() {
   if (override) {
     const found = probePython(/[/\\]/.test(override) ? hostPath(override) : override)
     if (found) return found
-    throw new Error('MAIGOKITE_PYTHON must identify a usable Python 3.11+ executable.')
+    throw new Error('MAIGOKITE_PYTHON must identify a usable Python 3.14.x executable.')
   }
   const projectPython = environmentPython(projectEnvironment())
   if (existsSync(projectPython)) {
     const found = probePython(projectPython)
     if (found) return found
-    throw new Error('Project Python environment is unusable. Run setup again.')
+    throw new Error('Project Python environment is unavailable or not Python 3.14.x. Stop the app and run setup with uv; without uv, rename the old environment before setup.')
   }
   if (process.env.VIRTUAL_ENV) {
     const found = probePython(environmentPython(hostPath(process.env.VIRTUAL_ENV)))
     if (found) return found
   }
-  const uvPython = output('uv', ['python', 'find', '--no-python-downloads'])
+  const uvPython = output('uv', ['python', 'find', '3.14', '--no-python-downloads'])
   if (uvPython) {
     const found = probePython(uvPython)
     if (found) return found
   }
-  for (const command of ['python', 'python3']) {
+  for (const command of ['python3.14', 'python', 'python3']) {
     const found = probePython(command)
     if (found) return found
   }
   if (windows) {
-    const found = probePython('py', ['-3'])
+    const found = probePython('py', ['-3.14'])
     if (found) return found
   }
-  throw new Error('Python 3.11+ not found. Install Python/uv or set MAIGOKITE_PYTHON.')
+  throw new Error('Python 3.14.x not found. Run setup with uv, install Python 3.14, or set MAIGOKITE_PYTHON.')
 }
 
 function npm(args) {
@@ -120,7 +119,7 @@ function needElectron() {
     throw new Error([
       `Electron runtime is missing or incomplete (Node ${process.version}).`,
       `Cause: ${error.message}`,
-      'Repair from the project root (no Go/Python reinstall):',
+      'Repair from the project root (no Python reinstall):',
       windows ? '.\\scripts\\setup.ps1 electron' : 'bash scripts/setup.sh electron',
       'Unset ELECTRON_SKIP_BINARY_DOWNLOAD if set. Rebuilding application code will not install the runtime.',
       'See docs/development/DevelopmentGuide.md (Electron installation).',
@@ -139,47 +138,16 @@ function checkElectronInstallEnvironment() {
   }
 }
 
-function checkGo() {
-  // Let Go resolve its own SDK; do not guess a Conda/Scoop/system installation
-  // or silently override an explicit GOROOT. Use the same cwd/env as the build.
-  const result = spawnSync('go', ['env', 'GOROOT'], {
-    cwd: gateway, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 30_000, maxBuffer: 64 * 1024, windowsHide: true,
-  })
-  const sdk = result.stdout?.trim()
-  const diagnostic = result.stderr?.trim() || result.error?.message || `exit ${result.status}`
-  if (result.error || result.status !== 0 || !sdk) {
-    const commands = windows ? 'where.exe go; $env:GOROOT' : 'command -v go; printenv GOROOT'
-    throw new Error([
-      'Go SDK check failed before building Gateway:', diagnostic,
-      `Inspect the selected Go installation: ${commands}`,
-      'Install/repair the complete Go SDK (https://go.dev/doc/install), not only go.exe.',
-      'If selecting an SDK manually, GOROOT must be its root (not bin or the project); PATH must select that same SDK.',
-    ].join('\n'))
-  }
-  if (!existsSync(path.join(sdk, 'src', 'runtime')) || !existsSync(path.join(sdk, 'pkg', 'tool')))
-    throw new Error(`Incomplete Go SDK at ${sdk}: src/runtime and pkg/tool are required. Repair the Go installation.`)
-  console.info(`[MaigoKite] Go SDK: ${sdk}`)
-}
-
-function buildGateway() {
-  const goOS = { win32: 'windows', linux: 'linux', darwin: 'darwin' }[process.platform]
-  const goArch = { x64: 'amd64', arm64: 'arm64', ia32: '386' }[process.arch]
-  if ((process.env.GOOS && process.env.GOOS !== goOS) || (process.env.GOARCH && process.env.GOARCH !== goArch))
-    throw new Error('Local suite builds must target this computer. Unset cross-compilation GOOS/GOARCH overrides.')
-  checkGo()
-  mkdirSync(path.dirname(gatewayBinary), { recursive: true })
-  run('go', ['build', '-ldflags=-s -w', '-o', gatewayBinary, './cmd/gateway'], gateway,
-    { ...process.env, CGO_ENABLED: process.env.CGO_ENABLED || '0' })
-}
-
-function setup() {
-  if ((targetArg && !['all', 'electron'].includes(targetArg)) || modeArg || extra.length)
-    throw new Error('Usage: setup [all|electron]')
-  checkElectronInstallEnvironment()
-  if (targetArg === 'electron') {
+async function setup(target) {
+  if (!['all', 'dev', 'python', 'electron'].includes(target) || modeArg || extra.length)
+    throw new Error('Usage: setup [all|dev|python|electron]')
+  // uv may replace an incompatible venv; npm ci replaces node_modules.
+  // Refuse while the standard suite ports are occupied instead of killing it.
+  await freePorts([8080, 5173])
+  if (target !== 'python') checkElectronInstallEnvironment()
+  if (target === 'electron') {
     // npm applies the checked-in overrides; Electron owns download/checksum/
-    // extraction. Do not invent a second installer or touch Go/Python here.
+    // extraction; repairing Electron does not touch the Python environment.
     needFile(path.join(web, 'node_modules/electron/package.json'))
     console.info('[MaigoKite] Repairing Electron: refreshing Web dependencies, then running its official installer.')
     npm(['install', '--ignore-scripts', '--include=dev', '--engine-strict', '--no-audit', '--no-fund'])
@@ -187,39 +155,52 @@ function setup() {
     console.info(`[MaigoKite] Electron ready: ${needElectron()}`)
     return
   }
-  checkGo()
-  run('go', ['mod', 'download'], gateway)
+  const development = target === 'dev'
+  const requestedPython = process.env.MAIGOKITE_PYTHON ? findPython() : '3.14'
+  console.info(`[MaigoKite] Syncing Python 3.14 ${development ? 'runtime and development' : 'runtime'} dependencies in ${projectEnvironment()}.`)
   if (output('uv', ['--version'])) {
-    const args = ['sync', '--locked', '--extra', 'dev']
-    if (process.env.MAIGOKITE_PYTHON) args.push('--python', findPython())
+    // Exact sync removes unselected packages, including old dev-only tools.
+    // uv owns environment replacement; shared interpreters and caches stay intact.
+    const args = ['sync', '--locked', '--no-default-groups', '--python', requestedPython]
+    if (development) args.push('--extra', 'dev')
     run('uv', args)
   } else {
+    console.warn('[MaigoKite] uv is unavailable: pip installs the declared dependencies without lockfile enforcement or pruning old packages. Use uv for an exact environment cleanup.')
     const venvPython = environmentPython(projectEnvironment())
     if (!existsSync(venvPython)) run(findPython(), ['-m', 'venv', projectEnvironment()])
-    if (!probePython(venvPython)) throw new Error('Project Python environment is unusable.')
-    run(venvPython, ['-m', 'pip', 'install', '-e', '.[dev]'])
+    if (!probePython(venvPython)) throw new Error('Project environment requires Python 3.14.x. Stop the app, rename the old environment, then rerun setup with Python 3.14 installed.')
+    run(venvPython, ['-m', 'pip', 'install', '-e', development ? '.[dev]' : '.'])
   }
-  npm(['ci', '--include=dev', '--engine-strict', '--foreground-scripts', '--ignore-scripts=false'])
-  console.info(`[MaigoKite] Electron ready: ${needElectron()}`)
-  console.info('Dependencies installed. Browser tools additionally need: <Core Python> -m playwright install chromium')
+  if (target !== 'python') {
+    // Vite, TypeScript and Electron are needed to build/run the source checkout;
+    // npm's devDependencies are separate from the optional Python dev tools.
+    npm(['ci', '--include=dev', '--engine-strict', '--foreground-scripts', '--ignore-scripts=false'])
+    console.info(`[MaigoKite] Electron ready: ${needElectron()}`)
+  }
+  console.info(target === 'python' ? 'Python dependencies installed; Web/Electron dependencies unchanged.' : 'Application dependencies installed.')
+  console.info('Browser tools additionally need: <Core Python> -m playwright install chromium')
 }
 
 function build(target) {
-  if (modeArg || extra.length || !['web', 'desktop', 'all', 'go', 'python', 'vue'].includes(target))
-    throw new Error('Usage: build [web|desktop|all|go|python|vue]')
+  if (modeArg || extra.length || !['web', 'desktop', 'all', 'python', 'vue'].includes(target))
+    throw new Error('Usage: build [web|desktop|all|python|vue]')
   if (target === 'python') {
     const out = path.join(root, 'dist')
     if (output('uv', ['--version'])) {
-      const args = ['build', '--out-dir', out]
-      if (process.env.MAIGOKITE_PYTHON) args.push('--python', findPython())
+      const args = ['build', '--out-dir', out, '--python',
+        process.env.MAIGOKITE_PYTHON ? findPython() : '3.14']
       run('uv', args)
-    } else run(findPython(), ['-m', 'build', '--outdir', out])
+    } else {
+      const python = findPython()
+      if (!output(python, ['-I', '-c', 'import build; print("ready")']))
+        throw new Error('Building a Python distribution requires uv or the optional build tool. Install uv or run setup dev first.')
+      run(python, ['-m', 'build', '--outdir', out])
+    }
     return
   }
-  if (target !== 'go') needWebDependencies()
+  needWebDependencies()
   if (['desktop', 'all'].includes(target)) needElectron()
-  if (target !== 'vue') buildGateway()
-  if (target !== 'go') npm(['run', ['desktop', 'all'].includes(target) ? 'build' : 'build:web'])
+  npm(['run', ['desktop', 'all'].includes(target) ? 'build' : 'build:web'])
   console.info('Build complete. Source-tree output only; Python dependencies are still required (not an installer).')
 }
 
@@ -236,6 +217,7 @@ async function freePorts(ports) {
 async function start(target, mode) {
   if (extra.length || !['web', 'desktop'].includes(target) || !['dev', 'built'].includes(mode))
     throw new Error('Usage: start [web|desktop] [dev|built]')
+  if (mode === 'built') requireBuild(target)
   needWebDependencies()
   const electron = target === 'desktop' ? needElectron() : undefined
   // These are real, owned suites; never silently attach to an old Core or use mock UI.
@@ -247,34 +229,28 @@ async function start(target, mode) {
     ...process.env, MAIGOKITE_PROJECT_ROOT: root, MAIGOKITE_CONFIG: config,
     MAIGOKITE_PYTHON: python, PYTHONUNBUFFERED: '1',
     MAIGOKITE_INSTALL_DIR: hostPath(process.env.MAIGOKITE_INSTALL_DIR || root),
-    MAIGOKITE_GATEWAY_PROXY_TARGET: 'http://127.0.0.1:8080',
+    MAIGOKITE_BACKEND_PROXY_TARGET: 'http://127.0.0.1:8080',
     MAIGOKITE_PARENT_PIPE: '1',
   }
   if (env.MAIGOKITE_WORKSPACE_ROOT) env.MAIGOKITE_WORKSPACE_ROOT = hostPath(env.MAIGOKITE_WORKSPACE_ROOT)
-  const port = mode === 'dev' ? 5173 : 4173
-  await freePorts([8080, 8081, ...(target === 'web' || mode === 'dev' ? [port] : [])])
+  const port = mode === 'dev' ? 5173 : 8080
+  await freePorts([8080, ...(mode === 'dev' ? [5173] : [])])
   if (mode === 'dev') {
-    // Launch the binary directly: there is no `go run` intermediary to orphan.
-    buildGateway()
     if (target === 'desktop') npm(['run', 'electron:compile'])
-  } else {
-    needFile(gatewayBinary)
-    needFile(path.join(web, 'dist/index.html'))
-    if (target === 'desktop') needFile(path.join(web, 'dist-electron/main.cjs'))
   }
-  env.MAIGOKITE_GATEWAY_EXECUTABLE = gatewayBinary
   env.MAIGOKITE_DESKTOP_BUILT = mode === 'built' ? '1' : '0'
   const vite = path.join(web, 'node_modules/vite/bin/vite.js')
   const specs = target === 'web'
     ? [
-        { name: 'Core', executable: python, args: [path.join(root, 'python/main.py'), 'run', '--config', config, '--port', '8081'], cwd: root },
-        { name: 'Gateway', executable: gatewayBinary, args: [], cwd: root },
+        { name: 'Backend', executable: python,
+          args: [path.join(root, 'python/main.py'), 'run', '--config', config, '--port', '8080',
+            ...(mode === 'built' ? ['--web-dir', path.join(web, 'dist')] : [])], cwd: root },
       ]
     : [{ name: 'Desktop', executable: electron, args: [web], cwd: root }]
-  if (target === 'web' || mode === 'dev') specs.push({
+  if (mode === 'dev') specs.push({
     name: 'Web', executable: process.execPath,
     args: ['--require', path.join(__dirname, 'lib/web-owner.cjs'), vite,
-      ...(mode === 'built' ? ['preview'] : []), '--host', '127.0.0.1', '--port', String(port), '--strictPort'], cwd: web,
+      '--host', '127.0.0.1', '--port', String(port), '--strictPort'], cwd: web,
   })
 
   const { concurrently, Logger, LogOutput, LogError, LogExit, KillOnSignal, KillOthers } = requireWeb('concurrently')
@@ -299,7 +275,7 @@ async function start(target, mode) {
     kill(pid) {
       const record = owned.get(pid)
       if (!record || record.timer) return
-      // Core/Gateway/Desktop treat EOF as graceful stop, including owner crashes.
+      // Backend/Desktop treat EOF as graceful stop, including owner crashes.
       // Windows cannot use SIGTERM for graceful cleanup. Force only after the wait.
       record.child.stdin.end()
       const force = () => {
@@ -326,9 +302,9 @@ async function main() {
   if (!((major === 22 && (minor > 22 || (minor === 22 && patch >= 2))) ||
         (major === 24 && minor >= 15) || major >= 26))
     throw new Error(`Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+ is required; found ${process.version}.`)
-  if (action === 'setup') setup()
+  if (action === 'setup') await setup(targetArg || 'all')
   else if (action === 'build') build(targetArg || 'all')
   else if (action === 'start') await start(targetArg || 'web', modeArg || 'dev')
-  else throw new Error('Usage: node scripts/local.cjs setup [all|electron] | build [web|desktop|all] | start [web|desktop] [dev|built]')
+  else throw new Error('Usage: node scripts/local.cjs setup [all|dev|python|electron] | build [web|desktop|all|python|vue] | start [web|desktop] [dev|built]')
 }
 main().catch((error) => { console.error(`[MaigoKite] ${error.message}`); process.exitCode = 1 })

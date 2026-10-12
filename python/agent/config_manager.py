@@ -31,7 +31,7 @@ class ConfigManager:
     def workspace_root(self) -> Path:
         """Explicit workspace wins; otherwise use the installation's scratch directory.
 
-        Desktop/source launchers supply the same installation root to both services.
+        Desktop/source launchers supply the installation root to the backend.
         A standalone source Core uses the project root, never its shell's cwd.
         """
         configured = self.get("workspace.root")

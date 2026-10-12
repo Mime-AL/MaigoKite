@@ -1107,6 +1107,11 @@ class AgentCore:
     async def list_tasks(self, workspace_id: str, conversation_id: str = "", limit: int = 100) -> list[dict[str, Any]]:
         return await self.repository.list_tasks(workspace_id, conversation_id, limit)
 
+    async def submit_task_input(self, workspace_id: str, task_id: str, content: str, idempotency_key: str) -> dict[str, Any]:
+        if not self._initialized or self._langgraph_runtime is None:
+            raise RuntimeError("Agent runtime is not ready")
+        return await self._langgraph_runtime.submit_input(workspace_id, task_id, content, idempotency_key)
+
     async def list_task_events(
         self,
         workspace_id: str,

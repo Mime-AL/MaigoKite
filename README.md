@@ -29,12 +29,13 @@ MaigoKite 是一个运行在你电脑上的个人 Agent，用来处理文件、�
 
 ### 环境要求
 
-- Go 1.22+
-- Python 3.11+
+- Python 3.14.x（项目固定使用 3.14 系列）
 - Node.js 22.22.2+（22.x）、24.15.0+（24.x）或 26+ / npm
 - ripgrep (`rg`)
 
 推荐安装 [uv](https://github.com/astral-sh/uv)，以便按锁文件安装 Python 依赖。请在运行应用的机器上安装依赖，不要复制其他机器的 `.venv` 或 `node_modules`。详细环境要求见 [开发指南](docs/development/DevelopmentGuide.md)。
+
+旧 Python 环境升级到 3.14 前，请先退出整套应用，再执行 `uv sync --locked --no-default-groups --python 3.14`，或使用下方 setup 脚本。默认只安装 Python 运行依赖；uv 同步会移除项目环境中不再需要的包，必要时重建不兼容的虚拟环境，不清理共享解释器或下载缓存。启动脚本不会自动替换旧环境；无 uv 时的升级步骤见开发指南。
 
 ### Linux
 
@@ -42,15 +43,13 @@ MaigoKite 是一个运行在你电脑上的个人 Agent，用来处理文件、�
 
 ```bash
 bash scripts/setup.sh                # 首次使用，或更新依赖后执行
-bash scripts/build.sh desktop
-bash scripts/start.sh desktop built
+bash scripts/build.sh desktop && bash scripts/start.sh desktop built
 ```
 
 如果只使用 Web，在执行 setup 后改用：
 
 ```bash
-bash scripts/build.sh web
-bash scripts/start.sh web built
+bash scripts/build.sh web && bash scripts/start.sh web built
 ```
 
 ### Windows
@@ -59,22 +58,29 @@ bash scripts/start.sh web built
 
 ```powershell
 .\scripts\setup.ps1                  # 首次使用，或更新依赖后执行
+# 确认 setup 成功后：
 .\scripts\build.ps1 desktop
-.\scripts\start.ps1 desktop built
+if ($LASTEXITCODE -eq 0) { .\scripts\start.ps1 desktop built }
 ```
 
 如果只使用 Web，在执行 setup 后改用：
 
 ```powershell
 .\scripts\build.ps1 web
-.\scripts\start.ps1 web built
+if ($LASTEXITCODE -eq 0) { .\scripts\start.ps1 web built }
 ```
 
 Windows 命令工具支持 PowerShell 7 / 5.1，但尚未完成实机验收，也没有受限进程沙箱。命令执行需单次授权或显式开启完全访问，编码差异见 [配置指南](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
 
-Web 和桌面入口二选一，不要同时启动。日常使用只需执行最后一条启动命令，不用每次重装或构建。修改源码后重新构建；需要热更新开发时，省略 `built`，使用 `start.sh web|desktop` 或 `start.ps1 web|desktop`。
+`setup` 默认同步 Python 运行依赖及 Web/Electron 源码工具。只更新后端用 `setup.sh python` / `setup.ps1 python`，不重装前端；需要 Python 开发工具时才用 `setup.sh dev` / `setup.ps1 dev`。安装前检查 8080/5173 占用，须先退出整套应用；不会替你结束进程。
 
-Web `built` 地址为 `http://127.0.0.1:4173`，开发模式地址为 `http://127.0.0.1:5173`。桌面 `built` 直接打开本地界面。两种入口都只用于本机，不要直接把端口暴露到公网。
+Web 和桌面入口二选一，不要同时启动。日常使用只需执行对应的 `start ... built`，不用每次重装或构建。修改前端或 Electron 源码后重新构建；需要热更新开发时，省略 `built`，使用 `start.sh web|desktop` 或 `start.ps1 web|desktop`。
+
+构建失败后不要继续启动。`built` 会核对成功构建记录与当前界面源码，缺失、失败或过期时拒绝创建服务，避免运行仍含旧 Go Gateway 的 Electron 产物。从旧版本升级后需要成功构建一次；不需要因此重装依赖。
+
+Web `built` 地址为 `http://127.0.0.1:8080`，页面和 API 都由 Python 后端提供；开发模式地址为 `http://127.0.0.1:5173`，Vite 代理同一个后端。桌面 `built` 直接打开本地界面。两种入口都只用于本机，不要直接把端口暴露到公网。
+
+从 Go 网关版本升级时，先退出旧整套服务，再运行 setup、build 和 start；不再需要 Go SDK 或 8081 端口。保持原 `MAIGOKITE_CONFIG` / `MAIGOKITE_DB_PATH` 即可沿用会话、任务、审批及相邻的 LangGraph 检查点，无需导出导入。不要同时启动旧版和新版操作同一数据库。
 
 `Ctrl+C` 停止本次启动的整套服务。关闭浏览器标签页不会停止服务；桌面关闭窗口会隐藏到托盘，用托盘“退出”关闭整套服务。若提示端口占用，请先退出旧实例；脚本不会替你结束其他进程或连接旧 Core。
 
@@ -128,10 +134,10 @@ Web `built` 地址为 `http://127.0.0.1:4173`，开发模式地址为 `http://12
 
 | 路径 | 内容 |
 | --- | --- |
-| `gateway/` | Go Gateway、REST / WebSocket、gRPC Client |
+| `python/agent/api/` | FastAPI HTTP/WebSocket、系统凭证、工作区文件与 Git 查询 |
 | `python/agent/` | Python Core、Agent Runtime、Tools、权限和持久化 |
 | `web/` | Vue 前端、Electron |
-| `proto/agent.proto` | Go / Python 共用的 gRPC 协议 |
+| `scripts/` | Linux / PowerShell 成套安装、构建和启停入口 |
 
 ## 开发
 
@@ -141,7 +147,7 @@ Web `built` 地址为 `http://127.0.0.1:4173`，开发模式地址为 `http://12
 bash scripts/build.sh all
 ```
 
-开发环境、协议生成和质量检查命令见 [开发指南](docs/development/DevelopmentGuide.md)。当前测试文件与聚合测试脚本仅保留在维护者本地，不随 Git 分发；新克隆不能直接复现历史测试结果，范围见 [测试与验收](docs/testing/TestPlan.md)。
+开发环境和质量检查命令见 [开发指南](docs/development/DevelopmentGuide.md)。API 由 FastAPI 生成 OpenAPI，不再生成跨语言协议绑定。当前测试文件与聚合测试脚本仅保留在维护者本地，不随 Git 分发；新克隆不能直接复现历史测试结果，范围见 [测试与验收](docs/testing/TestPlan.md)。
 
 提交 Issue 或 PR 时，请附上复现步骤、实际行为、预期行为和必要的脱敏日志。不要提交 API Key、个人数据、运行数据库或构建产物。
 

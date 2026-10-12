@@ -8,7 +8,7 @@
 生产执行只有一条路径：
 
 ```text
-Gateway REST/WS → Core gRPC → AgentCore 产品组合根
+FastAPI REST/WS → AgentCore 产品组合根（同一 Python 进程）
 → LangGraphRuntime → LangChain create_agent / LangGraph
 → 原生工具或 MCP → PermissionPolicy / HITL → 产品事件与最终回复
 ```
@@ -89,7 +89,7 @@ flowchart TD
 - 2026-10-11 改为确定性的执行边界与人工审批，不增加审核 Agent。旧 `full_access` 保持兼容受限模式；新 `danger_full_access` 才取消工作区沙箱和逐项权限审批。越界文件、命令网络/沙箱升级走同一 HITL；Runtime 在实际执行前把策略结果的 `sandbox_mode / allow_network` 写入该调用的私有上下文，工具参数不能直接决定权限。
 - `once / task / session` 使用既有审批记录与有限期窄范围，不新建授权服务。每次工具执行重新查询当前策略和回执；取消、拒绝、审批版本/hash、checkpoint 恢复沿用现有路径，子 Agent 不继承父任务完全访问或授权回执。本批尚未运行恢复/撤销/模式切换回归。
 - HITL 保留原始完整调用批次，UI 一次展示一项审批，收齐允许或驳回决定后才恢复。驳回只将对应操作记为 `denied`，不取消任务、不放行或关闭其他审批。原生 `reject` 的 ToolMessage 把拒绝与理由返回模型，模型继续处理允许部分，无法完成时说明限制。拒绝信息要求不得重试或换工具绕过，但没有额外的跨工具语义识别器。批准记录不证明已执行，已发生副作用也不会回滚。
-- 新聊天与批准后的审批续接共用 Gateway 的凭证同步，Core 重启后先从既有密钥存储补齐内存凭证。消费批准前检查模型可初始化，并等待前一个 interrupt 根任务退出。驳回也等待旧根退出，并尽力恢复模型凭证，但不为拒绝操作启动 MCP；密钥链或模型不可用不能阻止保存拒绝。后续初始化/执行失败发布 `task.failed`，不伪装为取消或成功。凭证不进入 checkpoint/审批。决定与恢复启动间仍存在崩溃窗口，不声称通用 exactly-once。
+- 新聊天与批准后的审批续接共用 Python API 的凭证同步，Core 重启后先从既有密钥存储补齐内存凭证。消费批准前检查模型可初始化，并等待前一个 interrupt 根任务退出。驳回也等待旧根退出，并尽力恢复模型凭证，但不为拒绝操作启动 MCP；密钥链或模型不可用不能阻止保存拒绝。后续初始化/执行失败发布 `task.failed`，不伪装为取消或成功。凭证不进入 checkpoint/审批。决定与恢复启动间仍存在崩溃窗口，不声称通用 exactly-once。
 - 2026-10-12 调整：拒绝与停止分开；HITL 和工具边界 interrupt 均按原生 interrupt ID 恢复。显式停止仍取消并等待根任务，不恢复已取消回合。此轮仅静态检查，未运行软件测试或重启恢复验收。
 - 中断任务的显式恢复沿用相同凭证同步：`POST /tasks/:taskID/resume → ResumeTask → AgentCore.resume_task → LangGraphRuntime.recover → checkpoint`。首版只开放文件读写保留历史，校验 owner、任务版本、最新回合、未归档、无活跃根和未完成检查点；不自动重放所有 interrupted 任务。恢复共用原有会话锁、根任务与取消清理，不新增恢复状态机。审批审计仍在 Repository，运行续接只看 LangGraph；接口边界见 [API](API.md)。
 - “允许”还须确认 checkpoint 正在原生审批 interrupt 中，且所选审批的工具 ID/名称属于该批调用；没有检查点或仅剩最终状态时不消费审批版本。消费决定前，按当前工作区规范化 checkpoint 参数，与审批保存的 hash 和风险等级核对，不以可变的 tool_calls 参数投影代替授权证据。“拒绝”不增加这些恢复前置条件。
@@ -110,7 +110,7 @@ flowchart TD
 个人扩展页将期望配置存入现有 `workspace_settings.extensions.config`，保存不改变工具目录或固定前缀。
 应用新配置要求 Core 无活动入口、运行中任务和待处理审批/提问。应用期间阻止新运行准入，候选目录与 LangGraph 入口准备成功才切换；旧入口不先销毁，因此准备失败仍保留普通聊天，已断开的 MCP 需另行恢复。新旧实例只在空闲切换期间短暂共存，不接入第二种 Runtime。关闭失败的资源保留所有权，后续应用/关闭再次清理并展示错误。
 
-生效配置单独存入 `extensions.applied_config`，Core 重启优先加载；这只是产品配置，不与 checkpoint 双向同步。恢复原 MCP 连接使用它并复用当前 Skill，允许待审批/待回答但仍要求无活动运行，不应用新编辑。Gateway 批准 MCP 工具前可先补密钥链凭证并恢复连接，失败不消费决定；LangGraph HITL 和 Repository hash/version/策略验证不变，不新增续接状态机或副作用恢复能力。
+生效配置单独存入 `extensions.applied_config`，Core 重启优先加载；这只是产品配置，不与 checkpoint 双向同步。恢复原 MCP 连接使用它并复用当前 Skill，允许待审批/待回答但仍要求无活动运行，不应用新编辑。Python API 批准 MCP 工具前可先补密钥链凭证并恢复连接，失败不消费决定；LangGraph HITL 和 Repository hash/version/策略验证不变，不新增续接状态机或副作用恢复能力。
 
 应用任务由 Core 持有到清理结束，调用方断线不提前释放准入锁；shutdown 等待它结束再关闭共享资源。模型 HTTP 客户端、Browser、Repository 与订阅不更换。导入与磁盘 Skill 复用解析器，目录扫描移至标准库工作线程并加协作式预算，详见 [技能扫描边界](../agent-capabilities/skills/skill-lifecycle.md#3-安全与资源)。更新目录会自然改变下一次模型请求的工具/Skill 前缀，不承诺沿用此前 KV cache；不实现插件生命周期或自动热更新。本次扩展管理及生命周期修补尚未运行验收。
 
@@ -135,8 +135,8 @@ flowchart TD
 - 工具参数、结果与错误进入结构化 `tool.*`，默认不混入回答或输入框。
 - 审批事件使用现有 `approval.*`，任务终态使用现有协议（成功当前为 `task.succeeded`），不为新运行时重命名。
 - 摘要模型输出不投影到用户消息；ToolResult、网页和技能正文是不可信上下文，不能改变权限。
-- 聊天/审批/提问/恢复的 gRPC→WS 转发不设固定 10 分钟截止；随 Core 流结束或 Gateway 连接关闭而释放。转发错误记录状态码并断开对应 WS，触发现有重连补拉，不伪造 task.failed/task.cancelled。
-- WebSocket 断线不取消任务。聊天和审批流均透传持久化 event_id/sequence；Gateway 在订阅注册锁内先发送无产品序号的 `stream.ready`，前端收到确认后才补拉连续分页，期间缓冲实时事件，补拉失败重连而不越过缺口。快照水位不推进活动历史游标。后端注册顺序、真实身份及 1006 条历史分页已定向验收；这不是跨 DB/WS 的原子事务，也不代表 GUI E2E 已运行。
+- 聊天/审批/提问/恢复直接调用 Core，HTTP 接纳后执行独立于连接。WebSocket 有界订阅持久事件，发送超时或溢出触发断开与历史补拉，不伪造 task.failed/task.cancelled。
+- WebSocket 断线不取消任务。聊天和审批流均透传持久化 event_id/sequence；Python API 在不让出事件循环的注册区间先排入无产品序号的 `stream.ready`，前端收到确认后才补拉连续分页，期间缓冲实时事件，补拉失败重连而不越过缺口。快照水位不推进活动历史游标。后端注册顺序、真实身份及 1006 条历史分页已定向验收；这不是跨 DB/WS 的原子事务，也不代表 GUI E2E 已运行。
 - 前端快照安装期间由 EventSocket 保留未确认事件，投影返回 deferred 时不记录身份、不推进游标，安装结束重新补拉。`run.apply` 对单回合暂存修改，失败回滚；成功后才提交去重身份和状态水位。只将渲染通知合并到动画帧，消息投影不再延后到已确认之后。投影失败明确提示同步异常并重连，不伪造任务终态；坏 JSON 帧也触发重连。不能仅凭源码修复宣称“卡在思考”已验收收尾。
 
 ## 5. 取消与客户端生命周期
@@ -245,7 +245,7 @@ Ollama/OpenAI-compatible 不借用云端环境密钥。OpenAI/compatible、Ollam
 - 会话设置在新任务准入事务中快照。运行中修改只影响新回合，不重置当前额度；审批续接沿用任务快照。首版工具还有启动配置和工作区工具开关的限制。
 - `subagent_model_ids` 保存允许显式选择的现有模型配置 ID，与额度一起快照到任务；空列表只允许跟随父模型，不代表全部可用。用户在聊天中指定名称，主模型通过 `list_subagent_models` 查询精确 ID，调用 `delegate(task, model_id?, label?)`；名称歧义或配置缺失时应询问，不猜测 ID、不静默降级。自然语言是否被模型正确遵循仍需要真实模型验收。
 - 模型清单只含 ID、显示名称、协议提供方及服务端模型名，不带 URL/密钥。清单按需作为工具结果追加，工具 schema 不随目录变化。显式模型在派发时由现有 ModelRuntime/Model Factory 解析，复用 Core 所有的客户端和原生子图；目标使用既有 balanced 输出预算，不复制另一提供方的推理参数。已开始的子任务不会热切换模型。授权快照固定的是配置 ID，不是模型配置内容的版本锁。
-- Gateway 在开始前同步父模型及允许模型的凭证；审批、提问与恢复入口按任务已保存的清单同步，避免 Core 重启后只恢复父模型凭证。凭证仅进入 Core 模型服务，不写 checkpoint、任务记录或子工具上下文。
+- Python API 在开始前同步父模型及允许模型的凭证；审批、提问与恢复入口按任务已保存的清单同步，避免 Core 重启后只恢复父模型凭证。凭证仅进入 Core 模型服务，不写 checkpoint、任务记录或子工具上下文。
 - `tool_calls.subagent_admitted` 是不可退还的产品准入收据，同一调用 ID 重放不重复占位，新的派发必须用新 ID；失败、超时和取消不退额度。没有新增执行状态库；子图状态由父图 checkpointer 管理。
 - 子 Agent 默认使用本回合父模型，也可使用上述允许模型；只收到委派说明，不复制父会话历史。只开放启用的 `file_read / glob / grep`，每次执行仍经过原 PermissionPolicy 和权限撤销检查；子工具不继承写权限、凭证、进程句柄或批准，不暴露 MCP、shell、提问、浏览器、Skill 执行和递归委派。
 - ToolNode 调度、`asyncio.Semaphore` 限并行、根任务 `TaskGroup` 持有排队和运行的子任务；停止/关闭等待清理再发父任务终态。单个子任务进入执行后的超时为 120 秒，不含排队。底层同步系统调用仍不能抢占。

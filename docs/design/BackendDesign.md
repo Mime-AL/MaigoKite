@@ -1,80 +1,65 @@
 # 后端设计
 
-> 权威范围：Go 网关、Python 智能体核心的内部职责与依赖。
+> 权威范围：Python 后端的入口、职责和资源所有权。Go Gateway 与内部 gRPC 已移除。
 > 执行机制见 [智能体运行时设计](AgentRuntime.md)，对外契约见 [API 设计](API.md)，存储见 [数据库设计](Database.md)。
 
-## 1. 服务边界
+## 1. 单进程调用链
 
 ```text
-Vue / 外部 Client
-→ Go Gateway：认证、资源归属、HTTP/WebSocket、凭证边界
-→ Python Core：Agent 产品命令、策略、工具与持久化
-→ 选定 Runtime / Provider / 工具进程
+Vue Web / Electron Renderer
+→ HTTP / WebSocket（本机 8080）
+→ FastAPI：输入校验、本机来源、工作区归属、凭证准备、产品 DTO
+→ AgentCore：产品命令、工具与权限、模型生命周期
+→ LangChain create_agent / LangGraph：执行、HITL、checkpoint
+→ Repository：会话、任务、审批审计与事件投影
 ```
 
-Go 不运行智能体主循环、内置工具或 MCP Manager，不直接写任务、审批与消息。Python 不面向公网暴露独立业务 API。当前本地核心服务启动由桌面/开发进程管理负责，不由网关 handler 启动。
+只启动一个 Uvicorn worker，不使用 reload 或多 worker。Electron 或源码启动脚本持有这个 Python 进程；MCP、工具进程和 Playwright 仍由现有 Core 持有。移除语言间 RPC 不改变 Runtime、权限规则或数据库格式。
 
-## 2. Go 网关
+## 2. 接口模块
 
-- Handler 验证协议输入，解析可信 principal 与工作区，调用 AccessPolicy，再转换 gRPC 命令和响应。
-- WebSocket 转发有权限订阅者的持久事件，沿用 Python 的 event ID/sequence，不生成第二套事件身份。
-- 凭证存储保存模型配置对应的敏感凭证，普通配置与响应不回显。凭证只按受控路径同步到核心服务内存。
-- 工作区文件树、预览和 Git 差异是只读产品查询；先解析根目录与资源归属，再访问文件或执行受限 Git 命令。
-- 认证、请求限流与协议错误映射由网关承担，不在 handler 内复制审批策略和运行时状态机。
+| 文件 | 职责 |
+| --- | --- |
+| `python/agent/main.py` | CLI、独占端口、本机绑定、启动器 EOF 和 Uvicorn 退出 |
+| `api/app.py` | FastAPI lifespan、HTTP/WS 本机边界、安全错误映射、能力与健康接口、可选 Web 静态资源 |
+| `api/contracts.py` | 请求字段约束、产品事实到既有 JSON DTO 的投影 |
+| `api/sessions.py` | 会话、任务、审批、问答、插话、进程和审计入口 |
+| `api/execution.py` | 持有 HTTP 发起的异步调用、等待持久接纳回执、有界 WebSocket 订阅 |
+| `api/settings.py` | 模型、偏好、权限、工具、Memory、MCP/Skill 配置接口 |
+| `api/credentials.py` | OS keyring 引用与 Core 内存凭证准备；不接管审批策略 |
+| `api/workspace.py` / `workspace_fs.py` | 已登记目录的浏览、预览、空文件创建、系统文件夹打开和只读 Git 查询 |
+| `models/discovery.py` | 有时间、分页与大小上限的服务端模型目录查询 |
 
-模块入口为 `gateway/cmd/gateway`，协议层在 `internal/api / websocket / grpc`，凭证在 `internal/credentialstore`。目录清单以仓库为准，开发操作见 [开发指南](../development/DevelopmentGuide.md)。
+协议层不能运行第二套 Agent Loop、审批状态机、续接数据或事件仓库。`AgentCore` 与 Repository 的现有命令被直接复用，不为去掉 RPC 再造 Service/Manager 框架。
 
-## 3. Python 组合根
+## 3. 凭证与访问边界
 
-```mermaid
-flowchart TD
-    S[gRPC Servicer：协议转换] --> C[AgentCore：组合根]
-    C --> R[Repository：产品事实与审计]
-    C --> M[ChatModelRuntime：Provider 生命周期]
-    C --> N[LangGraph Runtime 薄桥接]
-    N --> T[ToolRegistry / PermissionPolicy]
-    T --> B[现有 Native / Browser / Skill / MCP 工具]
-```
+HTTP 与 WebSocket 均检查直接连接的 loopback 地址、Host 和浏览器 Origin，不信任代理头。客户端不能覆盖 `local-user` 主体；工作区归属来自 Repository。精确的 `null` / `file://` 来源只在本机连接时接受。这不是设备认证，远程配对仍未实现。
 
-- `AgentServiceServicer` 转换 Proto 与事件流，领域写入委托核心服务。
-- `AgentCore` 组织聊天入口、设置、审批、取消与关闭，不继续生长为通用执行框架。
-- 执行/检查点/HITL 统一属于 LangChain/LangGraph；旧路径和 feature flag 已移除。资源所有权和历史任务边界见 AgentRuntime。
-- ToolRegistry 只保留发现、结构定义/产品元数据、权限与公开转换入口；工具调度交给 LangChain/LangGraph。
-- 浏览器复用 Playwright；本地技能是受限声明内容；MCP 进程/协议只由 Python 管理。不得在 Go 或渲染进程再建一套执行与权限体系。
+凭证通过 `keyring` 的系统后端保存，不允许明文 fallback。沿用原 `MaigoKite/{kind}/{workspace}` 与 account 命名：Linux 读取原 login collection；macOS 读取原服务/账号；Windows 兼容读取旧 Go 目标与 UTF-8 blob，写入新后端并读回确认后才删除旧项。平台迁移代码未完成实机验收。
 
-## 4. 命令与状态边界
+新消息、审批、回答和恢复入口在执行前恢复当前模型、准入时的子模型清单和已生效扩展的凭证。拒绝审批只尽力恢复模型，不启动被拒绝的 MCP。秘密不进入 DTO、日志、业务表或 checkpoint。
 
-外部客户端不能自行声明可信 principal。当前 Proto 各请求直接携带工作区，消息与审批等请求携带 principal；统一 request/trace/deadline CallContext 尚未完整接线，不将目标结构写成当前协议。
+修改模型端点或删除配置时，先在现有 `workspace_settings` 中持久撤销凭证引用，并清除 Core 的内存凭证，再尝试删除系统密钥链条目。密钥链不可用不阻塞无密钥模型管理：撤销记录阻止重启或重新创建同 ID 后复用旧密钥，物理清理失败写入 `credential.revoked / cleanup_pending` 审计。不会声称已从操作系统删除秘密；可在解锁密钥链后显式删除凭证引用。只有显式保存新密钥才能解除对应撤销记录。模型配置编辑、凭证写入和执行前恢复共用一个普通 asyncio 锁，避免恢复中的旧密钥覆盖新端点。独立的删除凭证 API 仍在物理删除失败时返回错误。
 
-命令应先完成身份/资源归属与参数校验，再进入产品逻辑。任务、工具调用、审批及事件持久化的实际结构定义和事务限制以 Database 为准。
+模型目录查询使用 aiohttp 的公开请求接口，将校验后的 IP 固定为连接目标，原域名继续用于 Host 和 TLS 证书校验，包括 HTTPS CONNECT 隧道。不覆盖 SDK 私有连接方法。系统 HTTP(S) 代理和 `NO_PROXY` 按原地址选择，显式 loopback 直连；SOCKS 代理暂不支持目录查询，会返回配置提示。IPv4-mapped IPv6 同样检查受保护网段，禁止重定向，保留总超时、分页和响应大小上限。
 
-- 当前仅 SQLiteRepository；没有 PostgreSQL 兼容承诺。
-- 执行恢复读取 LangGraph 检查点，审批校验读取 Repository，UI 查询 messages/task_events。
-- 内存 TaskManager 已删除；运行续接只看 LangGraph checkpoint，Repository 保留业务投影与审批审计，不建第二套状态机。
-- 部分状态与事件独立事务写入，尚无正式 Unit of Work/Outbox。修复应按一致性需求决定，不预设必须引入大型持久化框架。
-- 索引若未来加入，须可从权威数据重建；敏感凭证不进入消息、记忆或日志。
+## 4. 执行与事件
 
-## 5. 工具与依赖
+HTTP 接纳与执行分离：收到持久化 `task.started / task.resumed / approval.decided / question.answered` 后返回，调用方断线不取消已接纳任务。取消仍进入 Core，等待根任务清理完成后发布终态。
 
-权限矩阵、审批摘要值/版本/过期规则仅由 [工具权限](../agent-capabilities/security/tool-permission.md) 定义；模型文字不授权，参数变更使旧审批失效。
+WebSocket 先排入无业务序号的 `stream.ready`，再开放实时订阅。只转发 Repository 已分配的 event ID、sequence 和时间；不生成备用身份。每个连接最多缓冲 64 个事件，发送超时或队列溢出关闭连接，让既有客户端通过持久历史补拉，不阻塞 Runtime。
 
-MCP discovery、stdio 子进程与关闭边界由 [MCP 集成](../agent-capabilities/mcp/mcp-integration.md) 定义。协议与进程生命周期复用官方 SDK，不另建一套实现；SDK 定向验收与扩展管理新增链路的验证范围分别记录在 [交付路线与状态](../project/Roadmap.md)。
+关闭先停止接纳、取消并等待接口持有的调用，再由 Core 关闭根任务、MCP、浏览器、模型客户端和数据库。端口在 Core 初始化和恢复旧任务之前独占绑定，避免端口冲突的第二实例先修改数据。
 
-HTTP 断线不取消任务，取消必须显式提交。根任务清理完成后才发布 cancelled；第三方阻塞调用和历史任务恢复的限制见 [智能体运行时设计](AgentRuntime.md)。依赖浏览器易失 session 的审批不能视为可安全续跑。
+执行恢复只读 LangGraph checkpoint；UI 读产品投影；审批安全审计读 Repository。不增加双向同步或通用 Event Sourcing。历史任务的副作用与恢复限制不因迁移而消失。
 
-错误码与 HTTP/gRPC 映射唯一来源为 API。日志与诊断见 [日志与诊断](../ops-security/Observability.md)，内部错误不得向用户回显敏感凭证、堆栈或内部部署地址。
+## 5. 文件、依赖与交付边界
 
-## 6. 模型配置闭环
+文件 API 只操作 Core 解析的已登记目录，不接受任意根目录。POSIX 使用目录句柄与 no-follow，Windows 锁住祖先目录并拒绝 reparse point，创建只允许单个空文件/目录且不覆盖。Git 使用固定参数、禁用外部 diff/textconv/fsmonitor，限制时间和输出，不继承模型凭证环境。
 
-```text
-Settings → Gateway
-→ 非敏感 profile/default 经 gRPC 保存到 Workspace Settings
-→ Secret 按 profile ID 保存到 OS CredentialStore
-→ Core 内存获取受控凭证
-→ ChatModelRuntime 按 Workspace/profile 创建或更新 Provider
-→ Conversation 保存模型选择，下一条消息使用
-```
+API/ASGI 复用 FastAPI、Uvicorn 和 AnyIO，系统凭证复用 keyring；MCP、浏览器、模型与 LangGraph 依赖继续由现有模块管理。同步系统 I/O 在工作线程中执行，线程不能被强杀；不实现自研线程取消框架。
 
-模型提供方/基础地址变化时旧凭证不能跨端点复用；本地 Ollama/OpenAI-compatible 不读取云端环境密钥。共享客户端由核心服务持有，正常关闭前等待活动运行实例。
+Web 与 Electron 继续共用相对路径构建产物。HTTP 返回的入口 HTML 补充 `<base href="/">`，让直接打开 `/chat/<id>` 时资源仍从站点根目录加载；磁盘文件不改写，Electron `file://` 保持相对路径。不存在的资源与 API（含 HEAD 请求）不回退为 SPA 页面。Windows 构建参数与共享脚本一致，不再接受 `go` 目标。
 
-当前支持多配置、默认模型、会话选择、连接验证与服务端模型目录发现；不等于已实现模型配置目录的自动能力/成本路由。产品字段与发现兼容策略见 [模型接入与选择](../agent-capabilities/models/model-routing.md)。
+本轮是源码迁移：已更新锁文件、启动脚本和文档，未运行软件测试、类型检查、lint、构建或平台实机验收。独立桌面 Python runtime bundling、手机远程认证和发布 E2E 仍未完成。不能把旧 Go 链路验收记录当成新接口验收。

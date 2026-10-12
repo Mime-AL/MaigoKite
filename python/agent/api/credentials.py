@@ -1,0 +1,271 @@
+"""Resolve OS-keychain references before admission; never persist secrets in task state."""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import sys
+from functools import partial
+from typing import Any
+
+from anyio import to_thread
+
+from agent.api.contracts import APIError
+from agent.models.native_model import normalize_base_url
+
+logger = logging.getLogger(__name__)
+
+
+def location(workspace: str, reference: str) -> tuple[str, str]:
+    if reference in {"tavily", "google"}:
+        kind, account = "search", reference
+    elif reference in {"model.openai", "model.anthropic", "model.openai_compatible"}:
+        kind, account = "model", reference.removeprefix("model.")
+    elif re.fullmatch(r"model-profile\.model_[A-Za-z0-9_-]{1,80}", reference):
+        kind, account = "model-profile", reference.removeprefix("model-profile.")
+    elif re.fullmatch(r"mcp\.[a-z][a-z0-9_-]{0,47}\.[A-Za-z_][A-Za-z0-9_]{0,127}", reference):
+        kind, account = "mcp", reference.removeprefix("mcp.")
+    else:
+        raise APIError(400, "CREDENTIAL_INVALID", "不支持的凭证引用。")
+    return f"MaigoKite/{kind}/{workspace}", account
+
+
+def windows_legacy(service: str, account: str, *, delete: bool = False) -> str:
+    """Read Go's UTF-8 CredentialBlob by its exact target; Python keyring uses a different target/encoding."""
+    import ctypes
+    from ctypes import wintypes as w
+
+    class Credential(ctypes.Structure):
+        _fields_ = [("flags", w.DWORD), ("type", w.DWORD), ("target", w.LPWSTR), ("comment", w.LPWSTR),
+                    ("written", w.FILETIME), ("size", w.DWORD), ("blob", ctypes.POINTER(w.BYTE)),
+                    ("persist", w.DWORD), ("attributes_count", w.DWORD), ("attributes", w.LPVOID),
+                    ("alias", w.LPWSTR), ("username", w.LPWSTR)]
+
+    api = ctypes.WinDLL("Advapi32", use_last_error=True)
+    target = service + ":" + account
+    if delete:
+        api.CredDeleteW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD]
+        api.CredDeleteW.restype = w.BOOL
+        if not api.CredDeleteW(target, 1, 0) and ctypes.get_last_error() != 1168:
+            raise ctypes.WinError(ctypes.get_last_error())
+        return ""
+    pointer = ctypes.POINTER(Credential)()
+    api.CredReadW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, ctypes.POINTER(ctypes.POINTER(Credential))]
+    api.CredReadW.restype = w.BOOL
+    api.CredFree.argtypes = [w.LPVOID]
+    if not api.CredReadW(target, 1, 0, ctypes.byref(pointer)):
+        if ctypes.get_last_error() == 1168:
+            return ""
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if pointer.contents.username != account:
+            raise ValueError("credential account mismatch")
+        return ctypes.string_at(pointer.contents.blob, pointer.contents.size).decode("utf-8")
+    finally:
+        api.CredFree(pointer)
+
+
+class Credentials:
+    def __init__(self, core) -> None:
+        self.core = core
+        # Serialize profile/secret edits with restoration so an in-flight
+        # keychain read cannot install an old key after the endpoint changes.
+        self.model_changes = asyncio.Lock()
+
+    @staticmethod
+    def _backend():
+        # Explicit OS backends prevent an installed plaintext fallback from becoming our secret store.
+        if sys.platform == "win32":
+            from keyring.backends.Windows import WinVaultKeyring
+            return WinVaultKeyring()
+        if sys.platform == "darwin":
+            from keyring.backends.macOS import Keyring
+            return Keyring()
+        from keyring.backends.SecretService import Keyring
+        backend = Keyring()
+        # Match go-keyring's existing Linux collection and service/username attributes.
+        backend.preferred_collection = "/org/freedesktop/secrets/collection/login"
+        return backend
+
+    def _operate(self, action: str, workspace: str, reference: str, value: str = "") -> str:
+        from keyring.errors import PasswordDeleteError
+        service, account = location(workspace, reference)
+        try:
+            backend = self._backend()
+            if action == "get":
+                result = backend.get_password(service, account)
+                if result is None and sys.platform == "win32":
+                    result = windows_legacy(service, account)
+                    if result:
+                        # Only remove the old entry after read-back verifies the new value.
+                        backend.set_password(service, account, result)
+                        if backend.get_password(service, account) != result:
+                            raise ValueError("credential migration verification failed")
+                        windows_legacy(service, account, delete=True)
+                return result or ""
+            if action == "save":
+                backend.set_password(service, account, value)
+            else:
+                try:
+                    backend.delete_password(service, account)
+                except PasswordDeleteError:
+                    # Backends also wrap access failures in PasswordDeleteError; only absence is success.
+                    if backend.get_password(service, account) is not None:
+                        raise
+                if sys.platform == "win32":
+                    windows_legacy(service, account, delete=True)
+            return ""
+        except Exception as exc:
+            raise APIError(503, "KEYCHAIN_UNAVAILABLE", "系统密钥链不可用，请解锁或检查系统凭证服务。") from exc
+
+    async def _revoked(self, workspace: str, reference: str) -> bool:
+        if not reference.startswith(("model.", "model-profile.")):
+            return False
+        return await self.core.repository.get_workspace_setting(workspace, "credentials.revoked." + reference) is True
+
+    async def get(self, workspace: str, reference: str) -> str:
+        location(workspace, reference)
+        if await self._revoked(workspace, reference):
+            return ""
+        value = await to_thread.run_sync(partial(self._operate, "get", workspace, reference))
+        # Revocation can happen while the OS unlock dialog is pending.
+        return "" if await self._revoked(workspace, reference) else value
+
+    async def save(self, workspace: str, reference: str, secret: str) -> None:
+        location(workspace, reference)
+        if not secret.strip() or "\x00" in secret or len(secret.encode()) > 65536:
+            raise APIError(400, "CREDENTIAL_INVALID", "凭证为空或超过允许的长度。")
+        if reference == "google" and (":" not in secret or not all(secret.split(":", 1))):
+            raise APIError(400, "CREDENTIAL_INVALID", "Google 搜索需要 API Key:CX。")
+        await to_thread.run_sync(partial(self._operate, "save", workspace, reference, secret))
+        if reference.startswith(("model.", "model-profile.")):
+            await self.core.repository.save_workspace_setting(workspace, "credentials.revoked." + reference, False)
+        await self.sync(workspace, reference, secret)
+
+    async def delete(self, workspace: str, reference: str) -> None:
+        await to_thread.run_sync(partial(self._operate, "delete", workspace, reference))
+        await self.sync(workspace, reference, "")
+
+    async def revoke_model(self, workspace: str, profile) -> None:
+        """Detach credentials durably before moving/removing their model profile.
+
+        OS deletion may require an unavailable desktop keychain. The persisted
+        revocation prevents reuse after restart or recreation of the same ID;
+        only explicitly saving a new secret re-enables that reference.
+        """
+        references = ["model-profile." + profile.id]
+        if profile.id == "model_default" and profile.provider != "ollama":
+            references.append("model." + profile.provider)
+        for reference in references:
+            await self.core.repository.save_workspace_setting(workspace, "credentials.revoked." + reference, True)
+            await self.sync(workspace, reference, "")
+        for reference in references:
+            try:
+                await self.delete(workspace, reference)
+            except APIError as exc:
+                if exc.code != "KEYCHAIN_UNAVAILABLE":
+                    raise
+                logger.warning("Credential revoked; OS keychain cleanup pending: %s", reference)
+                await self.core.repository.record_audit(workspace, "local-user", "credential.revoked", reference,
+                                                        "cleanup_pending", {})
+
+    async def sync(self, workspace: str, reference: str, secret: str) -> None:
+        if reference.startswith("model."):
+            await self.core.set_chat_model_credential(workspace, reference.removeprefix("model."), secret)
+        elif reference.startswith("model-profile."):
+            model_id = reference.removeprefix("model-profile.")
+            await self.core.set_chat_model_credential(workspace, "", secret, model_id)
+        elif reference in {"tavily", "google"}:
+            await self.core.set_tool_credential(workspace, reference, secret)
+
+    async def model_key(self, workspace: str, profile) -> str:
+        # A moved/deleted default profile must not fall back to a legacy
+        # provider-wide key that was saved for a different endpoint.
+        if await self._revoked(workspace, "model-profile." + profile.id):
+            return ""
+        key = await self.get(workspace, "model-profile." + profile.id)
+        if not key and profile.id == "model_default" and profile.provider != "ollama":
+            key = await self.get(workspace, "model." + profile.provider)
+        return key
+
+    async def restore_model(self, workspace: str, model_id: str = "") -> None:
+        async with self.model_changes:
+            profile = await self.core.models.get_profile(workspace, model_id)
+            if profile.id:
+                try:
+                    key = await self.model_key(workspace, profile)
+                except APIError:
+                    # Local no-key models and explicit environment credentials must work without a keyring daemon.
+                    key = ""
+                if profile.id == "model_default" and await self._revoked(workspace, "model-profile." + profile.id):
+                    await self.core.set_chat_model_credential(workspace, profile.provider, "")
+                await self.core.set_chat_model_credential(workspace, profile.provider, key, profile.id)
+
+    async def profile_key(self, workspace: str, model_id: str, provider: str, base_url: str) -> str:
+        if not model_id:
+            return ""
+        try:
+            profile = await self.core.models.get_profile(workspace, model_id)
+        except KeyError:
+            return ""
+        if profile.provider != provider or normalize_base_url(profile.base_url) != normalize_base_url(base_url):
+            return ""
+        try:
+            key = await self.model_key(workspace, profile)
+        except APIError:
+            key = ""
+        if not key and not base_url.strip():
+            key = os.getenv({"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(provider, ""), "")
+        return key
+
+    async def extension_keys(self, workspace: str, config: dict[str, Any]) -> dict[str, dict[str, str]]:
+        keys: dict[str, dict[str, str]] = {}
+        for server in config.get("mcp_servers", []):
+            if not server.get("enabled"):
+                continue
+            namespace = server["namespace"]
+            keys[namespace] = {}
+            for name in server.get("secret_env", []):
+                value = await self.get(workspace, f"mcp.{namespace}.{name}")
+                if not value:
+                    raise APIError(409, "MCP_CREDENTIAL_MISSING", "请在扩展设置中补齐 MCP 凭证；操作尚未提交。")
+                keys[namespace][name] = value
+        return keys
+
+    async def prepare(self, workspace: str, conversation_id: str, task_id: str = "", *,
+                      models_only: bool = False, tool_name: str = "") -> None:
+        conversation = await self.core.get_conversation(workspace, conversation_id)
+        policy = conversation
+        if task_id:
+            policy = await self.core.get_task(workspace, task_id)
+            if policy["conversation_id"] != conversation_id:
+                raise APIError(409, "TASK_MISMATCH", "任务不属于当前对话。")
+        model_ids = {conversation.get("model_id") or "", *json.loads(policy.get("subagent_model_ids_json") or "[]")}
+        for model_id in model_ids:
+            await self.restore_model(workspace, model_id)
+        if models_only:
+            return
+        for service in ("tavily", "google"):
+            try:
+                key = await self.get(workspace, service)
+            except APIError:
+                key = ""
+            await self.core.set_tool_credential(workspace, service, key)
+        snapshot = await self.core.get_extensions(workspace)
+        active = snapshot.get("active_config")
+        if active is None:
+            raise APIError(409, "EXTENSIONS_UNAVAILABLE", "无法读取已生效的扩展配置。")
+        if "__" in tool_name:
+            namespace = tool_name.split("__", 1)[0]
+            if not any(row["namespace"] == namespace and row["enabled"] for row in active.get("mcp_servers", [])):
+                raise APIError(409, "MCP_UNAVAILABLE", "审批对应的 MCP 已停用或移除，请取消此任务。")
+        running = {row["namespace"] for row in snapshot["servers"] if row["status"] == "running"}
+        missing = {row["namespace"] for row in active.get("mcp_servers", []) if row["enabled"]} - running
+        if missing:
+            keys = await self.extension_keys(workspace, active)
+            restored = await self.core.reload_extensions(workspace, active["revision"], keys, restore_only=True)
+            ready = {row["namespace"] for row in restored["servers"] if row["status"] == "running"}
+            if missing - ready:
+                raise APIError(409, "MCP_UNAVAILABLE", "MCP 连接尚未恢复，请检查扩展状态；操作尚未提交。")

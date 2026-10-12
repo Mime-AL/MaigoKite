@@ -258,8 +258,7 @@ export interface WorkspaceRuntimeStatus {
   workspaceRoot: string
   workspaceSource: 'configuration' | 'environment' | 'selection'
   environment: string
-  gateway: RuntimeServiceStatus
-  agentCore: RuntimeServiceStatus
+  backend: RuntimeServiceStatus
   restart: {
     pending: boolean
     requiredFor: string[]
@@ -481,8 +480,7 @@ export const api = {
       workspace_root: string
       workspace_source: 'configuration' | 'environment' | 'selection'
       environment: string
-      gateway: RuntimeServiceStatus
-      agent_core: RuntimeServiceStatus
+      backend: RuntimeServiceStatus
       restart: {
         pending: boolean
         required_for: string[]
@@ -495,8 +493,7 @@ export const api = {
       workspaceRoot: body.workspace_root,
       workspaceSource: body.workspace_source,
       environment: body.environment,
-      gateway: body.gateway,
-      agentCore: body.agent_core,
+      backend: body.backend,
       restart: {
         pending: body.restart.pending,
         requiredFor: body.restart.required_for || [],
@@ -812,7 +809,7 @@ export const api = {
     return body.messages || []
   },
   async getConversationSnapshot(id: string): Promise<ConversationSnapshot> {
-    // Snapshot approvals currently use the protobuf JSON shape; keep it out of stores.
+    // Decode snapshot's stable JSON-string fields at the API boundary, outside stores.
     const body = await request<
       Omit<ConversationSnapshot, 'approvals' | 'questions'> & {
         approvals: (Approval & { arguments_json?: string; reuse_scope_json?: string })[]

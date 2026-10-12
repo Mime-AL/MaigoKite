@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, globalShortcut, Menu, screen, shell, Tray }
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { createConnection, createServer } from 'node:net'
+import { createServer } from 'node:net'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { createRuntimeEnvironment } from './runtime-env'
@@ -32,6 +32,7 @@ let runtimeFailure = '',
   runtimeShutdown: Promise<void> | null = null
 const indexPath = path.resolve(__dirname, '../dist/index.html')
 const builtUI = app.isPackaged || process.env.MAIGOKITE_DESKTOP_BUILT === '1'
+const developmentURL = 'http://127.0.0.1:5173'
 const appIconPath = path.resolve(
   __dirname,
   app.isPackaged ? '../dist/brand/app-icon-cat-ribbon-v1.png' : '../public/brand/app-icon-cat-ribbon-v1.png',
@@ -86,7 +87,7 @@ function startProcess(name: string, command: string, args: string[], cwd: string
   if (configPath) env.MAIGOKITE_CONFIG = configPath
   env.MAIGOKITE_PARENT_PIPE = '1'
   console.info(`[MaigoKite] Starting ${name}`)
-  // A process group also owns the executable spawned by `go run`.
+  // The process group includes subprocesses launched by the backend's tools.
   const child = spawn(command, args, {
     cwd,
     shell: false,
@@ -95,7 +96,7 @@ function startProcess(name: string, command: string, args: string[], cwd: string
     windowsHide: true,
     env,
   })
-  // Forward logs; `close` waits for inherited pipes, including the Gateway child.
+  // Forward logs; `close` waits for inherited pipes before cleanup is considered finished.
   child.stdout?.on('data', (chunk: Buffer) => process.stdout.write(chunk))
   child.stderr?.on('data', (chunk: Buffer) => process.stderr.write(chunk))
   child.stdin?.on('error', () => { /* The child may fail before its owner closes stdin. */ })
@@ -112,35 +113,33 @@ function startProcess(name: string, command: string, args: string[], cwd: string
   })
   children.push(child)
 }
-async function waitForPort(port: number, name: string) {
+async function waitForService(service: 'Backend' | 'Web') {
+  const backend = service === 'Backend'
+  const port = backend ? 8080 : 5173
   const signal = runtimeStartup.signal,
     deadline = Date.now() + 90_000
   while (Date.now() < deadline) {
     signal.throwIfAborted()
-    const ready = await new Promise<boolean>((resolve) => {
-      const socket = createConnection({ host: '127.0.0.1', port })
-      function finish(connected: boolean) {
-        signal.removeEventListener('abort', abort)
-        socket.destroy()
-        resolve(connected)
-      }
-      const abort = () => finish(false)
-      signal.addEventListener('abort', abort, { once: true })
-      socket.once('connect', () => finish(true))
-      socket.once('error', () => finish(false))
-      socket.setTimeout(1_000, () => finish(false))
-      if (signal.aborted) abort()
-    })
+    // A listening socket alone does not mean recovery or Vite initialization has finished.
+    let ready = false
+    try {
+      const response = await fetch(backend ? 'http://127.0.0.1:8080/health' : developmentURL, {
+        method: backend ? 'GET' : 'HEAD',
+        redirect: 'error',
+        signal: AbortSignal.any([signal, AbortSignal.timeout(1_000)]),
+      })
+      ready = response.ok && (!backend || (await response.json()).status === 'ok')
+    } catch { /* Retry while initialization is still in progress. */ }
     signal.throwIfAborted()
     if (ready) return
     await delay(250, undefined, { signal })
   }
-  throw new Error(t('{0} 启动超时（端口 {1}）。请查看终端日志。', [name, port]))
+  throw new Error(t('{0} 启动超时（端口 {1}）。请查看终端日志。', [service, port]))
 }
 async function startRuntime() {
   if (process.env.MAIGOKITE_EXTERNAL_RUNTIME === '1' || process.env.VITE_MOCK === '1') return
   // Do not attach to a previous instance's open TCP port or mutate its database.
-  for (const port of [8080, 8081]) await new Promise<void>((resolve, reject) => {
+  for (const port of [8080]) await new Promise<void>((resolve, reject) => {
     const server = createServer()
     server.once('error', () => reject(new Error(t('端口 {0} 已被占用，请先退出已有应用服务。', [port]))))
     server.listen({ host: '127.0.0.1', port, exclusive: true }, () => server.close(() => resolve()))
@@ -155,38 +154,31 @@ async function startRuntime() {
   if (app.isPackaged) {
     const executableSuffix = process.platform === 'win32' ? '.exe' : ''
     startProcess(
-      'Core',
+      'Backend',
       path.join(process.resourcesPath, 'bin', `agent-core${executableSuffix}`),
-      ['run'],
+      ['run', '--port', '8080'],
       process.resourcesPath,
       configPath,
     )
-    await waitForPort(8081, 'Core')
-    startProcess('Gateway', path.join(process.resourcesPath, 'bin', `gateway${executableSuffix}`), [], process.resourcesPath, configPath)
   } else {
     const python = await resolveCorePython(root, runtimeStartup.signal)
     runtimeStartup.signal.throwIfAborted()
     console.info(`[MaigoKite] Core Python: ${python}`)
     startProcess(
-      'Core',
+      'Backend',
       python,
       [
         path.join(root, 'python', 'main.py'),
         'run',
         '--port',
-        '8081',
+        '8080',
       ],
       root,
       configPath,
     )
-    await waitForPort(8081, 'Core')
-    const gatewayExecutable = process.env.MAIGOKITE_GATEWAY_EXECUTABLE
-    startProcess('Gateway', gatewayExecutable || 'go', gatewayExecutable ? [] : ['run', './cmd/gateway'],
-      gatewayExecutable ? root : path.join(root, 'gateway'), configPath)
   }
-  // The Gateway listens only after connecting to Core. Avoid failed initial UI requests.
-  await waitForPort(8080, 'Gateway')
-  console.info('[MaigoKite] Core and Gateway are ready')
+  await waitForService('Backend')
+  console.info('[MaigoKite] Backend is ready')
 }
 function stopRuntime(): Promise<void> {
   if (runtimeShutdown) return runtimeShutdown
@@ -224,7 +216,7 @@ export function isAllowedNavigation(target: string, development: boolean) {
   try {
     const url = new URL(target)
     if (url.protocol === 'file:') return path.resolve(fileURLToPath(url)) === indexPath
-    return development && url.origin === 'http://localhost:5173'
+    return development && url.origin === developmentURL
   } catch {
     return false
   }
@@ -256,7 +248,7 @@ export function createWindow() {
     webPreferences: secureWebPreferences(),
   })
   secureNavigation(window)
-  if (!builtUI) void window.loadURL('http://localhost:5173')
+  if (!builtUI) void window.loadURL(developmentURL)
   else void window.loadFile(indexPath)
   window.on('close', (event) => {
     if (!quitting) {
@@ -287,7 +279,7 @@ function showCapsule() {
     capsuleWindow = window
     secureNavigation(window)
     if (builtUI) void window.loadFile(indexPath, { hash: '/capsule' })
-    else void window.loadURL('http://localhost:5173/capsule')
+    else void window.loadURL(`${developmentURL}/capsule`)
     window.once('ready-to-show', () => {
       window.show()
       window.focus()
@@ -399,7 +391,7 @@ app.whenReady().then(async () => {
     pulse: setPulse,
   })
   await startRuntime()
-  if (!builtUI) await waitForPort(5173, 'Web')
+  if (!builtUI) await waitForService('Web')
   if (quitting) return
   createWindow()
   createTray()

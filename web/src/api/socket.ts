@@ -66,7 +66,7 @@ export class EventSocket {
       this.handshake = setTimeout(() => {
         if (!this.subscribed && generation === this.generation) socket.close()
       }, 10_000)
-      // Gateway has no application pong. HTTP replay checks liveness too.
+      // The API has no application pong. HTTP replay checks liveness too.
       this.heartbeat = setInterval(() => {
         void this.recover(generation)
       }, 25_000)

@@ -23,7 +23,7 @@ MaigoKite 是面向个人工作流的本地 Agent。本目录按读者和职责�
 | Go/Python 内部职责 | [后端设计](design/BackendDesign.md) |
 | Vue/Electron 与交互 | [前端与桌面交互设计](design/FrontendDesign.md)；视觉细节见 [墨线 UI 设计](design/agent-ui-design.md) |
 | 聊天执行、审批桥接、上下文和资源 | [智能体运行时设计](design/AgentRuntime.md) |
-| REST/gRPC/WS 契约 | [API 设计](design/API.md)；机器结构定义/Proto 优先 |
+| REST/WS 契约 | [API 设计](design/API.md)；FastAPI 请求结构与事件 DTO 优先 |
 | 当前业务表与事务 | [数据库设计](design/Database.md)；Repository 是实现事实 |
 | 手机远程首版（未交付） | [手机远程访问](design/RemoteAccess.md) |
 | 模型接入与选择 | [模型接入与选择](agent-capabilities/models/model-routing.md) |

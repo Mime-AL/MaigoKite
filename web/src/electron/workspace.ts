@@ -2,9 +2,9 @@ import { t } from '../i18n'
 import { realpathSync } from 'node:fs'
 import path from 'node:path'
 
-/** Resolve an ID through the local Gateway; never trust a renderer-supplied root. */
+/** Resolve an ID through the local API so the renderer cannot choose an arbitrary root. */
 export async function registeredWorkspaceRoot(folderId: string): Promise<string> {
-  const base = new URL(process.env.MAIGOKITE_GATEWAY_URL || 'http://127.0.0.1:8080')
+  const base = new URL(process.env.MAIGOKITE_BACKEND_URL || 'http://127.0.0.1:8080')
   if (
     !['http:', 'https:'].includes(base.protocol) ||
     !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname) ||

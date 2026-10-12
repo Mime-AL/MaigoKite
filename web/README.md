@@ -1,8 +1,8 @@
 # MaigoKite 前端
 
-基于现有 Vue 3、Pinia、Vue Router、Vite 5、Electron 28 和 Go Gateway，采用「墨线」视觉语言。
+基于现有 Vue 3、Pinia、Vue Router、Vite 5、Electron 28 和 Python FastAPI 后端，采用「墨线」视觉语言。
 桌面应用名为 MaigoKite，使用同名桌面配置目录与 `maigokite_` 缓存键，不保留旧标识兼容层；助手称呼仍可单独设置。
-Chat、Memory、Settings 等页面通过既有 Gateway API 读写产品数据，不在前端维护另一套执行状态机。
+Chat、Memory、Settings 等页面通过既有 HTTP API 读写产品数据，不在前端维护另一套执行状态机。
 首页进入空白对话；原 Overview 保留为 `/overview`，扩展、审计、数据和知识库路由继续保留，均可从万能面板打开。
 
 ## 开发与演示
@@ -13,9 +13,9 @@ npm ci
 npm run dev
 ```
 
-上面的 `npm run dev` 只启动前端，供 UI 单独开发。完整应用从根目录启动：Linux `bash scripts/start.sh web|desktop`，Windows `scripts/start.ps1 web|desktop`；均管理本次启动的整套服务。Web 使用 Vite 的 Gateway HTTP/WebSocket 代理。
+上面的 `npm run dev` 只启动前端，供 UI 单独开发。完整应用从根目录启动：Linux `bash scripts/start.sh web|desktop`，Windows `scripts/start.ps1 web|desktop`；均管理本次启动的整套服务。Web 使用 Vite 的 后端 HTTP/WebSocket 代理。
 
-不启动 Gateway 的本地演示：
+不启动后端 的本地演示：
 
 ```sh
 VITE_MOCK=1 npm run dev
@@ -32,17 +32,18 @@ npm run electron:compile
 VITE_MOCK=1 MAIGOKITE_EXTERNAL_RUNTIME=1 npx electron .
 ```
 
-Web 编译：`npm run build:web`；Web + Electron 编译：`npm run build`。这些 npm 命令不编译 Gateway。
+Web 编译：`npm run build:web`；Web + Electron 编译：`npm run build`。Python 后端无需编译 Go；Web 构建版由 Python 提供静态页面。
+构建使用 `tsconfig.build.json` 检查生产代码，本地测试仍由原 `tsconfig.json` 和测试入口负责，不随应用编译。npm 与根目录入口共用构建脚本，成功后记录源码摘要；`built` 启动拒绝缺失、失败或过期的构建，不会回退到旧 Electron 产物。
 完整构建使用根目录 `build.sh` / `build.ps1` 的 `web|desktop|all`，再用 `start` 的 `built` 模式启动。
 `npm run electron:dev` 也转调完整桌面入口；`npm run electron:preview` 启动已有构建产物，不隐式重建。
-`npm run electron:build` 仍是 electron-builder 实验入口；未完成或验证 Core/Gateway/Chromium 的跨平台资源打包闭环，不等同于上述源码启动。成套入口拒绝 mock/external-runtime 环境，以免普通用户误连独立旧服务；单独联调可显式使用 `npx electron .`。
+`npm run electron:build` 仍是 electron-builder 实验入口；未完成或验证 Python/Chromium 的跨平台资源打包闭环，不等同于上述源码启动。成套入口拒绝 mock/external-runtime 环境，以免普通用户误连独立旧服务；单独联调可显式使用 `npx electron .`。
 
 ## 实现边界
 
 - `styles/tokens.scss` 是宣纸/松烟、六种强调色、字体、圆角和动画的唯一定义位置。现有组件的样式复用这些变量。
 - 主题、纸纹、用户称呼、头像字和速记快捷键存于本机。助手名称继续调用现有 preferences API。
-- `api/client.ts` 保留原 Gateway API；`http.ts` 提供原生 fetch 的超时、鉴权头与错误归一。
-- `api/socket.ts` 复用现有 WebSocket 入口，1–30 秒指数退避，恢复时先读取持久化历史，再释放缓存的实时事件。Gateway 没有应用层 ping/pong，因此使用 25 秒一次的 HTTP 历史请求检查活性并补齐遗漏。
+- `api/client.ts` 保留原 HTTP API；`http.ts` 提供原生 fetch 的超时、鉴权头与错误归一。
+- `api/socket.ts` 复用现有 WebSocket 入口，1–30 秒指数退避，恢复时先读取持久化历史，再释放缓存的实时事件。后端没有应用层 ping/pong，因此使用 25 秒一次的 HTTP 历史请求检查活性并补齐遗漏。
 - `api/event-adapter.ts` 在前端边界转换现有 message/reasoning/tool/approval/task 事件，不修改后端公开协议。
 - `stores/session.ts` 保留原会话 API；`run.ts` 只维护 UI 投影，不成为另一套 Agent Runtime。流式更新按动画帧归并，Markdown 流式解析限制为每 100ms 一次，完成时立即刷新。
 - 聊天记录按段加载并使用 content-visibility；Markdown 结果有大小与数量受限的缓存。
@@ -67,7 +68,7 @@ Web 编译：`npm run build:web`；Web + Electron 编译：`npm run build`。这
 ## 首批 UI 检查记录
 
 首批 UI 只做过 TypeScript 类型检查、静态 lint 和 Web/Electron 生产编译，未新增或执行 Vitest/E2E。
-这是历史记录，不约束后续开发，也不代表真实 Gateway、桌面通知、快捷键或最终安装包已通过运行验收。
+这是历史记录，不约束后续开发，也不代表真实 Python API、桌面通知、快捷键或最终安装包已通过运行验收。
 
 ## GUI 补缺（2026-10-10）
 
@@ -76,6 +77,6 @@ Web 编译：`npm run build:web`；Web + Electron 编译：`npm run build`。这
 - 命令面板与收件箱复用浏览器原生 `dialog` 的焦点约束与恢复；Escape 先关闭浮层/输入候选菜单，不穿透停止后台任务。审批快捷键只作用于当前可交互区域。
 - 工具错误保留错误码、用户提示和受限的内部设置链接；历史任务按创建时间排列，结束的审批节点停止等待动画。回到最新消息按钮在回合结束后仍可使用。
 - 补充会话列表加载/重连入口、窄屏导航收起、设置页查询参数回退、记忆搜索结果定位与键盘选择候选项。
-- 演示模式持续标识；外观、称呼缓存、布局和记忆置顶使用独立存储键。演示渲染器不调用真实文件打开、通知、托盘更新、外观保存或速记转发，窗口控制与平台查询仍保留。开发时 `VITE_MOCK=1` 也禁止自动启动 Core/Gateway。
+- 演示模式持续标识；外观、称呼缓存、布局和记忆置顶使用独立存储键。演示渲染器不调用真实文件打开、通知、托盘更新、外观保存或速记转发，窗口控制与平台查询仍保留。开发时 `VITE_MOCK=1` 也禁止自动启动 Python 后端。
 
 2026-10-10 的这次补缺仅做源码核对、修改文件格式化与 diff 空白检查，**未运行测试、类型检查、lint、构建或桌面联调**，未新增依赖或后端接口。后续接入与验证以路线图为准，不沿用当时的接口缺口或测试结论。

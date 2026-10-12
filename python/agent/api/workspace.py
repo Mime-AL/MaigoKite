@@ -1,0 +1,271 @@
+"""Registered-folder browsing and Git inspection for explicit user actions."""
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import sys
+from datetime import UTC, datetime
+from functools import partial
+from pathlib import Path
+
+from anyio import to_thread
+from fastapi import APIRouter, Depends, Request, Response
+
+from agent.api import contracts as dto
+from agent.api.sessions import owner
+from agent.api.workspace_fs import create_entry, read_file
+
+IGNORED = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".pytest_cache"}
+PREVIEW_LIMIT = 512 * 1024
+DIFF_LIMIT = 256 * 1024
+
+
+def timestamp(value: float) -> str:
+    return datetime.fromtimestamp(value, UTC).isoformat()
+
+
+def resolve(root: Path, relative: str, *, exists: bool = True) -> Path:
+    value = Path(relative.strip())
+    if value.is_absolute() or value.drive or ".." in value.parts or "\x00" in relative:
+        raise dto.APIError(400, "INVALID_PATH", "请选择工作区内的相对路径。")
+    target = (root / value).resolve(strict=exists)
+    if not target.is_relative_to(root):
+        raise dto.APIError(403, "ACCESS_DENIED", "目标路径超出工作区。")
+    return target
+
+
+def entry(path: Path, root: Path, info=None, kind: str | None = None) -> dict:
+    info = info or path.stat(follow_symlinks=False)
+    return {"name": path.name, "path": path.relative_to(root).as_posix(),
+            "type": kind or ("directory" if path.is_dir() else "file"),
+            "size": info.st_size, "modified_at": timestamp(info.st_mtime)}
+
+
+def list_files(root: Path, relative: str) -> dict:
+    target = resolve(root, relative)
+    entries, scanned, truncated = [], 0, False
+    with os.scandir(target) as directory:
+        for item in directory:
+            scanned += 1
+            if len(entries) == 500 or scanned > 5000:
+                truncated = True
+                break
+            if item.name in IGNORED or item.is_symlink():
+                continue
+            try:
+                info = item.stat(follow_symlinks=False)
+                if getattr(info, "st_file_attributes", 0) & 0x400:
+                    continue
+                entries.append(entry(Path(item.path), root, info, "directory" if item.is_dir(follow_symlinks=False) else "file"))
+            except OSError:
+                continue
+    entries.sort(key=lambda row: (row["type"] != "directory", row["name"].lower()))
+    return {"path": relative, "entries": entries, "truncated": truncated}
+
+
+def preview(root: Path, relative: str, limit: int = PREVIEW_LIMIT) -> dict:
+    path = resolve(root, relative)
+    data, info = read_file(root, str(path.relative_to(root)), limit)
+    truncated = len(data) > limit
+    data = data[:limit]
+    try:
+        content = data.decode("utf-8")
+        binary = b"\0" in data
+    except UnicodeDecodeError:
+        content, binary = "", True
+    return {"path": relative, "content": "" if binary else content, "binary": binary,
+            "size": info.st_size, "modified_at": timestamp(info.st_mtime), "truncated": truncated}
+
+
+def new_entry(root: Path, parent: str, name: str, kind: str) -> dict:
+    if (name != name.strip() or name in {".", ".."} or name.lower() == ".git" or name.endswith(".")
+            or re.search(r'[\\/:*?"<>|\x00-\x1f\x7f]', name)
+            or re.fullmatch(r"(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", name.split(".")[0], re.I)):
+        raise dto.APIError(400, "INVALID_NAME", "请选择有效的文件或目录名称。")
+    target = resolve(root, parent)
+    relative = target.relative_to(root)
+    if any(part.lower() == ".git" for part in relative.parts):
+        raise dto.APIError(403, "ACCESS_DENIED", "不能在这里修改 Git 元数据。")
+    info = create_entry(root, str(relative), name, kind)
+    return entry(target / name, root, info, kind)
+
+
+def browse(path: str, show_hidden: bool) -> dict:
+    home = Path.home().resolve()
+    target = Path(path) if path else home
+    if not target.is_absolute() or len(path) > 4096 or "\0" in path:
+        raise dto.APIError(400, "INVALID_PATH", "请选择有效的目录。")
+    target = target.resolve(strict=True)
+    entries, truncated = [], False
+    with os.scandir(target) as directory:
+        for scanned, item in enumerate(directory):
+            if scanned >= 5000 or len(entries) >= 500:
+                truncated = True
+                break
+            if (not show_hidden and item.name.startswith(".")) or not item.is_dir():
+                continue
+            entries.append({"name": item.name, "path": item.path})
+    entries.sort(key=lambda row: row["name"].lower())
+    return {"path": str(target), "parent": str(target.parent) if target.parent != target else "",
+            "home": str(home), "root": target.anchor, "entries": entries, "truncated": truncated}
+
+
+async def git(root: Path, *args: str) -> bytes:
+    env = {key: os.environ[key] for key in ("PATH", "SYSTEMROOT", "WINDIR", "PATHEXT", "TMPDIR", "TEMP", "TMP") if key in os.environ}
+    env.update({"LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"})
+    process = await asyncio.create_subprocess_exec("git", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", str(root), *args,
+                                                   env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    output = bytearray()
+    try:
+        async with asyncio.timeout(8):
+            while chunk := await process.stdout.read(65536):
+                output.extend(chunk)
+                if len(output) > 4 * 1024 * 1024:
+                    raise dto.APIError(413, "GIT_OUTPUT_LIMIT", "Git 输出过大，请缩小查询范围。")
+            if await process.wait():
+                raise dto.APIError(400, "GIT_FAILED", "无法读取此工作区的 Git 状态。")
+    finally:
+        if process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+        await process.wait()
+    return bytes(output)
+
+
+def change_status(code: str) -> str:
+    if code == "??":
+        return "untracked"
+    return next((name for chars, name in (("D", "deleted"), ("RC", "renamed"), ("A", "added")) if any(char in code for char in chars)), "modified")
+
+
+async def changes(root: Path) -> dict:
+    try:
+        parts = (await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=normal")).split(b"\0")
+    except (dto.APIError, OSError, TimeoutError):
+        return {"changes": [], "git": False, "truncated": False}
+    values, index = [], 0
+    while index < len(parts):
+        part = parts[index]
+        index += 1
+        if len(part) < 4:
+            continue
+        code, path = part[:2].decode(), os.fsdecode(part[3:])
+        if code[0] in "RC":
+            index += 1
+        if len(values) == 200:
+            return {"changes": values, "git": True, "truncated": True}
+        values.append({"path": path, "status": change_status(code), "additions": 0, "deletions": 0,
+                       "diff": "", "diff_truncated": False})
+    return {"changes": values, "git": True, "truncated": False}
+
+
+async def diff(root: Path, path: str) -> dict:
+    if not path.strip():
+        raise dto.APIError(400, "INVALID_PATH", "请选择文件。")
+    resolve(root, path, exists=False)
+    status = await git(root, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--", path)
+    if len(status) < 4:
+        raise dto.APIError(404, "CHANGE_NOT_FOUND", "此文件没有工作区修改。")
+    code = status[:2].decode()
+    if code == "??":
+        value = await to_thread.run_sync(partial(preview, root, path, DIFF_LIMIT))
+        lines = value["content"].splitlines(keepends=True)
+        text = "" if value["binary"] else f"--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{len(lines)} @@\n" + "".join("+" + line for line in lines)
+        truncated = value["truncated"]
+    else:
+        output = await git(root, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--unified=3", "--", path)
+        output += await git(root, "diff", "--no-ext-diff", "--no-textconv", "--unified=3", "--", path)
+        text, truncated = output.decode("utf-8", errors="replace"), False
+    encoded = text.encode()
+    if len(encoded) > DIFF_LIMIT:
+        text, truncated = encoded[:DIFF_LIMIT - 32].decode("utf-8", errors="ignore") + "\n… diff truncated …\n", True
+    return {"path": path, "status": change_status(code), "diff": text, "diff_truncated": truncated,
+            "additions": sum(line.startswith("+") and not line.startswith("+++") for line in text.splitlines()),
+            "deletions": sum(line.startswith("-") and not line.startswith("---") for line in text.splitlines())}
+
+
+def routes(core, execution) -> APIRouter:
+    router = APIRouter()
+
+    async def root(workspace: str, folder: str) -> Path:
+        return Path((await core.get_workspace_folder(workspace, folder))["root_path"]).resolve()
+
+    @router.get("/folders")
+    async def folders(workspace_id: str):
+        return {"folders": await core.list_workspace_folders(workspace_id)}
+
+    @router.get("/folders/browse", dependencies=[Depends(owner)])
+    async def folder_browser(path: str = "", show_hidden: bool = False):
+        return await to_thread.run_sync(partial(browse, path, show_hidden))
+
+    @router.post("/folders", status_code=201, dependencies=[Depends(owner)])
+    async def add_folder(workspace_id: str, body: dto.FolderCreate):
+        return await core.create_workspace_folder(workspace_id, body.root_path, body.name)
+
+    @router.delete("/folders/{folder_id}", status_code=204, dependencies=[Depends(owner)])
+    async def delete_folder(workspace_id: str, folder_id: str):
+        await core.delete_workspace_folder(workspace_id, folder_id, dto.Principal)
+        return Response(status_code=204)
+
+    @router.get("/files")
+    async def files(workspace_id: str, folder_id: str = "", path: str = ""):
+        return await to_thread.run_sync(partial(list_files, await root(workspace_id, folder_id), path))
+
+    @router.get("/files/content")
+    async def content(workspace_id: str, folder_id: str = "", path: str = ""):
+        return await to_thread.run_sync(partial(preview, await root(workspace_id, folder_id), path))
+
+    @router.post("/files", status_code=201, dependencies=[Depends(owner)])
+    async def create(workspace_id: str, body: dto.EntryCreate, response: Response, folder_id: str = "", path: str = ""):
+        response.headers["Cache-Control"] = "no-store"
+        return await to_thread.run_sync(partial(new_entry, await root(workspace_id, folder_id), path, body.name, body.type))
+
+    @router.post("/files/open-folder", status_code=202, dependencies=[Depends(owner)])
+    async def open_folder(workspace_id: str, folder_id: str = "", path: str = ""):
+        target = resolve(await root(workspace_id, folder_id), path)
+        if not target.is_dir():
+            raise dto.APIError(400, "NOT_DIRECTORY", "请选择目录。")
+        program = "explorer.exe" if os.name == "nt" else "open" if sys.platform == "darwin" else "xdg-open"
+
+        async def launch():
+            process = await asyncio.create_subprocess_exec(program, str(target), stdout=asyncio.subprocess.DEVNULL,
+                                                            stderr=asyncio.subprocess.DEVNULL)
+            try:
+                return await process.wait()
+            finally:
+                if process.returncode is None:
+                    try:
+                        process.terminate()
+                    except ProcessLookupError:
+                        pass
+                    await process.wait()
+
+        running = execution.own(launch())
+        done, _ = await asyncio.wait({running}, timeout=0.3)
+        if done:
+            if running.result():
+                raise dto.APIError(503, "OPEN_FAILED", "文件管理器无法打开目录。")
+            return Response(status_code=204)
+        return {"launched": True}
+
+    @router.get("/changes")
+    async def get_changes(workspace_id: str, folder_id: str = ""):
+        return await changes(await root(workspace_id, folder_id))
+
+    @router.get("/changes/diff")
+    async def get_diff(workspace_id: str, path: str, folder_id: str = ""):
+        return await diff(await root(workspace_id, folder_id), path)
+
+    @router.get("/runtime-status", dependencies=[Depends(owner)])
+    async def status(workspace_id: str, request: Request, folder_id: str = ""):
+        return {"workspace_id": workspace_id, "workspace_root": str(await root(workspace_id, folder_id)),
+                "workspace_source": "selection" if folder_id else "environment" if os.getenv("MAIGOKITE_WORKSPACE_ROOT") else "configuration",
+                "environment": core.config.get("app.environment", "development"),
+                "backend": {"status": "serving" if core._initialized else "unavailable", "version": request.app.version},
+                "restart": {"pending": False, "required_for": ["启动配置与服务端口"],
+                            "hot_applied": ["工作区选择", "模型", "权限", "扩展", "界面称呼"], "note": ""}}
+
+    return router

@@ -193,8 +193,7 @@ export async function mockRequest<T>(url: string, init?: RequestInit): Promise<T
       workspace_root: folders.find((folder) => folder.id === (parsed.searchParams.get('folder_id') || ''))?.root_path || '/demo/workspace',
       workspace_source: parsed.searchParams.get('folder_id') ? 'selection' : 'configuration',
       environment: 'demo',
-      gateway: { status: 'serving' },
-      agent_core: { status: 'serving' },
+      backend: { status: 'serving' },
       restart: { pending: false, required_for: [], hot_applied: [], note: '' },
     }
   else if (parsed.pathname.endsWith('/folders/browse')) {

@@ -22,8 +22,8 @@ maigokite_env_python() {
 }
 
 maigokite_probe_python() {
-  # The minimum version matches pyproject.toml. Preserve the venv executable path.
-  "$@" -I -c 'import sys; sys.exit("Python 3.11+ required") if sys.version_info < (3, 11) else print(sys.executable)' 2>/dev/null
+  # Match the project's minor version and retain the selected venv executable path.
+  "$@" -I -c 'import sys; sys.exit("Python 3.14.x required") if sys.version_info[:2] != (3, 14) else print(sys.executable)' 2>/dev/null
 }
 
 maigokite_resolve_python() (
@@ -33,13 +33,13 @@ maigokite_resolve_python() (
     candidate="$MAIGOKITE_PYTHON"
     case "$candidate" in '~/'*) candidate="$HOME/${candidate:2}" ;; esac
     maigokite_probe_python "$candidate" && return 0
-    printf 'MAIGOKITE_PYTHON is not a usable Python 3.11+ executable: %s\n' "$candidate" >&2
+    printf 'MAIGOKITE_PYTHON is not a usable Python 3.14.x executable: %s\n' "$candidate" >&2
     return 1
   fi
   environment="$(maigokite_venv_dir "$project_root")"
   if candidate="$(maigokite_env_python "$environment")"; then
     maigokite_probe_python "$candidate" && return 0
-    printf 'Project Python environment is unusable: %s. Run scripts/setup.sh.\n' "$environment" >&2
+    printf 'Project environment requires Python 3.14.x: %s. Stop the app and run setup with uv; without uv, rename the old environment first.\n' "$environment" >&2
     return 1
   fi
   if [ -n "${VIRTUAL_ENV:-}" ] && candidate="$(maigokite_env_python "$VIRTUAL_ENV")"; then
@@ -47,14 +47,14 @@ maigokite_resolve_python() (
   fi
   # Delegate managed interpreter / .python-version discovery to uv, without downloads.
   if command -v uv >/dev/null 2>&1; then
-    if candidate="$(uv python find --no-python-downloads 2>/dev/null)" && maigokite_probe_python "$candidate"; then
+    if candidate="$(uv python find 3.14 --no-python-downloads 2>/dev/null)" && maigokite_probe_python "$candidate"; then
       return 0
     fi
   fi
-  for candidate in python python3; do
+  for candidate in python3.14 python python3; do
     if command -v "$candidate" >/dev/null 2>&1 && maigokite_probe_python "$candidate"; then return 0; fi
   done
-  if command -v py >/dev/null 2>&1 && maigokite_probe_python py -3; then return 0; fi
-  printf 'No usable Core Python found. Run scripts/setup.sh or set MAIGOKITE_PYTHON.\n' >&2
+  if command -v py >/dev/null 2>&1 && maigokite_probe_python py -3.14; then return 0; fi
+  printf 'Python 3.14.x not found. Run scripts/setup.sh with uv or set MAIGOKITE_PYTHON.\n' >&2
   return 1
 )

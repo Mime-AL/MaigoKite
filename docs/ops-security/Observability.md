@@ -10,7 +10,7 @@
 | Go/Python ConsoleObserver | 组件控制台日志、Python 标准 logging 事件数据 | 没有统一外层 JSON Schema、应用日志轮转或云同步 |
 | SQLite `audit_events` | 工具/审批等安全与业务审计 | 独立于普通运行日志 |
 | `task_events` / 活动区 | 工具、审批、公开过程与终态，稳定 ID/sequence | 补拉有单页上限及订阅窗口，不是无限重放 |
-| health / runtime-status | 网关/核心服务基本状态、路径和版本等实际值 | 核心服务是 gRPC，不能假设存在 HTTP health |
+| health / runtime-status | Python 后端基本状态、路径和版本等实际值 | FastAPI `/health` 在初始化完成后提供状态 |
 | MCP/技能清单 | 实际加载/连接能力 | 清单不是安装、授权或运行成功证明 |
 | `model.usage` | 模型提供方返回的主模型、摘要与子 Agent 用量，按 `purpose: response / summary / subagent` 区分 | 缺失表示未提供；取消后的计费、内部重试与丢失回执未必可见，不是完整账单，也不按硬编码价格推算 |
 

@@ -18,11 +18,10 @@ MaigoKite 是本地优先、用户可控的个人通用智能体，为用户选�
 ```mermaid
 flowchart LR
     U[个人用户] --> UI[Vue Renderer]
-    E[Electron Supervisor] -. 本地进程生命周期 .-> G[Go Gateway]
-    E -. 本地进程生命周期 .-> C[Python Core]
-    UI -->|REST / WebSocket| G
-    G -->|gRPC| C
-    G --> K[OS CredentialStore]
+    E[Electron / 源码启动器] -. 本地进程生命周期 .-> A[Python FastAPI]
+    UI -->|REST / WebSocket| A
+    A --> C[AgentCore]
+    A --> K[OS CredentialStore]
     C --> R[选定 Runtime / Provider]
     C --> P[PermissionPolicy / ToolRegistry]
     P --> N[Native / 文件 / Skill]
@@ -35,7 +34,7 @@ flowchart LR
 | --- | --- | --- |
 | Vue | 对话、设置、文件、活动检查与审批交互 | 最终授权、Node/Shell/文件系统权限 |
 | Electron | 安全窗口、白名单 IPC、桌面子进程启动和关闭 | 工具、智能体编排或业务状态 |
-| Go 网关 | REST/WS、身份/资源归属、限流、凭证边界、gRPC 桥接 | MCP/工具执行、智能体主循环、业务表写入 |
+| Python API | REST/WS、本机来源与工作区归属、输入限额、凭证边界 | 第二套工具执行、审批或任务状态机 |
 | Python 核心服务 | 产品命令、策略、工具/模型提供方资源、业务持久化与事件投影 | 公网服务、第二套通用智能体框架 |
 | 成熟运行时 | 模型循环、工具编排、HITL 与检查点 | MaigoKite 用户审批 UX、安全审计和业务查询 |
 
@@ -53,17 +52,17 @@ SQLite 是当前唯一业务库，领域写入由 Python Repository 管理。敏
 
 | 边界 | 当前协议 / 契约 |
 | --- | --- |
-| UI ↔ 网关 | HTTP/WebSocket；[API 设计](API.md) 与机器结构定义 |
-| 网关 → 核心服务 | gRPC；`proto/agent.proto` |
+| UI ↔ Python API | HTTP/WebSocket；[API 设计](API.md)、FastAPI OpenAPI 与产品事件 DTO |
+| API → 核心服务 | 同一进程内调用 AgentCore / Repository，无跨语言 RPC |
 | 核心服务 ↔ MCP | 当前 stdio；[MCP](../agent-capabilities/mcp/mcp-integration.md) |
 | 核心服务 → 模型提供方 | 复用模型提供方库；[模型接入](../agent-capabilities/models/model-routing.md) |
 | 核心服务 → 存储 | Repository / LangGraph checkpointer，分别管理业务与执行状态 |
 
-请求必须依次经过身份/工作区 AccessPolicy、Python ToolPolicy、实际资源边界与 hard-deny。网关允许不能跳过工具策略，技能也不能扩大授权。风险与模式的唯一矩阵见 [工具权限](../agent-capabilities/security/tool-permission.md)。
+请求必须依次经过本机来源/工作区归属检查、Python ToolPolicy、实际资源边界与 hard-deny。API 允许不能跳过工具策略，技能也不能扩大授权。风险与模式的唯一矩阵见 [工具权限](../agent-capabilities/security/tool-permission.md)。
 
 ## 5. 本地运行与关闭
 
-桌面模式为 Electron + loopback 网关 + loopback gRPC 核心服务，MCP 子进程由核心服务持有。端口来自配置，不是架构常量。桌面进程监督器协调退出，核心服务等待活动运行实例清理后关闭依赖；不能先标记 cancelled 再遗留后台执行。
+桌面模式为 Electron + 单 Python 后端，默认只监听 127.0.0.1:8080；Web 构建版由同一后端提供静态页面，开发版另外启动 Vite。MCP 子进程由核心服务持有。源码启动器和 Electron 协调退出，核心服务等待活动运行实例清理后关闭依赖；不能先标记 cancelled 再遗留后台执行。CLI 可指定 loopback 端口，成套入口与前端代理约定使用 8080。
 
 当前尚未形成干净机器安装包的完整 runtime bundling 验收。本地 loopback/Origin 边界也不能替代设备认证。构建、资源打包和发布阻塞仅在 [构建与发布指南](../deployment/ReleaseGuide.md) 维护。
 

@@ -56,8 +56,7 @@ watch(
         <h3>{{ $t('服务与版本') }}</h3>
         <article
           v-for="service in [
-            { label: '应用服务', value: status.gateway },
-            { label: '智能服务', value: status.agentCore },
+            { label: '应用服务', value: status.backend },
           ]"
           :key="service.label"
           class="runtime-service"
