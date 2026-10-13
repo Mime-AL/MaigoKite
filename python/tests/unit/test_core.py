@@ -1,25 +1,40 @@
 from __future__ import annotations
+
 import asyncio
 import json
 import shutil
+from unittest.mock import AsyncMock
+
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
-from pydantic import Field
-from tests.fixtures.chat_model import FakeModel
 from agent.models.runtime import ChatModelSettings
 from agent.security.whitelist import Whitelist
 from agent.tools.base import ExecutionContext
-from agent.tools.permission_mgr import PermissionManager,RiskLevel
-from agent.utils.sandbox import _bubblewrap_works
+from agent.tools.permission_mgr import PermissionManager, RiskLevel
+from agent.utils.sandbox import (
+    SandboxExecutionResult,
+    SandboxExecutor,
+    SandboxUnavailableError,
+    _bubblewrap_works,
+)
+from langchain_core.messages import AIMessage, ToolMessage
+from pydantic import Field
+
+from tests.fixtures.chat_model import FakeModel
 
 
 class ToolCallingProvider(FakeModel):
+    with_reasoning: bool = True
+
     def reply(self, messages, **kwargs):
         if isinstance(messages[-1], ToolMessage):
             return AIMessage(content="文件内容是 hello")
-        return AIMessage(content="我先读取文件。", tool_calls=[
+        return AIMessage(
+            content="" if self.with_reasoning else "我先读取文件。",
+            additional_kwargs={"reasoning_content": "我先读取文件。"} if self.with_reasoning else {},
+            tool_calls=[
             {"id": "call_read", "name": "file_read", "args": {"path": "note.txt"}},
-        ])
+            ],
+        )
 
 
 class MultiToolApprovalProvider(FakeModel):
@@ -28,7 +43,9 @@ class MultiToolApprovalProvider(FakeModel):
     def reply(self, messages, **kwargs):
         tool_messages = [item for item in messages if isinstance(item, ToolMessage)]
         if tool_messages:
-            self.received_tool_ids = [item.tool_call_id for item in tool_messages]
+            # Invocation options use shallow model copies; observe requests via
+            # the shared fixture list instead of replacing a copy's field.
+            self.received_tool_ids.extend(item.tool_call_id for item in tool_messages)
             return AIMessage(content="两个工具都已完成")
         return AIMessage(content="", tool_calls=[
             {"id": "call_write_first", "name": "file_write",
@@ -82,10 +99,15 @@ async def test_read_only_write_requires_approval_and_approved_write_stays_in_wor
         "personal",approval["approval_id"],"local-user","allow",approval["version"]
     )
     assert "Wrote" in allowed["response"] and (tmp_path/"result.txt").read_text()=="ok"
-    with pytest.raises(ValueError,match="already been decided"):
+    completed = await core.repository.get_tool_call(approval["tool_call_id"])
+    with pytest.raises(ValueError):
         await core.decide_approval(
             "personal",approval["approval_id"],"local-user","allow",approval["version"]
         )
+    assert await core.repository.get_tool_call(approval["tool_call_id"]) == completed
+    assert (await core.get_task("personal", blocked["task_id"]))["status"] == "succeeded"
+    assert (await core.repository.get_approval("personal", approval["approval_id"]))["status"] == "consumed"
+    assert (tmp_path / "result.txt").read_text() == "ok"
 
 
 @pytest.mark.asyncio
@@ -182,9 +204,10 @@ async def test_expired_approval_disappears_from_pending_snapshot(core):
 
 
 @pytest.mark.asyncio
-async def test_model_can_call_tool_and_continue_with_result(core,tmp_path):
+@pytest.mark.parametrize("with_reasoning", [True, False])
+async def test_model_can_call_tool_and_continue_with_result(core, tmp_path, with_reasoning):
     (tmp_path/"note.txt").write_text("hello",encoding="utf-8")
-    core._model=ToolCallingProvider()
+    core._model=ToolCallingProvider(with_reasoning=with_reasoning)
     conversation=await core.create_conversation(title="agent loop")
     events=[]
     async def capture(kind,payload):events.append((kind,payload))
@@ -196,8 +219,12 @@ async def test_model_can_call_tool_and_continue_with_result(core,tmp_path):
     assert call["status"]=="succeeded"
     reasoning=[payload for kind,payload in events if kind=="reasoning.completed"]
     visible=[payload["content"] for kind,payload in events if kind=="message.delta"]
-    assert reasoning[0]["summary"]=="我先读取文件。"
-    assert visible==["文件内容是 hello"]
+    if with_reasoning:
+        assert [item["summary"] for item in reasoning] == ["我先读取文件。"]
+        assert visible == ["文件内容是 hello"]
+    else:
+        assert reasoning == []
+        assert visible == ["我先读取文件。", "文件内容是 hello"]
 
 
 @pytest.mark.asyncio
@@ -233,17 +260,32 @@ async def test_conversation_permission_overrides_global_default(core,tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_bash_runs_in_normalized_workspace_after_approval(core,tmp_path):
+async def test_bash_passes_normalized_workspace_to_executor_after_approval(core, tmp_path, monkeypatch):
+    invocations = []
+
+    async def execute(executor, command, timeout, **options):
+        assert executor.workspace_root == executor.workdir == tmp_path.resolve()
+        assert executor.mode == "workspace"
+        assert executor.allow_network is False
+        assert command == "pwd" and options["shell"] == "direct"
+        invocations.append(command)
+        return SandboxExecutionResult(exit_code=0, stdout=str(executor.workdir), sandboxed=True)
+
+    monkeypatch.setattr(SandboxExecutor, "execute_command", execute)
     conversation=await core.create_conversation(title="bash",permission_mode="read_only")
     blocked=await core.run(
-        "/tool bash "+json.dumps({"command":"pwd"}),
+        "/tool bash "+json.dumps({"command":"pwd", "shell":"direct"}),
         {"conversation_id":conversation["id"]},
     )
+    assert blocked["status"] == "waiting_approval"
+    assert invocations == []
     approval=blocked["approval"]
     result=await asyncio.wait_for(core.decide_approval(
         "personal",approval["approval_id"],"local-user","allow",approval["version"]
     ),timeout=5)
+    assert result["status"] == "succeeded", result
     assert result["response"].strip()==str(tmp_path)
+    assert invocations == ["pwd"]
 
 
 @pytest.mark.asyncio
@@ -253,6 +295,15 @@ async def test_bash_sandbox_blocks_host_reads_but_allows_workspace_writes(core,t
         pytest.skip("bubblewrap is unavailable; arbitrary commands fail closed on this platform")
 
     conversation=await core.create_conversation(title="sandbox",permission_mode="read_only")
+    located = await core.run(
+        '/tool bash {"command":"pwd", "shell":"direct"}', {"conversation_id":conversation["id"]},
+    )
+    approval = located["approval"]
+    located = await core.decide_approval(
+        "personal", approval["approval_id"], "local-user", "allow", approval["version"],
+    )
+    assert located["response"].strip() == str(tmp_path)
+    await _assert_scoped_workspace_search(core, tmp_path)
     blocked=await core.run(
         "/tool bash "+json.dumps({"command":"python3 -c 'print(open(\"/etc/passwd\").read())'"}),
         {"conversation_id":conversation["id"]},
@@ -287,8 +338,7 @@ async def test_read_only_mode_allows_workspace_reads(core,tmp_path):
     assert await core.list_approvals("personal",conversation["id"])==[]
 
 
-@pytest.mark.asyncio
-async def test_glob_and_grep_defaults_are_scoped_to_workspace(core,tmp_path):
+async def _assert_scoped_workspace_search(core, tmp_path):
     (tmp_path/"workspace-only.txt").write_text("workspace needle",encoding="utf-8")
     conversation=await core.create_conversation(title="scoped search",permission_mode="read_only")
 
@@ -306,7 +356,62 @@ async def test_glob_and_grep_defaults_are_scoped_to_workspace(core,tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_glob_and_grep_pass_confined_workspace_defaults_to_executor(core, tmp_path, monkeypatch):
+    invocations = []
+
+    async def execute(executor, args, **options):
+        assert executor.workspace_root == executor.workdir == tmp_path.resolve()
+        assert executor.mode == "read_only" and executor.allow_network is False
+        assert args[0] == "rg" and args[-1] == "." and "--no-config" in args
+        invocations.append(args)
+        if "--files" in args:
+            assert args[args.index("--glob") + 1] == "workspace-only.txt"
+            return SandboxExecutionResult(exit_code=0, stdout="./workspace-only.txt\0", sandboxed=True)
+        assert args[args.index("--") + 1] == "workspace needle"
+        match = {"type": "match", "data": {
+            "path": {"text": "./workspace-only.txt"}, "line_number": 1,
+            "lines": {"text": "workspace needle"},
+        }}
+        return SandboxExecutionResult(exit_code=0, stdout=json.dumps(match), sandboxed=True)
+
+    monkeypatch.setattr(SandboxExecutor, "execute_argv", execute)
+    await _assert_scoped_workspace_search(core, tmp_path)
+    assert len(invocations) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool,arguments", [
+    ("exec_command", {"command": "pwd", "shell": "direct"}),
+    ("glob", {"pattern": "*.txt"}),
+    ("grep", {"pattern": "needle"}),
+])
+async def test_unavailable_sandbox_reports_failure_without_host_fallback(core, monkeypatch, tool, arguments):
+    unavailable = AsyncMock(side_effect=SandboxUnavailableError("fixture: isolation unavailable"))
+    spawn = AsyncMock(side_effect=AssertionError("must not fall back to a host process"))
+    monkeypatch.setattr(SandboxExecutor, "execute_argv", unavailable)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    events = []
+
+    async def capture(kind, payload):
+        events.append((kind, payload))
+
+    core.event_bus.subscribe("*", capture)
+    conversation = await core.create_conversation(permission_mode="workspace")
+    result = await core.run(f"/tool {tool} " + json.dumps(arguments), {"conversation_id": conversation["id"]})
+    unavailable.assert_awaited_once()
+    spawn.assert_not_awaited()
+    failures = [payload for kind, payload in events if kind == "tool.failed"]
+    assert len(failures) == 1
+    assert failures[0]["error_code"] == "SANDBOX_UNAVAILABLE"
+    assert failures[0]["user_hint"]
+    assert result["response"] == failures[0]["summary"]
+    assert not any(kind == "tool.completed" for kind, _ in events)
+    assert (await core.repository.get_tool_call(failures[0]["tool_call_id"]))["status"] == "failed"
+
+
+@pytest.mark.asyncio
 async def test_remaining_phase_one_native_tools_execute_through_policy(core,tmp_path,monkeypatch):
+    await core.update_tool_settings("personal", {"sleep": True})
     (tmp_path/"edit.txt").write_text("before",encoding="utf-8")
     search_tool=core.tool_registry.get("web_search")
     assert search_tool is not None
@@ -344,12 +449,43 @@ async def test_remaining_phase_one_native_tools_execute_through_policy(core,tmp_
 
 
 @pytest.mark.asyncio
+async def test_optional_tool_stays_disabled_until_explicitly_enabled(core, monkeypatch):
+    tool = core.tool_registry.get("sleep")
+    assert tool is not None
+    execute = AsyncMock(wraps=tool.execute)
+    monkeypatch.setattr(tool, "execute", execute)
+    conversation = await core.create_conversation(permission_mode="danger_full_access")
+    events = []
+
+    async def capture(kind, payload):
+        events.append((kind, payload))
+
+    core.event_bus.subscribe("*", capture)
+    command = '/tool sleep {"seconds": 0.001}'
+    context = {"conversation_id": conversation["id"]}
+    await core.run(command, context)
+    execute.assert_not_awaited()
+    assert not any(kind == "tool.started" for kind, _ in events)
+    denied = [payload for kind, payload in events if kind == "tool.failed"]
+    assert len(denied) == 1 and denied[0]["denied"] is True
+
+    await core.update_tool_settings("personal", {"sleep": True})
+    events.clear()
+    result = await core.run(command, context)
+    execute.assert_awaited_once()
+    assert result["status"] == "succeeded"
+    assert [kind for kind, _ in events if kind.startswith("tool.")] == [
+        "tool.proposed", "tool.started", "tool.completed",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_web_search_failure_emits_actionable_tool_event(core,monkeypatch):
     search_tool=core.tool_registry.get("web_search")
     assert search_tool is not None
 
     async def failed_search(query,max_results):
-        raise RuntimeError("provider offline")
+        raise RuntimeError("provider offline at https://example.invalid/?api_key=DO_NOT_EXPOSE")
 
     monkeypatch.setattr(search_tool,"_duckduckgo_search",failed_search)
     conversation=await core.create_conversation(title="search failure",permission_mode="full_access")
@@ -365,10 +501,12 @@ async def test_web_search_failure_emits_actionable_tool_event(core,monkeypatch):
     assert result["status"]=="succeeded"
     failed=[payload for kind,payload in events if kind=="tool.failed"]
     assert len(failed)==1
-    assert failed[0]["code"]=="SEARCH_PROVIDER_UNAVAILABLE"
-    assert "设置 → 联网工具" in failed[0]["user_hint"]
+    assert failed[0]["error_code"]=="SEARCH_PROVIDER_UNAVAILABLE"
+    assert "设置 → 工具" in failed[0]["user_hint"]
     assert failed[0]["action"]=={"label":"配置联网工具","to":"/settings?tab=tools"}
     assert not [payload for kind,payload in events if kind=="tool.completed"]
+    assert "DO_NOT_EXPOSE" not in json.dumps(events, ensure_ascii=False)
+    assert "DO_NOT_EXPOSE" not in result["response"]
 
 
 @pytest.mark.asyncio
@@ -409,7 +547,7 @@ async def test_web_search_rejects_incomplete_google_credential(core):
 
     assert result["status"]=="succeeded"
     failed=[payload for kind,payload in events if kind=="tool.failed"]
-    assert failed[0]["code"]=="SEARCH_PROVIDER_INVALID_CONFIGURATION"
+    assert failed[0]["error_code"]=="SEARCH_PROVIDER_INVALID_CONFIGURATION"
     assert failed[0]["action"]["to"]=="/settings?tab=tools"
 
 
@@ -422,16 +560,18 @@ async def test_unknown_tool_is_denied_before_started_event(core):
 
     result=await core.run("/tool missing_tool {}",{"conversation_id":conversation["id"]})
 
-    assert "Tool denied" in result["response"]
+    assert result["response"] == "tool is not enabled for this run"
     assert "tool.started" not in [kind for kind,_ in events]
     failed=[payload for kind,payload in events if kind=="tool.failed"]
     assert failed and failed[0]["denied"] is True
+    assert failed[0]["error_code"] == "TOOL_DENIED"
+    assert (await core.repository.get_tool_call(failed[0]["tool_call_id"]))["status"] == "denied"
     audit=await core.repository.list_audit_events("personal")
     assert any(item["action"]=="tool.denied" and item["resource"]=="missing_tool" for item in audit)
 
 
 @pytest.mark.asyncio
-async def test_approved_tool_failure_marks_task_failed_and_emits_terminal_event(core):
+async def test_approved_file_error_is_projected_without_crashing_the_run(core, tmp_path):
     conversation=await core.create_conversation(title="approved failure")
     events=[]
     async def capture(kind,payload):events.append((kind,payload))
@@ -442,14 +582,59 @@ async def test_approved_tool_failure_marks_task_failed_and_emits_terminal_event(
     )
     approval=blocked["approval"]
 
-    with pytest.raises(IsADirectoryError):
-        await core.decide_approval(
-            "personal",approval["approval_id"],"local-user","allow",approval["version"]
-        )
+    result = await core.decide_approval(
+        "personal", approval["approval_id"], "local-user", "allow", approval["version"]
+    )
 
     task=await core.get_task("personal", blocked["task_id"])
-    assert task["status"]=="failed"
-    assert "task.failed" in [kind for kind,_ in events]
+    assert result["status"] == task["status"] == "succeeded"
+    assert (await core.repository.get_tool_call(approval["tool_call_id"]))["status"] == "failed"
+    failures = [payload for kind, payload in events if kind == "tool.failed"]
+    assert len(failures) == 1
+    assert failures[0]["error_code"] == "TOOL_EXECUTION_FAILED"
+    assert failures[0]["tool_call_id"] == approval["tool_call_id"]
+    assert result["response"] == failures[0]["summary"]
+    kinds = [kind for kind, _ in events]
+    assert kinds[-1] == "task.succeeded"
+    assert "tool.completed" not in kinds
+    assert "task.failed" not in kinds
+    assert "file.changed" not in kinds
+    assert tmp_path.is_dir()
+
+
+@pytest.mark.asyncio
+async def test_unhandled_approved_tool_exception_fails_task_with_safe_diagnostics(core, tmp_path, monkeypatch):
+    tool = core.tool_registry.get("file_write")
+    assert tool is not None
+    execute = AsyncMock(side_effect=RuntimeError("https://example.invalid/?api_key=DO_NOT_EXPOSE"))
+    monkeypatch.setattr(tool, "execute", execute)
+    events = []
+
+    async def capture(kind, payload):
+        events.append((kind, payload))
+
+    core.event_bus.subscribe("*", capture)
+    conversation = await core.create_conversation(permission_mode="read_only")
+    blocked = await core.run(
+        '/tool file_write {"path":"unwritten.txt", "content":"never"}',
+        {"conversation_id": conversation["id"]},
+    )
+    approval = blocked["approval"]
+    execute.assert_not_awaited()
+    result = await core.decide_approval(
+        "personal", approval["approval_id"], "local-user", "allow", approval["version"],
+    )
+    execute.assert_awaited_once()
+    assert result["status"] == "failed"
+    assert (await core.get_task("personal", blocked["task_id"]))["status"] == "failed"
+    assert (await core.repository.get_tool_call(approval["tool_call_id"]))["status"] == "failed"
+    kinds = [kind for kind, _ in events]
+    assert kinds.count("tool.failed") == kinds.count("task.failed") == 1
+    assert kinds[-1] == "task.failed"
+    assert "tool.completed" not in kinds and "task.succeeded" not in kinds
+    assert "DO_NOT_EXPOSE" not in json.dumps(events, ensure_ascii=False)
+    assert "DO_NOT_EXPOSE" not in json.dumps(result, ensure_ascii=False)
+    assert not (tmp_path / "unwritten.txt").exists()
 
 
 @pytest.mark.asyncio
@@ -460,7 +645,8 @@ async def test_file_read_reports_binary_input_cleanly(core,tmp_path):
         "/tool file_read "+json.dumps({"path":"binary.dat"}),
         {"conversation_id":conversation["id"]},
     )
-    assert "Binary file is not supported" in result["response"]
+    assert result["response"] == "不支持读取二进制文件，请选择文本文件或使用支持该格式的工具。"
+    assert "abc" not in result["response"]
 
 
 @pytest.mark.asyncio
@@ -496,7 +682,8 @@ def test_policy_matrix_and_hard_deny(tmp_path):
     ).outcome=="deny"
 
 def test_allowlist_narrows_tools_commands_and_workspace_paths(tmp_path):
-    docs=tmp_path/"docs";docs.mkdir()
+    docs = tmp_path / "docs"
+    docs.mkdir()
     allowlist=Whitelist(
         tools={"file_read","bash"},
         command_prefixes={"git status"},
@@ -535,7 +722,10 @@ def test_legacy_permission_modes_migrate_conservatively(tmp_path):
     assert PermissionManager("plan",tmp_path).mode=="read_only"
     assert PermissionManager("manual",tmp_path).mode=="read_only"
     assert PermissionManager("accept_edits",tmp_path).mode=="workspace"
-    assert PermissionManager("auto",tmp_path).mode=="full_access"
+    for mode in ("auto", "full_access"):
+        policy = PermissionManager(mode, tmp_path)
+        assert policy.mode == "workspace_auto"
+        assert policy.evaluate("file_read", {"path": "../outside.txt"}).outcome == "deny"
 
 def test_windows_auto_shell_selection_requires_approval(tmp_path, monkeypatch):
     import agent.utils.command_shell as command_shell

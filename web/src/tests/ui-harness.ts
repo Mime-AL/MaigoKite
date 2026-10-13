@@ -1,5 +1,6 @@
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { afterEach, vi } from 'vitest'
+import { afterEach, expect, vi } from 'vitest'
+import { flushPromises, type VueWrapper } from '@vue/test-utils'
 
 /** Use the real router so route-dependent components and RouterLink keep their contract. */
 export async function testRouter(path = '/') {
@@ -10,6 +11,21 @@ export async function testRouter(path = '/') {
   await router.push(path)
   await router.isReady()
   return router
+}
+
+/** Exercise the visible select, including its teleported menu and change event. */
+export async function chooseOption(wrapper: VueWrapper, label: string, optionLabel: string) {
+  await wrapper.get(`button[role="combobox"][aria-label="${label}"]`).trigger('click')
+  await flushPromises()
+  const dialog = document.querySelector<HTMLDialogElement>(`dialog[aria-label="${label}"]`)
+  expect(dialog?.open).toBe(true)
+  const option = [...dialog!.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+    .find(item => item.textContent?.trim() === optionLabel)
+  expect(option).toBeDefined()
+  expect(option!.disabled).toBe(false)
+  option!.click()
+  await flushPromises()
+  expect(dialog!.open).toBe(false)
 }
 
 /** Only polyfill APIs absent in jsdom; keep modal open/close observable. */

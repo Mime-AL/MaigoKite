@@ -411,6 +411,7 @@ GUI 的收件箱与活动卡片已接入问题选项、自由文本及“回答�
 普通聊天输入不隐式充当问题回答：运行中 Enter 通过 `/tasks/{task_id}/inputs` 引导，
 Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能稍后发送，或就地处理卡片。
 驳回理由通过 Approval API 的 note 保存并交给模型。`deny` 只拒绝该操作，`scope` 必须为 `once`；任务继续或等待同批下一项审批，不发布 `task.cancelled`。批次审阅完成后，被拒绝调用通过既有 `tool.failed`（`error_code=APPROVAL_REJECTED`）投影，产品工具状态为 `denied`。续接失败另发 `task.failed`，拒绝决定仍有效；显式 cancel 才停止整轮。
+权限策略拒绝或工具未启用时，同样不执行工具，但使用 `tool.failed` 的 `error_code=TOOL_DENIED`、`denied=true`，工具记录为 `denied`，审计为 `tool.denied`；不得与用户驳回审批或工具执行后失败混淆。
 阶段 3a 的补充输入、计划恢复与运行抽屉已进行真实 API/Core 验收，见
 [UI 设计的阶段 3a 记录](agent-ui-design.md#10-阶段-3a--数据链路)。
 该验收不代表审批/回答的跨进程恢复通过；Mock 未实现问题续接，返回空问题列表。

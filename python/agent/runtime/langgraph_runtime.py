@@ -1267,6 +1267,10 @@ class LangGraphRuntime:
             status = "failed" if failed else "succeeded"
             if failed and stored["status"] == "denied":
                 status = "denied"
+            error_code = product.get("error_code")
+            if status == "denied" and not error_code:
+                error_code = "APPROVAL_REJECTED"
+            policy_denied = status == "denied" and error_code == "TOOL_DENIED"
             await self.repository.update_tool_call(
                 call_id,
                 status,
@@ -1276,7 +1280,7 @@ class LangGraphRuntime:
             await self.repository.record_audit(
                 context.request.workspace_id,
                 context.request.principal_id,
-                "tool.failed" if failed else "tool.completed",
+                "tool.denied" if policy_denied else "tool.failed" if failed else "tool.completed",
                 tool_name,
                 "denied" if status == "denied" else "failed" if failed else "success",
                 {"tool_call_id": call_id, "risk": stored["risk_level"], "summary": summary},
@@ -1291,8 +1295,12 @@ class LangGraphRuntime:
                     "summary": summary,
                     "data": product.get("data", {"content": content}),
                     "result": product.get("data", {"content": content}),
-                    "error_code": "APPROVAL_REJECTED" if status == "denied" else product.get("error_code"),
-                    "user_hint": "该操作已驳回，未执行；继续处理任务的其他部分。" if status == "denied" else product.get("user_hint"),
+                    "error_code": error_code,
+                    **({"denied": True} if status == "denied" else {}),
+                    "user_hint": (
+                        "该操作已驳回，未执行；继续处理任务的其他部分。"
+                        if error_code == "APPROVAL_REJECTED" else product.get("user_hint")
+                    ),
                     "action": product.get("action"),
                 },
             )
@@ -1584,10 +1592,17 @@ class LangGraphRuntime:
                 )
         if decision.outcome != "allow":
             # ToolNode still projects the returned failure to the model and UI;
-            # a hidden/disabled call never reaches the actual tool body.
+            # persist denial so it cannot be mistaken for a failed execution
+            # or for the user's separate HITL rejection.
+            await self.repository.update_tool_call(
+                str(request.tool_call["id"]), "denied", risk_level=decision.risk.name,
+            )
             return ToolMessage(
                 content=decision.reason, tool_call_id=str(request.tool_call["id"]),
-                name=tool_name, status="error",
+                name=tool_name, status="error", artifact={
+                    "summary": decision.reason, "error_code": "TOOL_DENIED",
+                    "user_hint": "当前权限或工具设置不允许此操作，未执行。",
+                },
             )
         if decision.authorization_id:
             await self.repository.record_audit(

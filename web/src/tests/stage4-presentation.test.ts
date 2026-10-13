@@ -10,6 +10,7 @@ import { paperLight, starterShortcut, takeWelcomeIntroduction } from '@/utils/we
 import { confidencePercent, knownSessionStatus, memoryGroup } from '@/utils/work-records'
 import WelcomeSheet from '@/components/chat-area/WelcomeSheet.vue'
 import Memory from '@/views/Memory.vue'
+import InkConfirm from '@/components/common/InkConfirm.vue'
 import Overview from '@/views/Overview.vue'
 import { mockDialogs, testRouter } from './ui-harness'
 
@@ -25,6 +26,8 @@ beforeEach(() => {
   vi.spyOn(api, 'listWorkspaceFolders').mockResolvedValue([folder])
   vi.spyOn(api, 'getUserPreferences').mockResolvedValue({ assistantName: '小七' })
   vi.spyOn(api, 'listMemories').mockResolvedValue([])
+  vi.spyOn(api, 'getMemorySettings').mockResolvedValue({ folder_id: '', enabled: false })
+  vi.spyOn(api, 'getCapabilities').mockResolvedValue({ scoped_memory: true })
 })
 describe('stage 4 welcome', () => {
   it('keeps default workspace with empty id usable; starters only emit a draft', async () => {
@@ -145,13 +148,27 @@ describe('stage 4 memory', () => {
   it('requires confirmation before deleting and preserves pin action', async () => {
     vi.mocked(api.listMemories).mockResolvedValue([entry()])
     const deletion = vi.spyOn(api, 'deleteMemory').mockResolvedValue(undefined)
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    mount(InkConfirm)
     const wrapper = mount(Memory, { global: { plugins: [await testRouter('/memory')] } }); await flushPromises()
     await wrapper.get('.memory-item footer button').trigger('click')
     expect(useMemoryStore().pinnedIds).toContain('m')
     await wrapper.get('.memory-item .danger').trigger('click'); expect(deletion).not.toHaveBeenCalled()
-    confirm.mockReturnValue(true); await wrapper.get('.memory-item .danger').trigger('click'); await flushPromises()
+    await flushPromises()
+    const dialog = document.querySelector<HTMLDialogElement>('dialog.ink-confirm')!
+    expect(dialog.open).toBe(true)
+    expect(dialog.textContent).toContain('遗忘这条记忆？')
+    dialog.querySelector<HTMLButtonElement>('.secondary-button')!.click()
+    await flushPromises()
+    expect(dialog.open).toBe(false)
+    expect(deletion).not.toHaveBeenCalled()
+    expect(wrapper.find('.memory-item').exists()).toBe(true)
+    await wrapper.get('.memory-item .danger').trigger('click'); await flushPromises()
+    expect(dialog.open).toBe(true)
+    dialog.querySelector<HTMLButtonElement>('.danger-button')!.click()
+    await flushPromises()
     expect(deletion).toHaveBeenCalledWith('m')
+    expect(deletion).toHaveBeenCalledTimes(1)
+    expect(dialog.open).toBe(false)
   })
   it('retains focus query highlighting and accessible confidence', async () => {
     vi.mocked(api.listMemories).mockResolvedValue([entry()])
@@ -160,7 +177,7 @@ describe('stage 4 memory', () => {
     expect(wrapper.get('#memory-m').classes()).toContain('focused-memory')
     expect(document.activeElement?.id).toBe('memory-m')
     expect(wrapper.get('[role="meter"]').attributes('aria-valuenow')).toBe('80')
-    expect(api.listMemories).toHaveBeenCalledWith('')
+    expect(api.listMemories).toHaveBeenCalledWith('', '')
     wrapper.unmount()
   })
   it('provides local empty CTAs and error retry, not a false empty state', async () => {

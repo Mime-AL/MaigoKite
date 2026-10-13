@@ -1,6 +1,6 @@
 import { config, enableAutoUnmount } from '@vue/test-utils'
 import { createPinia, disposePinia, getActivePinia, setActivePinia } from 'pinia'
-import { afterEach, beforeEach, onTestFinished, vi } from 'vitest'
+import { afterEach, beforeEach, expect, onTestFinished, vi } from 'vitest'
 import { i18n } from '@/i18n'
 // jsdom lacks native dialog lifecycle. Keep a stable base polyfill so file-local
 // fixtures can restore it before auto-unmount without breaking cleanup.
@@ -13,6 +13,14 @@ if (typeof HTMLDialogElement !== 'undefined') {
 config.global.plugins.push(i18n)
 enableAutoUnmount(afterEach)
 beforeEach(() => {
+  const unexpectedRequests: string[] = []
+  // A caught network error must still fail the test: omitted fixtures must not
+  // contact a developer's backend or silently turn a success case into an error UI.
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    unexpectedRequests.push(url)
+    throw new Error(`Unmocked fetch: ${url}`)
+  })
   setActivePinia(createPinia())
   i18n.global.locale.value = 'zh-CN'
   if (typeof localStorage !== 'undefined') localStorage.clear()
@@ -24,5 +32,6 @@ beforeEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.useRealTimers()
+    expect(unexpectedRequests, `Mock every API request made by this test: ${unexpectedRequests.join(', ')}`).toEqual([])
   })
 })

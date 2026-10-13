@@ -3,17 +3,21 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, overload
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, WebSocket
+from fastapi import Depends, FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError, WebSocketRequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from agent.api import sessions, settings, statistics, workspace
 from agent.api.contracts import APIError
@@ -21,6 +25,9 @@ from agent.api.credentials import Credentials
 from agent.api.execution import Execution
 from agent.errors import public_error
 from agent.repository import ConversationBusyError, MessageConflictError
+
+if TYPE_CHECKING:
+    from agent.core import AgentCore
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +37,19 @@ def loopback(host: str) -> bool:
         return True
     try:
         address = ipaddress.ip_address(host)
-        return address.is_loopback or bool(getattr(address, "ipv4_mapped", None) and address.ipv4_mapped.is_loopback)
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+            return address.ipv4_mapped.is_loopback
+        return address.is_loopback
     except ValueError:
         return False
 
 
 class LocalBoundary:
     """Reject remote peers, DNS rebinding and foreign browser origins before any API action."""
-    def __init__(self, app) -> None:
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in {"http", "websocket"}:
             await self.app(scope, receive, send)
             return
@@ -62,7 +71,8 @@ class LocalBoundary:
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 1008})
             else:
-                await JSONResponse({"error": {"code": code, "message": message}}, status_code=status)(scope, receive, send)
+                response = JSONResponse({"error": {"code": code, "message": message}}, status_code=status)
+                await response(scope, receive, send)
 
         if not loopback(peer) or not loopback(host) or not trusted_origin:
             await reject(403, "LOCAL_ACCESS_ONLY", "应用仅接受本机页面与桌面客户端访问。")
@@ -72,15 +82,13 @@ class LocalBoundary:
                 await self.app(scope, receive, send)
             except Exception as exc:
                 logger.warning("WebSocket failed: %s", type(exc).__name__)
-                try:
+                with suppress(OSError, RuntimeError):
                     await send({"type": "websocket.close", "code": 1011})
-                except (OSError, RuntimeError):
-                    pass
             return
 
         started = False
 
-        async def reply(message):
+        async def reply(message: Message) -> None:
             nonlocal started
             if message["type"] == "http.response.start":
                 started = True
@@ -102,7 +110,7 @@ class LocalBoundary:
                 break
         delivered = False
 
-        async def buffered():
+        async def buffered() -> Message:
             nonlocal delivered
             if not delivered:
                 delivered = True
@@ -123,14 +131,14 @@ class LocalBoundary:
 
 class WebUI(StaticFiles):
     """Serve Vue history routes without turning missing assets or API calls into HTML."""
-    def __init__(self, directory: Path, **kwargs) -> None:
+    def __init__(self, directory: Path, **kwargs: Any) -> None:
         super().__init__(directory=directory, **kwargs)
         # Share the relative-path build with Electron, but resolve HTTP assets
         # from the origin root even when index.html serves /chat/<id>.
         html = (directory / "index.html").read_text(encoding="utf-8")
         self.index_html = html.replace("<head>", '<head><base href="/">', 1)
 
-    async def get_response(self, path, scope):
+    async def get_response(self, path: str, scope: Scope) -> Response:
         if scope["method"] in {"GET", "HEAD"} and path in {".", "", "index.html"}:
             return HTMLResponse(self.index_html)
         try:
@@ -143,12 +151,12 @@ class WebUI(StaticFiles):
             raise
 
 
-def create_app(core, web_dir: Path | None = None) -> FastAPI:
+def create_app(core: AgentCore, web_dir: Path | None = None) -> FastAPI:
     execution = Execution(core)
     credentials = Credentials(core)
 
     @asynccontextmanager
-    async def lifespan(app):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             await core.initialize()
             yield
@@ -167,10 +175,16 @@ def create_app(core, web_dir: Path | None = None) -> FastAPI:
                        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                        allow_headers=["Content-Type", "Idempotency-Key"], expose_headers=["Idempotency-Replayed"])
 
-    async def failure(connection, error: Exception):
+    @overload
+    async def failure(connection: Request, error: Exception) -> Response: ...
+
+    @overload
+    async def failure(connection: WebSocket, error: Exception) -> None: ...
+
+    async def failure(connection: Request | WebSocket, error: Exception) -> Response | None:
         if isinstance(connection, WebSocket):
             await connection.close(code=1008)
-            return
+            return None
         if isinstance(error, APIError):
             status, code, message = error.status, error.code, str(error)
         elif isinstance(error, (ConversationBusyError, MessageConflictError)):
@@ -203,22 +217,25 @@ def create_app(core, web_dir: Path | None = None) -> FastAPI:
         app.add_exception_handler(error, failure)
 
     @app.get("/health")
-    async def health():
+    async def health() -> dict[str, str]:
         return {"status": "ok", "agent_core": "serving", "version": app.version}
 
     prefix = "/api/v1/workspaces/{workspace_id}"
     dependencies = [Depends(sessions.workspace_access)]
 
     @app.get(prefix + "/capabilities", dependencies=dependencies)
-    async def capabilities():
+    async def capabilities() -> dict[str, dict[str, bool]]:
         native = core._initialized and core._langgraph_runtime is not None
         flags = dict.fromkeys(("approval_note", "approval_detail", "task_inspection", "file_change_events",
                                "process_list", "process_stop", "process_input", "safety_review"), True)
         flags.update(dict.fromkeys(("structured_questions", "task_input", "structured_plan", "task_resume", "subagents",
-                                    "subagent_model_selection", "conversation_fork", "context_estimate", "session_approval",
+                                    "subagent_model_selection", "conversation_fork", "context_estimate",
+                                    "session_approval",
                                     "task_approval", "approval_authorization_revocation", "permission_boundary_v2",
                                     "scoped_memory"), native))
-        flags.update(dict.fromkeys(("model_context_percentage", "auto_review", "turn_rollback", "automatic_memory_events"), False))
+        flags.update(dict.fromkeys(
+            ("model_context_percentage", "auto_review", "turn_rollback", "automatic_memory_events"), False,
+        ))
         # ProcessRegistry also reads named log files on Windows. A particular
         # job's live_logs_available reports whether its handles are readable.
         flags["live_process_logs"] = True
@@ -230,11 +247,11 @@ def create_app(core, web_dir: Path | None = None) -> FastAPI:
     if web_dir is not None:
         # Desktop uses hashes; Web history navigation needs index.html on direct page loads.
         @app.api_route("/api", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-        async def missing_api_root():
+        async def missing_api_root() -> None:
             raise APIError(404, "NOT_FOUND", "接口不存在。")
 
         @app.api_route("/api/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-        async def missing_api(path: str):
+        async def missing_api(path: str) -> None:
             raise APIError(404, "NOT_FOUND", "接口不存在。")
         app.mount("/", WebUI(directory=web_dir, html=True), name="web")
     return app

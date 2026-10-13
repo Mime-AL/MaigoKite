@@ -18,6 +18,9 @@ describe('data and extension pages', () => {
   })
 
   it('loads persisted user memories', async () => {
+    vi.spyOn(api, 'listWorkspaceFolders').mockResolvedValue([{ id: '', name: 'Default', root_path: '/work' }])
+    vi.spyOn(api, 'getMemorySettings').mockResolvedValue({ folder_id: '', enabled: false })
+    vi.spyOn(api, 'getCapabilities').mockResolvedValue({ scoped_memory: true })
     vi.spyOn(api, 'getUserPreferences').mockResolvedValue({ assistantName: '小七' })
     vi.spyOn(api, 'listMemories').mockResolvedValue([{
       id: 'memory_1', workspace_id: 'personal', subject_user_id: 'local-user',
@@ -28,6 +31,9 @@ describe('data and extension pages', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('回答时使用中文')
+    expect(api.listMemories).toHaveBeenCalledWith('', '')
+    expect(api.getMemorySettings).toHaveBeenCalledWith('')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Phase 2')
     expect(wrapper.text()).not.toContain('自动抽取、语义检索')
     expect(wrapper.find('input[type="range"]').exists()).toBe(false)
@@ -69,7 +75,7 @@ describe('data and extension pages', () => {
       storage_backend: 'sqlite', conversation_count: 2, message_count: 8,
       memory_count: 3, task_count: 5, audit_event_count: 13,
     })
-    const wrapper = mount(DataManagement)
+    const wrapper = mount(DataManagement, { global: { plugins: [await testRouter('/data')] } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('13')
@@ -77,8 +83,8 @@ describe('data and extension pages', () => {
     expect(wrapper.text()).not.toContain('sqlite')
   })
 
-  it('registers the index page without fake configuration controls', () => {
-    const wrapper = mount(EmbeddingIndexes)
+  it('registers the index page without fake configuration controls', async () => {
+    const wrapper = mount(EmbeddingIndexes, { global: { plugins: [await testRouter('/indexes')] } })
     expect(wrapper.text()).toContain('知识库')
     expect(wrapper.text()).toContain('此页面不可用')
     expect(wrapper.text()).not.toContain('Phase 2')

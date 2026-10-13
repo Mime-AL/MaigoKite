@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useUIStore, validAppearance, type Appearance } from '@/stores/ui'
 import { searchSettings } from '@/config/settings-fields'
 import SecretField from '@/components/common/SecretField.vue'
+import InkConfirm from '@/components/common/InkConfirm.vue'
 import ModelCatalogPicker from '@/components/settings/ModelCatalogPicker.vue'
 import ToolSettingsPanel from '@/components/settings/ToolSettingsPanel.vue'
 import SearchToolSettingsPanel from '@/components/settings/SearchToolSettingsPanel.vue'
@@ -60,7 +61,7 @@ describe('final presentation preferences and search', () => {
     await wrapper.get('.settings-search input').trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(router.currentRoute.value.query.field).toBe('text-size')
-    expect(document.activeElement).toBe(wrapper.get('[data-settings-field="text-size"] select').element)
+    expect(document.activeElement).toBe(wrapper.get('[data-settings-field="text-size"] button[role="combobox"]').element)
     wrapper.unmount()
   })
   it('keeps an unsuccessful assistant-name draft and retries in place', async () => {
@@ -121,11 +122,19 @@ describe('final secrets and tool presentation', () => {
   })
   it('does not remove a credential when confirmation is declined', async () => {
     useSettingsStore().credentials.tavily = { service: 'tavily', configured: true }
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    mount(InkConfirm)
     const remove = vi.spyOn(api, 'deleteCredential').mockResolvedValue(undefined)
     const wrapper = mount(SearchToolSettingsPanel)
     await wrapper.get('.credential-form .danger-button').trigger('click')
+    await flushPromises()
+    const dialog = document.querySelector<HTMLDialogElement>('dialog.ink-confirm')!
+    expect(dialog.open).toBe(true)
     expect(remove).not.toHaveBeenCalled()
+    dialog.querySelector<HTMLButtonElement>('.secondary-button')!.click()
+    await flushPromises()
+    expect(dialog.open).toBe(false)
+    expect(remove).not.toHaveBeenCalled()
+    expect(useSettingsStore().credentials.tavily?.configured).toBe(true)
   })
 })
 describe('final list accessibility', () => {

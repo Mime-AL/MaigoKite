@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -10,6 +10,7 @@ describe('permission settings', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     setActivePinia(createPinia())
+    vi.spyOn(api, 'getCapabilities').mockResolvedValue({ permission_boundary_v2: true })
   })
 
   it('shows three clear profiles and keeps internal risk baselines out of the UI', async () => {
@@ -17,6 +18,7 @@ describe('permission settings', () => {
     store.permissions = { default_mode: 'workspace' }
     vi.spyOn(api, 'updatePermissionSettings').mockImplementation(async value => value)
     const wrapper = mount(PermissionSettingsPanel)
+    await flushPromises()
 
     for (const label of ['只读', '工作区', '完全访问', '推荐']) {
       expect(wrapper.text()).toContain(label)
@@ -26,5 +28,7 @@ describe('permission settings', () => {
     await wrapper.get('footer button').trigger('click')
 
     expect(api.updatePermissionSettings).toHaveBeenCalledWith({ default_mode: 'read_only' })
+    expect(api.updatePermissionSettings).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })

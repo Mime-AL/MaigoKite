@@ -131,6 +131,10 @@ onMounted(() => {
               :disabled="saving || !tool.configurable"
               :aria-label="labels[tool.name] ? $t(labels[tool.name][0]) : tool.name"
             ></label>
+            <details v-if="tool.description" class="tool-instructions">
+              <summary>{{ $t('模型工具说明') }}</summary>
+              <pre>{{ tool.description }}</pre>
+            </details>
           </article>
         </section>
         <footer class="settings-actions">
@@ -206,6 +210,18 @@ onMounted(() => {
   width: var(--size-18);
   height: var(--size-18);
   accent-color: var(--accent);
+}
+.tool-instructions {
+  margin-top: var(--space-3);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.tool-instructions summary {
+  cursor: pointer;
+}
+.tool-instructions pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .settings-actions,
 .settings-actions > div {

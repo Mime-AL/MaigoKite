@@ -7,6 +7,7 @@ import os
 import socket
 import sys
 import threading
+from contextlib import suppress
 from pathlib import Path
 
 import click
@@ -40,7 +41,9 @@ def main_cli() -> None:
 def run(prompt: str | None, config: str | None, host: str, port: int, web_dir: Path | None, interactive: bool) -> None:
     """Serve the local API, optionally including a built Web UI."""
     if not loopback(host):
-        raise click.BadParameter("Only a loopback address is supported; remote authentication is not implemented.", param_hint="--host")
+        raise click.BadParameter(
+            "Only a loopback address is supported; remote authentication is not implemented.", param_hint="--host",
+        )
     asyncio.run(start_agent(prompt, config, host, port, interactive, web_dir))
 
 
@@ -73,15 +76,13 @@ async def start_agent(prompt: str | None, config_path: str | None, host: str, po
                 pass
         except (OSError, ValueError):
             pass
-        try:
+        with suppress(RuntimeError):
             loop.call_soon_threadsafe(request_stop)
-        except RuntimeError:
-            pass
 
     # Reserve exclusively before initialize/recovery can modify the existing task database.
     listener = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         else:
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -1,6 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { mockDialogs, testRouter } from './ui-harness'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { chooseOption, mockDialogs, testRouter } from './ui-harness'
+import { api } from '@/api/client'
 
 import InputBox from '@/components/chat-area/InputBox.vue'
 
@@ -10,6 +11,14 @@ describe('InputBox', () => {
   beforeEach(async () => {
     global = { plugins: [await testRouter('/chat/conv-1')] }
     mockDialogs()
+    vi.spyOn(api, 'getModelThinking').mockResolvedValue({
+      kind: 'effort', options: ['low', 'medium', 'high'], default: 'medium', source: 'fixture', reason: '',
+    })
+    vi.spyOn(api, 'getModelContext').mockResolvedValue({
+      seq: 0, callId: '', modelId: 'model-1', modelName: 'qwen',
+      usedTokens: null, windowTokens: 8192, measurement: null,
+      capacitySource: 'model_profile', capacityStatus: 'known',
+    })
   })
 
   it('trims and emits non-empty messages', async () => {
@@ -64,7 +73,7 @@ describe('InputBox', () => {
     })
     expect(wrapper.get('textarea').attributes('placeholder')).toBe('问问 小七…')
     expect(wrapper.get('.composer').attributes('aria-busy')).toBe('true')
-    expect(wrapper.get('.composer').text()).not.toContain('思考')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('')
   })
 
   it('turns the send control into an explicit stop action while running', async () => {
@@ -83,10 +92,10 @@ describe('InputBox', () => {
     expect(wrapper.emitted('cancel')).toHaveLength(1)
   })
 
-  it('emits model, speed and approval-mode choices', async () => {
+  it('emits model, capability-based thinking and approval-mode choices', async () => {
     const wrapper = mount(InputBox, {
       global,
-      props: { sessionId: 'conv-1', modelId: 'model-1', modelOptions: [...configuredModel, { id: 'model-2', name: 'Cloud', model: 'other' }] },
+      props: { sessionId: 'conv-1', modelId: 'model-1', permissionMode: 'read_only', modelOptions: [...configuredModel, { id: 'model-2', name: 'Cloud', model: 'other' }] },
     })
     await wrapper.get('[aria-haspopup="dialog"]').trigger('click')
     await flushPromises()
@@ -97,10 +106,10 @@ describe('InputBox', () => {
     option.click()
     await flushPromises()
     expect(dialog.open).toBe(false)
-    await wrapper.get('select[aria-label="响应速度"]').setValue('fast')
-    await wrapper.get('select[aria-label="执行权限"]').setValue('workspace')
+    await wrapper.get('input[aria-label="思考强度"]').setValue('3')
+    await chooseOption(wrapper, '执行权限', '工作区')
     expect(wrapper.emitted('model-change')?.[0]).toEqual(['model-2'])
-    expect(wrapper.emitted('response-mode-change')?.[0]).toEqual(['fast'])
-    expect(wrapper.emitted('permission-mode-change')?.[0]).toEqual(['workspace'])
+    expect(wrapper.emitted('thinking-change')).toEqual([['high']])
+    expect(wrapper.emitted('permission-mode-change')).toEqual([['workspace']])
   })
 })

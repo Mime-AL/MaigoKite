@@ -1257,6 +1257,7 @@ const en: Record<string, string> = {
   '速记快捷键在桌面应用中设置。': 'Set the quick-note shortcut in the desktop app.',
   保存失败: 'Could not save',
   暂无说明: 'No description available',
+  模型工具说明: 'Tool instructions for the model',
   向你提问: 'Ask you a question',
   '向你提问，等待回答后继续。': 'Ask a question and wait for your answer before continuing.',
   派发子任务: 'Delegate a subtask',
@@ -1355,5 +1356,8 @@ const en: Record<string, string> = {
   '工作区中有可恢复的任务，请完成或停止后再删除。': 'Resume and finish, or stop, recoverable tasks in this workspace before deleting it.',
   '工作区中有运行中的进程，请停止后再删除。': 'Stop running processes in this workspace before deleting it.',
   '只有工作区所有者可以删除工作区。': 'Only the workspace owner can delete it.',
+  '对话状态同步失败，正在重新连接。当前执行状态尚未确认，请勿重复发送。': 'Chat state could not be synced. Reconnecting; the current execution status is unconfirmed. Please do not resend.',
+  命令进程: 'Command processes',
+  本地存储: 'Local storage',
 }
 export default en

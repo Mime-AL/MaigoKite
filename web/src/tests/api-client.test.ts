@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/api/client'
+import { request } from '@/api/http'
 
 describe('API client errors', () => {
   afterEach(() => {
@@ -49,8 +50,7 @@ describe('API client errors', () => {
         workspace_root: '/srv/workspace',
         workspace_source: 'environment',
         environment: 'production',
-        gateway: { status: 'serving', version: '0.1.0' },
-        agent_core: { status: 'serving', version: '0.1.0' },
+        backend: { status: 'serving', version: '0.1.0' },
         restart: {
           pending: false,
           required_for: ['Workspace 根目录'],
@@ -62,11 +62,17 @@ describe('API client errors', () => {
     ))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(api.getWorkspaceRuntimeStatus()).resolves.toMatchObject({
+    await expect(api.getWorkspaceRuntimeStatus()).resolves.toEqual({
+      workspaceId: 'personal',
       workspaceRoot: '/srv/workspace',
       workspaceSource: 'environment',
-      agentCore: { status: 'serving', version: '0.1.0' },
-      restart: { requiredFor: ['Workspace 根目录'], hotApplied: ['权限模式'] },
+      environment: 'production',
+      backend: { status: 'serving', version: '0.1.0' },
+      restart: {
+        pending: false,
+        requiredFor: ['Workspace 根目录'], hotApplied: ['权限模式'],
+        note: '当前没有待重启更改。',
+      },
     })
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/workspaces/personal/runtime-status'),
@@ -94,5 +100,73 @@ describe('API client errors', () => {
     await expect(api.getWorkspaceDataSummary()).resolves.toMatchObject({ memory_count: 1 })
     await expect(api.listMCPServers()).resolves.toEqual([expect.objectContaining({ namespace: 'fixture' })])
     expect(fetchMock.mock.calls[0][0]).toContain('/memories?q=%E4%B8%AD%E6%96%87')
+  })
+})
+
+describe('HTTP request cancellation', () => {
+  function pendingFetch() {
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init.signal!
+      const aborted = () => reject(new DOMException('Aborted', 'AbortError'))
+      if (signal.aborted) aborted()
+      else signal.addEventListener('abort', aborted, { once: true })
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('propagates caller cancellation to fetch and releases the listener and timer', async () => {
+    vi.useFakeTimers()
+    const caller = new AbortController()
+    const remove = vi.spyOn(caller.signal, 'removeEventListener')
+    const fetchMock = pendingFetch()
+    const pending = request('/fixture', { signal: caller.signal })
+    const outcome = expect(pending).rejects.toThrow('请求超时或已取消，请重试。')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const actualSignal = fetchMock.mock.calls[0][1].signal!
+    expect(actualSignal.aborted).toBe(false)
+    caller.abort()
+    await outcome
+    expect(actualSignal.aborted).toBe(true)
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function))
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('forwards an already-aborted signal without leaving a timeout behind', async () => {
+    vi.useFakeTimers()
+    const caller = new AbortController()
+    caller.abort()
+    const fetchMock = pendingFetch()
+    await expect(request('/fixture', { signal: caller.signal })).rejects.toThrow('请求超时或已取消，请重试。')
+    expect(fetchMock.mock.calls[0][1].signal?.aborted).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('aborts fetch at the deadline without cancelling its caller', async () => {
+    vi.useFakeTimers()
+    const caller = new AbortController()
+    const fetchMock = pendingFetch()
+    const pending = request('/fixture', { signal: caller.signal })
+    const outcome = expect(pending).rejects.toThrow('请求超时或已取消，请重试。')
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(fetchMock.mock.calls[0][1].signal?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await outcome
+    expect(fetchMock.mock.calls[0][1].signal?.aborted).toBe(true)
+    expect(caller.signal.aborted).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cleans up after success so later caller cancellation cannot abort the finished request', async () => {
+    vi.useFakeTimers()
+    const caller = new AbortController()
+    const remove = vi.spyOn(caller.signal, 'removeEventListener')
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"ok":true}'))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(request('/fixture', { signal: caller.signal })).resolves.toEqual({ ok: true })
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function))
+    expect(vi.getTimerCount()).toBe(0)
+    caller.abort()
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(false)
   })
 })

@@ -17,7 +17,7 @@ from agent.core import AgentCore
 from agent.event_bus import EventBus
 from agent.observability import Observability
 from agent.models.native_model import close_chat_models
-from agent.repository import SQLiteRepository
+from agent.repository import ConversationBusyError, SQLiteRepository
 
 
 class RuleModel(BaseChatModel):
@@ -604,8 +604,10 @@ async def test_core_shutdown_cancels_runs_before_closing_model_owner(
             assert task["status"] == "cancelled"
         finally:
             await repository.close()
-        with pytest.raises(RuntimeError, match="not accepting new runtime requests"):
+        with pytest.raises(ConversationBusyError, match="starting, closing, or applying extensions"):
             await core.answer_question("personal", "unused", "local-user", "answer", 1)
+        assert not core._langgraph_entry_tasks
+        assert events[-1][0] == "task.cancelled"
     finally:
         if not run_task.done():
             run_task.cancel()
