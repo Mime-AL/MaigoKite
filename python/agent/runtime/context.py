@@ -94,14 +94,21 @@ def summary_target_tokens(input_budget: int) -> int:
     return max(1, min(int(input_budget * 0.10), 6000))
 
 
-def context_payload(model: Any, capacity: ContextCapacity, configured: int) -> dict[str, Any]:
-    """One capacity/budget projection for discovery and execution receipts."""
+def model_identity(model: Any) -> dict[str, Any]:
+    """Configuration identity for product receipts, without credentials or SDK state."""
     metadata = getattr(model, "metadata", None) or {}
-    budget = effective_input_budget(model, configured, capacity) if capacity.tokens else None
     return {
         "model_name": str(getattr(model, "model_name", None) or getattr(model, "model", "")),
         "model_id": metadata.get("maigokite_model_id", ""),
         "model_key": metadata.get("maigokite_model_key", ""),
+    }
+
+
+def context_payload(model: Any, capacity: ContextCapacity, configured: int) -> dict[str, Any]:
+    """One capacity/budget projection for discovery and execution receipts."""
+    budget = effective_input_budget(model, configured, capacity) if capacity.tokens else None
+    return {
+        **model_identity(model),
         "model_context_window": capacity.tokens,
         "capacity_source": capacity.source, "capacity_status": capacity.status,
         "capacity_checked_at": capacity.checked_at,
@@ -182,7 +189,7 @@ class _SummaryObservation(AsyncCallbackHandler):
         if any(count_tokens_approximately(batch, use_usage_metadata_scaling=False) > self.input_budget for batch in messages):
             raise ContextBudgetExceeded("摘要请求本身超过输入预算，原始历史未替换。请缩小工具返回或导入范围。")
         await _charge_call(self.context)
-        await _emit(self.context, "model.call.started", {"call_id": str(run_id), "purpose": "summary"})
+        await _emit(self.context, "model.call.started", {"call_id": str(run_id), "purpose": "summary", **model_identity(self.model)})
 
     async def on_llm_end(self, response: Any, *, run_id: Any, **kwargs: Any) -> None:
         for batch in response.generations:
@@ -194,6 +201,7 @@ class _SummaryObservation(AsyncCallbackHandler):
                 if usage := message_usage(message):
                     await _emit(self.context, "model.usage", {
                         "call_id": str(run_id), "purpose": "summary", "measurement": "provider", "usage": usage,
+                        **model_identity(self.model),
                     })
 
     async def on_llm_error(self, error: BaseException, *, run_id: Any, **kwargs: Any) -> None:
@@ -477,7 +485,7 @@ class ContextBudgetMiddleware(AgentMiddleware):
                 "请缩小读取范围、减少工具，或增大模型服务的实际加载窗口。原始历史未丢弃。"
             )
         await _charge_call(context)
-        await _emit(context, "model.call.started", {"call_id": call_id, "purpose": "response"})
+        await _emit(context, "model.call.started", {"call_id": call_id, "purpose": "response", **model_identity(request.model)})
         clock = _TokenClock()
         callbacks = request.model.callbacks
         if callbacks is None or isinstance(callbacks, list):
@@ -553,6 +561,6 @@ class ContextBudgetMiddleware(AgentMiddleware):
             if isinstance(message, AIMessage) and (usage := message_usage(message)):
                 await _emit(context, "model.usage", {
                     "call_id": call_id, "purpose": "response", "measurement": "provider", "usage": usage,
-                    **timing,
+                    **timing, **model_identity(request.model),
                 })
         return response

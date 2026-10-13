@@ -298,6 +298,57 @@ Linux 未安装、探测失败及其他平台未接入分别返回 `bubblewrap_n
 
 `per_process_rlimits_available` 仅表示 Linux 系统位置存在 prlimit；是否配置见启动 YAML，实际应用失败时命令不会执行。它不是 cgroup/Job Object 总资源配额，因此原 `cpu_memory_limits` 继续为 `false`。`captured_log_limit_bytes=8388608` 表示单次命令捕获日志总量上限，`disk_quota=false` 明确没有工作区磁盘配额。工具结果新增 `output_limit_exceeded / output_bytes_limit / process_limits`；`process_limits` 的零值表示未额外施加该限制，超量输出返回 `COMMAND_OUTPUT_LIMIT`。旧客户端可忽略新增字段；本批未修改设置界面。
 
+#### 本地用量与可查询额度（2026-10-13）
+
+```text
+GET /workspaces/{workspace_id}/usage?days=7
+GET /workspaces/{workspace_id}/models/{model_id}/balance
+```
+
+两个入口均要求工作区 owner，并沿用本机访问边界。`usage` 默认取最近 7 个本机日历日，
+`days=1/7/30` 分别为今天、最近 7 天、最近 30 天，`days=0` 为全部已保存记录；允许范围 0–365。
+时间边界以后端所在机器的时区计算，响应附带 UTC `since / until` 和本机日期 `start_date / end_date`。
+
+响应包含 `profiles / models / totals / daily / unattributed_calls`。公开 profiles 只含
+`id / name / model / provider / base_url / quota_service`；地址移除 URL 凭证、查询参数和 fragment。
+models 按历史调用的 `model_id / provider / base_url / model` 聚合，daily 按调用记录日期聚合。
+每组 metrics 为：
+
+```text
+calls / failed_calls / reported_calls / cache_reported_calls
+tokens: {input_tokens?, output_tokens?, total_tokens?, cache_read_tokens?,
+         cache_creation_tokens?, cache_miss_tokens?, reasoning_tokens?}
+token_reports: {<counter>: <实际报告该字段的调用数>}
+cache_pct: number | null
+```
+
+数据来自现有 `task_events` 中的模型开始、失败、真实用量回执及同调用 ID 的上下文身份信息，
+按 `(task_id, call_id)` 合并重复回执；没有调用 ID 的旧记录按 event ID 独立保存，不猜测去重。
+只有服务明确报告的非负整数计数才累计，字段缺失保留缺失，不写零、不从正文估算。
+缓存和推理 Token 不额外计入总 Token。只有全部调用都报告输入和合法缓存读取计数且分母非零，
+才给出缓存命中率；不完整时返回 null。请求进行中或未返回用量的调用仍计入 calls。
+
+主模型、摘要及子 Agent 的后续回执记录实际模型配置身份；旧记录可通过相同 call ID 的
+context 事件补全，无法确定的单独列为未归属记录，不按当前模型设置回填历史。
+配置已改模型/地址或已删除时，旧路由数据作为历史配置保留。查询使用独立只读 SQLite 连接
+和工作线程，不新增统计数据库、价格表或运行时调度。
+统计仅覆盖**仍保存在本机的调用记录**；删除对话会级联删除其事件，不能恢复已删除记录的用量，
+也不表示供应商账户的全量账单。
+
+`quota_service` 目前仅支持 `deepseek / openrouter / null`，按已核实的官方 HTTPS 地址识别，
+不对未知中转站猜测接口。前端只在非 null 时提供手动查询入口，访问统计页不自动向供应商发请求。
+`balance` 使用所选配置的现有 OS 密钥链凭证，无凭证返回 409、不支持返回 404；上游鉴权失败或
+异常返回脱敏错误，不回传 Key 或上游原始响应。官方查询禁用重定向，限制超时和响应体积。
+
+- DeepSeek：调用 [GET `/user/balance`](https://api-docs.deepseek.com/api/get-user-balance/)，
+  只显示服务明确返回的 `total_balance`，`kind=balance`。
+- OpenRouter：调用 [GET `/api/v1/key`](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key)，
+  只显示 `limit_remaining`，`kind=key_limit`，不是账户余额。不调用要求 management key 的 credits 接口。
+
+额度响应为 `{kind, values: [{currency, amount}], checked_at}`；金额用十进制字符串，未提供金额时
+values 为空，不算成零或无限。多配置不相加余额，前端可选择本次查询所使用的模型配置。
+当前为源码接入状态，未运行测试、构建或真实供应商查询。
+
 ### 3.7 工作区文件与变更
 
 ```text

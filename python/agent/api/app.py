@@ -15,7 +15,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 
-from agent.api import sessions, settings, workspace
+from agent.api import sessions, settings, statistics, workspace
 from agent.api.contracts import APIError
 from agent.api.credentials import Credentials
 from agent.api.execution import Execution
@@ -224,7 +224,8 @@ def create_app(core, web_dir: Path | None = None) -> FastAPI:
         flags["live_process_logs"] = True
         return {"capabilities": flags}
 
-    for router in (sessions.routes(core, execution, credentials), settings.routes(core, credentials), workspace.routes(core, execution)):
+    for router in (sessions.routes(core, execution, credentials), settings.routes(core, credentials),
+                   statistics.routes(core, credentials), workspace.routes(core, execution)):
         app.include_router(router, prefix=prefix, dependencies=dependencies)
     if web_dir is not None:
         # Desktop uses hashes; Web history navigation needs index.html on direct page loads.

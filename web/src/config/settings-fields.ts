@@ -28,6 +28,7 @@ export const settingsFields: SettingsField[] = [
   },
   { id: 'capsule-shortcut', tab: 'general', label: '速记快捷键', keywords: 'capsule shortcut' },
   { id: 'models', tab: 'models', label: '模型', keywords: 'provider default model' },
+  { id: 'usage-statistics', tab: 'statistics', label: '用量统计', keywords: 'statistics usage tokens balance quota cache 统计 余额 额度 缓存 供应商' },
   {
     id: 'model-base-url',
     tab: 'models',

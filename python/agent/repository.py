@@ -163,6 +163,8 @@ class SQLiteRepository:
             );
             CREATE INDEX IF NOT EXISTS idx_task_events_conversation_sequence
               ON task_events(conversation_id, sequence);
+            CREATE INDEX IF NOT EXISTS idx_task_events_usage
+              ON task_events(workspace_id, event_type, occurred_at);
             CREATE TABLE IF NOT EXISTS tool_calls (
               id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
               task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, tool_name TEXT NOT NULL,
@@ -1084,6 +1086,29 @@ class SQLiteRepository:
                 item["payload"] = {}
             result.append(item)
         return result
+
+    async def usage_statistics(self, workspace_id: str, since: str, until: str) -> dict[str, Any]:
+        from agent.models.statistics import project_statistics
+
+        sql = """SELECT id,task_id,event_type,payload_json,occurred_at FROM task_events
+                 WHERE workspace_id=? AND occurred_at>=? AND occurred_at<=?
+                 AND event_type IN ('context.updated','model.call.started','model.call.failed','model.usage')
+                 ORDER BY occurred_at,conversation_id,sequence"""
+        values = (workspace_id, since, until)
+
+        def read() -> dict[str, Any]:
+            # A separate WAL read snapshot keeps analytics off the execution connection.
+            connection = sqlite3.connect(Path(self.path).as_uri() + "?mode=ro", uri=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return project_statistics(connection.execute(sql, values))
+            finally:
+                connection.close()
+
+        if self.path != ":memory:":
+            return await asyncio.to_thread(read)
+        async with self._lock:
+            return await asyncio.to_thread(lambda: project_statistics(self._db().execute(sql, values)))
 
     async def recover_interrupted_tasks(self) -> list[dict[str, Any]]:
         """Mark work without a safe continuation checkpoint as explicitly interrupted."""
