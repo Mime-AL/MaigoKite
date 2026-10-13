@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  # CI exercises local model doubles and HTTP/SSE fixtures only.
+  MAIGOKITE_SPIKE_LIVE: "0"
+
+jobs:
+  backend:
+    name: Python checks and acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONPATH: python
+      NO_PROXY: localhost,127.0.0.1,::1
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.16"
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install native tool dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ripgrep bubblewrap
+      - name: Install locked Python development dependencies
+        id: dependencies
+        run: uv sync --locked --extra dev --no-default-groups
+      - name: Ruff
+        run: uv run --no-sync ruff check python/
+      - name: Mypy
+        # Preserve every check's failure while still collecting the other results.
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: uv run --no-sync mypy python/agent
+      - name: Python tests and runtime acceptance
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 15
+        run: >-
+          uv run --no-sync python -m pytest python/tests scripts/acceptance
+          --ignore=python/tests/spike/test_runtime_spike_live.py
+          -ra --tb=short -o faulthandler_timeout=120
+          --junitxml=test-results/python.xml
+      - name: Upload Python test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: python-test-report
+          path: test-results/python.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  frontend:
+    name: Frontend checks and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked frontend dependencies
+        id: dependencies
+        env:
+          # This job uses jsdom; the build matrix installs the real Electron binary.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: npm ci --include=dev --ignore-scripts=false --engine-strict
+      - name: ESLint
+        # The local lint script uses --fix; CI must only report source defects.
+        run: npm exec -- eslint . --ext .vue,.ts,.tsx
+      - name: Vitest
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 10
+        run: npm run test:run -- --reporter=default --reporter=junit --outputFile.junit=test-results/vitest.xml
+      - name: Upload frontend test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: frontend-test-report
+          path: web/test-results/vitest.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  source-build:
+    name: Source build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            build-command: bash scripts/build.sh
+          - os: windows-2025
+            build-command: ./scripts/build.ps1
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.16"
+          python-version: "3.14"
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked Web and Electron dependencies
+        working-directory: web
+        run: npm ci --include=dev --foreground-scripts --ignore-scripts=false --engine-strict
+      - name: Build Web and check production TypeScript
+        run: ${{ matrix.build-command }} web
+      - name: Build Electron main and preload
+        run: ${{ matrix.build-command }} desktop
+      - name: Build Python wheel and sdist
+        run: ${{ matrix.build-command }} python
+
+  gate:
+    name: CI gate
+    if: ${{ always() }}
+    needs: [backend, frontend, source-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require all checks
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BUILD_RESULT: ${{ needs.source-build.result }}
+        run: |
+          printf 'backend=%s frontend=%s source-build=%s\n' "$BACKEND_RESULT" "$FRONTEND_RESULT" "$BUILD_RESULT"
+          test "$BACKEND_RESULT" = success
+          test "$FRONTEND_RESULT" = success
+          test "$BUILD_RESULT" = success
