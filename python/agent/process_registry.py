@@ -8,6 +8,8 @@ import inspect
 import os
 from typing import Any, BinaryIO
 
+from agent.errors import UserFacingError
+
 
 class ProcessRegistry:
     def __init__(self) -> None:
@@ -59,7 +61,7 @@ class ProcessRegistry:
     async def stop(self, workspace_id: str, job_id: str) -> None:
         item = self.active.get(job_id)
         if item is None or item["workspace_id"] != workspace_id or item["process"].returncode is not None:
-            raise ValueError("process is no longer running")
+            raise UserFacingError("进程已退出或不再由当前服务管理，请刷新进程列表。")
         try:
             stopped = item["stop"](item["process"])
             if inspect.isawaitable(stopped):
@@ -71,15 +73,15 @@ class ProcessRegistry:
 
     async def write_input(self, workspace_id: str, job_id: str, text: str, eof: bool = False) -> None:
         if len(text.encode("utf-8")) > 4096 or (not text and not eof):
-            raise ValueError("process input must contain 1–4096 bytes, or close stdin")
+            raise UserFacingError("进程输入须为 1–4096 字节，或关闭标准输入。")
         item = self.active.get(job_id)
         if item is None or item["workspace_id"] != workspace_id:
-            raise ValueError("process is no longer running")
+            raise UserFacingError("进程已退出或不再由当前服务管理，请刷新进程列表。")
         async with item["input_lock"]:
             process = item["process"]
             stdin = process.stdin
             if not item["interactive"] or process.returncode is not None or stdin is None or stdin.is_closing():
-                raise ValueError("process stdin is unavailable or closed")
+                raise UserFacingError("进程未启用交互输入、已退出或标准输入已关闭，未发送内容。")
             try:
                 stdin.write(text.encode("utf-8"))
                 await asyncio.wait_for(stdin.drain(), timeout=5)
@@ -87,4 +89,4 @@ class ProcessRegistry:
                     stdin.close()
                     await asyncio.wait_for(stdin.wait_closed(), timeout=5)
             except (BrokenPipeError, ConnectionResetError, TimeoutError) as exc:
-                raise ValueError("无法确认进程输入已送达；请查看输出，不要自动重发。") from exc
+                raise UserFacingError("无法确认进程输入已送达；请查看输出，不要自动重发。") from exc

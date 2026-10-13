@@ -3,6 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 import Pulse from '@/components/shell/Pulse.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
 import SecretField from '@/components/common/SecretField.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
+import { confirmAction } from '@/utils/confirm-action'
 import { useDialog } from '@/composables/useDialog'
 import { api, type MCPConfiguration, type ManagedSkill } from '@/api/client'
 import { useExtensions } from '@/composables/useExtensions'
@@ -229,8 +231,11 @@ function closeCredentials() {
   credentialServer.value = ''
   credentialValue.value = ''
 }
-function clearCredential() {
-  if (window.confirm(t('清除凭证后，使用它的服务将无法连接。继续？')))
+async function clearCredential() {
+  if (!editable.value) return
+  const reference = `${credentialServer.value}.${credentialName.value}`
+  if (await confirmAction(t('清除凭证后，使用它的服务将无法连接。继续？')) &&
+    editable.value && reference === `${credentialServer.value}.${credentialName.value}`)
     void scoped('credential', () => saveCredential(true))
 }
 async function scoped(name: string, action: () => void | Promise<unknown>) {
@@ -254,9 +259,6 @@ watch([server, skill, credentialServer], async () => {
         <h1 class="page-title">
           {{ $t('扩展') }}
         </h1>
-        <p class="page-copy">
-          {{ $t('用 MCP 接入工具，用 Skill 定制自己的工作方式。') }}
-        </p>
       </div>
       <button
         class="secondary-button"
@@ -312,7 +314,7 @@ watch([server, skill, credentialServer], async () => {
         </button>
       </div>
       <p class="page-copy">
-        {{ $t('应用会重新连接外部服务；请结束运行并处理审批后再继续。') }}
+        {{ $t('重连前请结束任务并处理审批。') }}
       </p>
       <p
         v-if="snapshot.management_available === false"
@@ -381,13 +383,7 @@ watch([server, skill, credentialServer], async () => {
             {{ $t('添加 MCP') }}
           </button>
         </header>
-        <p class="page-copy">
-          {{
-            $t(
-              '添加的程序将在本机运行，请只使用可信来源。密钥请通过“配置凭证”保存。',
-            )
-          }}
-        </p>
+        <p class="page-copy">{{ $t('添加的程序会在本机运行，请只使用可信来源。') }}</p>
         <form
           v-if="server"
           class="extension-editor"
@@ -565,21 +561,14 @@ watch([server, skill, credentialServer], async () => {
           <fieldset :disabled="!editable">
             <h3>{{ $t('配置凭证') }} · {{ credentialServer }}</h3>
             <label>{{ $t('环境变量名')
-            }}<select v-model="credentialName">
-              <option
-                v-for="name in selectedCredentialNames"
-                :key="name"
-              >{{ name }}</option>
-            </select></label>
+            }}<InkSelect v-model="credentialName" :disabled="!editable"
+              :options="selectedCredentialNames.map(name => ({ value: name, label: name }))" /></label>
             <label>{{ $t('新的凭证值')
             }}<SecretField
               v-model="credentialValue"
               :label="$t('新的凭证值')"
               :disabled="!editable"
             /></label>
-            <p class="page-copy">
-              {{ $t('凭证不会回显；保存或清除后，请点击应用以重新连接。') }}
-            </p>
             <div class="page-actions">
               <button
                 class="primary-button"

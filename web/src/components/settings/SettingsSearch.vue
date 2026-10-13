@@ -11,6 +11,7 @@ const results = computed(() => searchSettings(query.value, settingsFields))
 const labels: Record<string, string> = {
   general: '外观与称呼',
   models: '模型',
+  statistics: '统计',
   tools: '工具',
   permissions: '权限',
   safety: '安全',

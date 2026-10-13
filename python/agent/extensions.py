@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agent.skill_registry import SkillRegistry
+from agent.tools.mcp_wrapper import mcp_tool_prefix
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,47}$")]
 EnvName = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")]
@@ -88,6 +89,9 @@ class ExtensionConfig(BaseModel):
         for names in ([item.namespace for item in self.mcp_servers], [item.name for item in self.skills]):
             if len(names) != len(set(names)):
                 raise ValueError("Extension names must be unique")
+        prefixes = [mcp_tool_prefix(item.namespace) for item in self.mcp_servers]
+        if len(prefixes) != len(set(prefixes)):
+            raise ValueError("MCP namespaces must have distinct normalized tool prefixes")
         if any(not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", name) for name in self.disabled_skills):
             raise ValueError("Invalid disabled Skill name")
         return self

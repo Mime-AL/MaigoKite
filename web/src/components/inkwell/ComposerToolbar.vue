@@ -7,6 +7,7 @@ import ModelPicker from './ModelPicker.vue'
 import ThinkingControl from './ThinkingControl.vue'
 import Pulse from '@/components/shell/Pulse.vue'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
 import { useSessionStore } from '@/stores/session'
 import { useUIStore } from '@/stores/ui'
 defineOptions({ inheritAttrs: false })
@@ -124,33 +125,19 @@ defineExpose({ closeMenu })
       :disabled="isSending || isSubmitting"
       @update:model-value="emit('thinking-change', $event)"
     />
-    <select
+    <InkSelect
       :value="permissionMode"
       :disabled="isSubmitting"
+      :options="[
+        { value: 'read_only', label: $t('只读') },
+        { value: 'workspace', label: $t('工作区') },
+        ...(['full_access', 'workspace_auto'].includes(permissionMode) ? [{ value: permissionMode, label: $t('受限自动'), disabled: true }] : []),
+        ...(session.capabilities.permission_boundary_v2 || permissionMode === 'danger_full_access' ? [{ value: 'danger_full_access', label: $t('完全访问') }] : []),
+      ]"
       :aria-label="$t('执行权限')"
       :title="$t('权限调整从下一个尚未开始的操作生效')"
       @change="choosePermission"
-    >
-      <option value="read_only">
-        {{ $t('只读') }}
-      </option>
-      <option value="workspace">
-        {{ $t('工作区') }}
-      </option>
-      <option
-        v-if="permissionMode === 'full_access' || permissionMode === 'workspace_auto'"
-        :value="permissionMode"
-        disabled
-      >
-        {{ $t('受限自动') }}
-      </option>
-      <option
-        v-if="session.capabilities.permission_boundary_v2 || permissionMode === 'danger_full_access'"
-        value="danger_full_access"
-      >
-        {{ $t('完全访问') }}
-      </option>
-    </select>
+    />
     <div
       v-if="confirmFullAccess"
       class="permission-confirm"

@@ -275,7 +275,12 @@ def routes(core, credentials) -> APIRouter:
         config = snapshot.get("active_config" if body.restore_only else "config")
         if not config or config["revision"] != body.revision:
             raise dto.APIError(409, "EXTENSIONS_CHANGED", "扩展设置已改变，请刷新后重新应用。")
-        keys = await credentials.extension_keys(workspace_id, config)
+        missing = {row["namespace"] for row in config.get("mcp_servers", []) if row["enabled"]} - {
+            row["namespace"] for row in snapshot["servers"] if row["status"] == "running"
+        }
+        keys = await credentials.extension_keys(
+            workspace_id, config, namespaces=missing if body.restore_only else None, strict=not body.restore_only,
+        )
         return await core.reload_extensions(workspace_id, body.revision, keys, restore_only=body.restore_only)
 
     return router

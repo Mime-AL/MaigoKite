@@ -98,6 +98,11 @@ class Execution:
             except asyncio.QueueFull:
                 # Reconnection replays the Repository journal. Never hold an Agent run behind socket I/O.
                 overflow.set()
+            except Exception as exc:
+                # This event is already durable. A failed UI projection must
+                # neither fail the Agent run nor leave the socket silently stale.
+                logger.warning("Live event projection failed: %s", type(exc).__name__)
+                overflow.set()
 
         async def send() -> None:
             while True:

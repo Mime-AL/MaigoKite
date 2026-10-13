@@ -15,10 +15,12 @@ import { remainingMessages } from '@/stores/session-projection'
 import { revealRailNode } from '@/utils/rail-navigation'
 import { pickMygoQuote } from '@/config/mygo-quotes'
 import { paperLight, takeWelcomeIntroduction } from '@/utils/welcome-presentation'
+import { modelSwitches } from '@/utils/model-switches'
 import { api, type ChatMessage, type PermissionMode } from '@/api/client'
 import UserMessage from '@/components/chat-area/UserMessage.vue'
 import AgentMessage from '@/components/chat-area/AgentMessage.vue'
 import MessageForkAction from '@/components/chat-area/MessageForkAction.vue'
+import ModelSwitchNotice from '@/components/chat-area/ModelSwitchNotice.vue'
 import RailTrack from '@/components/rail/RailTrack.vue'
 import RailMinimap from '@/components/rail/RailMinimap.vue'
 import InputBox from '@/components/chat-area/InputBox.vue'
@@ -64,6 +66,12 @@ const draftMemory = ref(false), savingMemory = ref(false)
 const memoryEnabled = computed(() => sessionId.value ? session.activeSession?.memory_enabled === true : draftMemory.value)
 watch(() => workspace.selectedId, () => { draftMemory.value = false })
 const turns = computed(() => run.turns[sessionId.value] || [])
+const modelChanges = computed<Map<string, string>>((previous) => {
+  // Compare all loaded history before paging; streaming text leaves markers stable.
+  const next = modelSwitches(turns.value)
+  return previous && previous.size === next.size &&
+    [...next].every(([id, name]) => previous.get(id) === name) ? previous : next
+})
 const forkDisabled = computed(() => sending.value || restoring.value ||
   Boolean(session.runningTaskIds[sessionId.value]?.length) ||
   turns.value.some((turn) => ['running', 'waiting'].includes(turn.status)))
@@ -131,6 +139,7 @@ function loadEarlier() {
 }
 const welcomeQuote = ref('')
 const firstWelcome = ref(false)
+const welcomeSettled = ref(false)
 const lightPeriod = ref(paperLight(new Date().getHours()))
 // Route reuse includes newly created empty sessions. Typing and stream updates
 // must not reroll a quote while the same welcome screen is visible.
@@ -140,11 +149,16 @@ watch(
     if (id !== null) {
       welcomeQuote.value = pickMygoQuote()
       firstWelcome.value = takeWelcomeIntroduction()
+      welcomeSettled.value = false
       lightPeriod.value = paperLight(new Date().getHours())
     }
   },
   { immediate: true },
 )
+function finishWelcome(event: AnimationEvent) {
+  // Child animations bubble too; only the workpaper's own end settles the scene.
+  if (event.target === event.currentTarget) welcomeSettled.value = true
+}
 const lastMessage = computed(
   () => savedMessages.value.filter((m) => m.role === 'user').slice(-1)[0]?.content || '',
 )
@@ -171,6 +185,7 @@ const { following, onScroll, resume } = useAutoFollow(scroll, () => {
     turn?.timeline.length,
     turn?.steps[turn.steps.length - 1]?.status,
     turn?.status,
+    turn && modelChanges.value.get(turn.id),
     turn?.inputs?.map((input) => `${input.id}:${input.status}`).join(','),
   ].join('|')
 })
@@ -458,6 +473,9 @@ watch(
       class="chat-body"
       :class="{ workpaper: !timeline.length, 'first-welcome': !timeline.length && firstWelcome }"
       :data-light="lightPeriod"
+      :data-welcome-settled="welcomeSettled || undefined"
+      @focusin="welcomeSettled = true"
+      @animationend="finishWelcome"
     >
       <div class="conversation">
         <div
@@ -542,6 +560,10 @@ watch(
                 </AgentMessage>
               </template>
               <template v-else-if="item.turn">
+                <ModelSwitchNotice
+                  v-if="item.turn.userText && modelChanges.has(item.turn.id)"
+                  :model="modelChanges.get(item.turn.id) || ''"
+                />
                 <UserMessage
                   v-if="item.turn.userText"
                   :content="item.turn.userText"

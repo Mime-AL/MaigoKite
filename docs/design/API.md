@@ -166,11 +166,11 @@ PUT 完整替换 `config`（2 MiB 上限）：`revision / mcp_servers / skill_di
 
 apply 默认接受 `{"revision": <保存后的版本>}`，应用新配置。API 按 `secret_env` 从现有密钥链读取引用 `mcp.<namespace>.<ENV_NAME>`，在进程内传递凭证给 Core。Core 拒绝旧版本、重复应用或仍有运行/待审批/待回答的任务（409）；无效配置 400，非 owner 403。
 
-同一接口接受 `{"revision": <active_config.revision>, "restore_only": true}`，只恢复已生效配置的 MCP 连接、复用已加载 Skill；允许等待审批/回答，不允许活动运行，不应用尚未生效的编辑。新聊天、回答、任务恢复和批准入口均先准备已生效配置的凭证与连接；缺凭证或恢复失败时不准入本次执行，也不消费审批决定。批准 MCP 工具时还检查对应连接，成功后仍由 Core 校验审批 hash/version/策略。拒绝审批无需恢复 MCP 连接。
+同一接口接受 `{"revision": <active_config.revision>, "restore_only": true}`，只恢复已生效配置中缺失的 MCP 连接、复用健康连接及已加载 Skill；允许等待审批/回答，不允许活动运行，不应用尚未生效的编辑。缺凭证或连接失败按服务器报告，已恢复服务保留可用；返回 200 不代表全部恢复。新聊天可尝试恢复可选扩展，部分失败不阻断聊天；文件任务恢复、回答提问及原生工具批准不启动无关 MCP，也不以所有启用连接恢复为前置条件。MCP 批准仅要求目标服务与确切工具可用，失败不消费决定。checkpoint、审批 hash/version 和每次工具权限仍由 Runtime 校验，后续调用不可用工具不会因此被放行。拒绝审批无需恢复 MCP 连接。
 
-配置或进程异常有逐项状态，不能用 HTTP 200 推断全部连接成功；基础 Runtime 准备失败返回错误并保留原聊天入口，已断开的 MCP 另行恢复。Core 持有应用任务到清理完成，调用方断线不提前开放新运行；请求超时后先 GET 查看 reloading/结果，不盲目重发 apply。
+配置或进程异常有逐项状态，不能用 HTTP 200 推断全部连接成功；基础 Runtime 或新配置准备失败返回错误并保留原配置、聊天入口及健康连接，只关闭本次新建资源。准备成功再释放被替换的旧资源。Core 持有应用任务到清理完成，调用方断线不提前开放新运行；请求超时后先 GET 查看 reloading/结果，不盲目重发 apply。
 
-凭证沿用 3.6 的 POST/PUT/DELETE 接口；值不进入扩展配置/GET/审计。更新/删除凭证不改活动进程环境，下次 apply/恢复连接时生效。卸载配置不删除程序、目录或凭证。当前只支持本地 stdio 与 Markdown/目录技能，不是技能包安装、版本授权或 Grant 平台，扩展边界见 [技能](../agent-capabilities/skills/skill-lifecycle.md)。
+凭证沿用 3.6 的 POST/PUT/DELETE 接口；值不进入扩展配置/GET/审计。更新/删除凭证不改活动进程环境，下次显式 apply 或重建缺失连接时生效；restore_only 不替换健康连接的凭证。复用连接的内存凭证快照取自该 client 实际启动环境，不把并发请求读到的新密钥误记为已生效；显式 apply 同样按实际环境比较，凭证变化时准备替换连接。卸载配置不删除程序、目录或凭证。当前只支持本地 stdio 与 Markdown/目录技能，不是技能包安装、版本授权或 Grant 平台，扩展边界见 [技能](../agent-capabilities/skills/skill-lifecycle.md)。
 
 本次配置与管理接口是源码接入状态，未运行新增链路测试；只读列表或此前 MCP SDK 的验收不能代替它。
 
@@ -337,6 +337,57 @@ Linux 未安装、探测失败及其他平台未接入分别返回 `bubblewrap_n
 
 `per_process_rlimits_available` 仅表示 Linux 系统位置存在 prlimit；是否配置见启动 YAML，实际应用失败时命令不会执行。它不是 cgroup/Job Object 总资源配额，因此原 `cpu_memory_limits` 继续为 `false`。`captured_log_limit_bytes=8388608` 表示单次命令捕获日志总量上限，`disk_quota=false` 明确没有工作区磁盘配额。工具结果新增 `output_limit_exceeded / output_bytes_limit / process_limits`；`process_limits` 的零值表示未额外施加该限制，超量输出返回 `COMMAND_OUTPUT_LIMIT`。旧客户端可忽略新增字段；本批未修改设置界面。
 
+#### 本地用量与可查询额度（2026-10-13）
+
+```text
+GET /workspaces/{workspace_id}/usage?days=7
+GET /workspaces/{workspace_id}/models/{model_id}/balance
+```
+
+两个入口均要求工作区 owner，并沿用本机访问边界。`usage` 默认取最近 7 个本机日历日，
+`days=1/7/30` 分别为今天、最近 7 天、最近 30 天，`days=0` 为全部已保存记录；允许范围 0–365。
+时间边界以后端所在机器的时区计算，响应附带 UTC `since / until` 和本机日期 `start_date / end_date`。
+
+响应包含 `profiles / models / totals / daily / unattributed_calls`。公开 profiles 只含
+`id / name / model / provider / base_url / quota_service`；地址移除 URL 凭证、查询参数和 fragment。
+models 按历史调用的 `model_id / provider / base_url / model` 聚合，daily 按调用记录日期聚合。
+每组 metrics 为：
+
+```text
+calls / failed_calls / reported_calls / cache_reported_calls
+tokens: {input_tokens?, output_tokens?, total_tokens?, cache_read_tokens?,
+         cache_creation_tokens?, cache_miss_tokens?, reasoning_tokens?}
+token_reports: {<counter>: <实际报告该字段的调用数>}
+cache_pct: number | null
+```
+
+数据来自现有 `task_events` 中的模型开始、失败、真实用量回执及同调用 ID 的上下文身份信息，
+按 `(task_id, call_id)` 合并重复回执；没有调用 ID 的旧记录按 event ID 独立保存，不猜测去重。
+只有服务明确报告的非负整数计数才累计，字段缺失保留缺失，不写零、不从正文估算。
+缓存和推理 Token 不额外计入总 Token。只有全部调用都报告输入和合法缓存读取计数且分母非零，
+才给出缓存命中率；不完整时返回 null。请求进行中或未返回用量的调用仍计入 calls。
+
+主模型、摘要及子 Agent 的后续回执记录实际模型配置身份；旧记录可通过相同 call ID 的
+context 事件补全，无法确定的单独列为未归属记录，不按当前模型设置回填历史。
+配置已改模型/地址或已删除时，旧路由数据作为历史配置保留。查询使用独立只读 SQLite 连接
+和工作线程，不新增统计数据库、价格表或运行时调度。
+统计仅覆盖**仍保存在本机的调用记录**；删除对话会级联删除其事件，不能恢复已删除记录的用量，
+也不表示供应商账户的全量账单。
+
+`quota_service` 目前仅支持 `deepseek / openrouter / null`，按已核实的官方 HTTPS 地址识别，
+不对未知中转站猜测接口。前端只在非 null 时提供手动查询入口，访问统计页不自动向供应商发请求。
+`balance` 使用所选配置的现有 OS 密钥链凭证，无凭证返回 409、不支持返回 404；上游鉴权失败或
+异常返回脱敏错误，不回传 Key 或上游原始响应。官方查询禁用重定向，限制超时和响应体积。
+
+- DeepSeek：调用 [GET `/user/balance`](https://api-docs.deepseek.com/api/get-user-balance/)，
+  只显示服务明确返回的 `total_balance`，`kind=balance`。
+- OpenRouter：调用 [GET `/api/v1/key`](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key)，
+  只显示 `limit_remaining`，`kind=key_limit`，不是账户余额。不调用要求 management key 的 credits 接口。
+
+额度响应为 `{kind, values: [{currency, amount}], checked_at}`；金额用十进制字符串，未提供金额时
+values 为空，不算成零或无限。多配置不相加余额，前端可选择本次查询所使用的模型配置。
+当前为源码接入状态，未运行测试、构建或真实供应商查询。
+
 ### 3.7 工作区文件与变更
 
 ```text
@@ -399,6 +450,7 @@ GUI 的收件箱与活动卡片已接入问题选项、自由文本及“回答�
 普通聊天输入不隐式充当问题回答：运行中 Enter 通过 `/tasks/{task_id}/inputs` 引导，
 Alt+Enter 显式加入下一回合待发列表；等待审批或提问时只能稍后发送，或就地处理卡片。
 驳回理由通过 Approval API 的 note 保存并交给模型。`deny` 只拒绝该操作，`scope` 必须为 `once`；任务继续或等待同批下一项审批，不发布 `task.cancelled`。批次审阅完成后，被拒绝调用通过既有 `tool.failed`（`error_code=APPROVAL_REJECTED`）投影，产品工具状态为 `denied`。续接失败另发 `task.failed`，拒绝决定仍有效；显式 cancel 才停止整轮。
+权限策略拒绝或工具未启用时，同样不执行工具，但使用 `tool.failed` 的 `error_code=TOOL_DENIED`、`denied=true`，工具记录为 `denied`，审计为 `tool.denied`；不得与用户驳回审批或工具执行后失败混淆。
 阶段 3a 的补充输入、计划恢复与运行抽屉已进行真实 API/Core 验收，见
 [UI 设计的阶段 3a 记录](agent-ui-design.md#10-阶段-3a--数据链路)。
 该验收不代表审批/回答的跨进程恢复通过；Mock 未实现问题续接，返回空问题列表。
@@ -430,6 +482,16 @@ Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取
 压缩状态通过 `context.compaction.started / failed / skipped` 与既有 `context.compacted` 发布。started 带 `before_tokens / input_budget_tokens / model_context_window / measurement`；failed 带 `message / error_type / model_context_window` 且保留原历史；skipped 的 `reason=no_compressible_history` 不代表完成压缩。前端按事件投影独立压缩状态，不从普通“思考中”推断；窗口仪表保留 measurement、容量来源、获取状态与观测时间，未知窗口只显示已有 Token 计数/估算、不绘制占用比例。聊天过程与底部显示压缩失败原因，关闭窗口用量显示不隐藏失败反馈。本次前端接入未运行测试或真实服务验收，后端没有手动压缩接口，界面不提供该按钮。
 
 用量汇总中，旧记录若缺少 `call_id` 或调用开始回执，`calls / failed_calls` 返回 null（未知），不能显示为“0 次调用”。已收到的 token 小计和 `reported_calls` 仍可查询，但不是完整账单或调用次数的估计。
+
+压缩触发的 `reason` 区分 `pressure`（模型步骤前）、`input_pressure`（补充输入后的最终请求）和 `provider_overflow`（服务端明确拒绝）。根任务取消时用既有 `context.compaction.skipped`、`reason=cancelled` 结束压缩展示，再发布任务终态；不把取消记作压缩成功。摘要调用也发布 `model.call.completed`、`purpose=summary`，即使服务未返回用量计数。
+
+`context.compacted` 只在 LangGraph 持久上下文确认包含该摘要后发布，摘要模型返回不等于压缩提交。取消恰好发生在提交后时，允许先报告已确认的压缩、再报告任务取消；无法确认提交时发布 skipped/failed（失败原因 `checkpoint_unconfirmed`），保留原始聊天记录。checkpoint 的完整内容不对外推送。
+
+MCP 失败沿用工具事件：`MCP_UNAVAILABLE` 表示本次请求未发送；`MCP_OUTCOME_UNKNOWN` 表示连接/超时后没有可靠回执，不能断言远端未执行，也不得自动重试。两者通过现有 `user_hint / action` 指向 `/integrations`，模型可继续其他获准操作，不将整个任务直接标为失败。
+
+浏览器取消后的关闭未确认时，沿用 `tool.failed` 的 `TOOL_CLEANUP_PENDING / user_hint` 提醒用户检查实际结果，随后任务仍按取消结束，不把取消转换成可继续执行的普通失败。该提示不表示 Chromium 已停止：对应页面已禁止继续调用，context/profile 所有权保留到公开 close 事件或 Core 关闭处理；禁止自动重试原动作。关闭等待上限 10 秒，后台回收可继续处理未确认资源。
+
+浏览器页面在重启、主动关闭或空闲回收后失效，工具返回 `BROWSER_SESSION_EXPIRED`，沿用 `tool.failed.error_code / user_hint` 提醒重新打开 URL、必要时复用原命名 profile；不自动重试旧句柄或重放上传、下载和点击。进程输入超时/断管仍通过原有错误响应告知“无法确认送达，不要自动重发”；已退出、未启用 stdin 与输入结果不确定分别使用经过筛选的产品提示，不返回第三方异常原文。
 
 **文件变更。** `file_write / file_edit` 成功后发出任务归属的 `file.changed`：`path / tool_call_id / diff / diff_truncated / added / removed / before_hash / after_hash`。Diff 是单次工具操作前后的证据，不是整个回合净变化，不应将同文件多次修改的行数相加冒充净变化。前后内容各最多读取 256 KB，差异文本最多 64000 字符；二进制、无法读取或行数过多时 `diff_truncated: true`，无法计算的行数/hash 为 null。命令、MCP 或外部程序修改文件不在此事件覆盖内，仍使用现有工作区 Git Diff。发生写入后、事件提交前的崩溃可能缺少该投影；重放已满足内容的写入不会伪造原始 before image。同字节核对成功的 `file_write` 仍通过标准工具投影返回结果：`tool.completed.data` 含 `reconciled: true / bytes_written: 0 / size_bytes`，`file.changed` 含可选 `reconciled: true`，并以 `before_hash: null / diff_truncated: true` 表示原始差异不可恢复，不表示产生了新的磁盘写入。本批不提供文件回滚快照。
 

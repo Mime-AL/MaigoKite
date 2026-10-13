@@ -5,6 +5,7 @@ import type { AwaitItem } from '@/api/events'
 import type { Approval, ApprovalScope } from '@/api/client'
 import { useInboxStore } from '@/stores/inbox'
 import InkButton from '@/components/common/InkButton.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
 import { useSessionStore } from '@/stores/session'
 import { approvalDescription, approvalScopeDescription } from '@/utils/tool-presentation'
 import { awaitFocus } from '@/utils/await-focus'
@@ -103,19 +104,12 @@ async function decide(decision: 'allow' | 'deny') {
     </details>
     <label v-if="scopes.length && !rejecting">
       {{ $t('批准范围') }}
-      <select
-        v-model="scope"
+      <InkSelect
+        :value="scope"
+        :options="[{ value: 'once', label: $t('仅这一次') }, ...scopes.map(value => ({ value, label: $t(value === 'task' ? '本任务内同范围操作' : '本会话内同范围操作') }))]"
         :disabled="pendingDecision !== null || inbox.busy.includes(item.id)"
-      >
-        <option value="once">{{ $t('仅这一次') }}</option>
-        <option
-          v-for="value in scopes"
-          :key="value"
-          :value="value"
-        >
-          {{ $t(value === 'task' ? '本任务内同范围操作' : '本会话内同范围操作') }}
-        </option>
-      </select>
+        @change="scope = ($event.target as HTMLSelectElement).value as ApprovalScope"
+      />
     </label>
     <details
       v-if="scope !== 'once' && !rejecting"

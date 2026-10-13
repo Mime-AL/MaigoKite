@@ -1,5 +1,6 @@
 @use './mixins';
 @use './breakpoints' as breakpoints;
+@use './model-provider-mark';
 
 .model-settings {
   overflow: hidden;
@@ -29,103 +30,6 @@
   display: inline-flex;
   align-items: center;
   gap: var(--size-6);
-}
-.service-group {
-  border-bottom: var(--hairline) solid var(--rule);
-  padding: var(--size-14) var(--space-6);
-}
-.service-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-.service-count {
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-}
-.service-models {
-  margin: var(--space-3) 0 0 var(--measure-58px);
-  padding: 0;
-  list-style: none;
-}
-.profile-row {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  padding: var(--space-3) var(--size-6);
-  gap: var(--space-4);
-  border-top: var(--hairline) solid var(--rule);
-}
-.profile-row strong {
-  overflow-wrap: anywhere;
-}
-.profile-main {
-  @include mixins.interactive-row;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--size-14);
-  padding: var(--space-2);
-  background: var(--transparent);
-  border: 0;
-  text-align: left;
-  min-width: 0;
-}
-.provider-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: var(--rail-node-height);
-  height: var(--rail-node-height);
-  border-radius: var(--radius-sm);
-  background: var(--paper-2);
-  color: var(--ink);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-.profile-copy {
-  display: grid;
-  gap: var(--size-6);
-  flex: 1;
-  min-width: 0;
-}
-.profile-copy strong {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-.profile-copy small {
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.profile-copy i {
-  margin-left: var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--accent);
-  font-style: normal;
-}
-.credential-state {
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-}
-.credential-state.missing {
-  color: var(--ink-2);
-}
-.default-action,
-.edit-action {
-  @include mixins.interactive-row;
-  color: var(--ink-2);
-  border: 0;
-  background: var(--transparent);
-  padding: var(--size-6);
-  font-size: var(--text-xs);
-}
-.edit-action {
-  font-size: var(--text-lg);
 }
 .empty-profile {
   padding: var(--space-7) var(--space-5);
@@ -236,18 +140,6 @@
 @include breakpoints.sidebar-overlay {
   .choice-grid {
     grid-template-columns: 1fr;
-  }
-  .credential-state {
-    display: none;
-  }
-  .service-group {
-    padding-inline: var(--space-4);
-  }
-  .service-models {
-    margin-left: 0;
-  }
-  .service-count {
-    display: none;
   }
   .panel-heading {
     padding: var(--space-5);

@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from agent.mcp.client import MCPClient
+from agent.mcp.client import MCPClient, MCPError
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
 
@@ -15,6 +15,15 @@ def _model_safe_name(value: str) -> str:
     if not normalized:
         raise ValueError("MCP namespace and tool names must contain letters or digits")
     return normalized
+
+
+def mcp_tool_prefix(namespace: str) -> str:
+    """Use the same namespace identity for discovery and approval restoration.
+
+    Preserve existing tool names so persisted approvals/checkpoints remain valid.
+    Configuration rejects namespaces that collapse to the same prefix.
+    """
+    return _model_safe_name(namespace) + "__"
 
 
 class MCPToolWrapper(BaseTool):
@@ -34,7 +43,7 @@ class MCPToolWrapper(BaseTool):
         self._definition = definition
         self._source_name = source_name
         self._schema = dict(schema)
-        self._name = f"{_model_safe_name(namespace)}__{_model_safe_name(source_name)}"
+        self._name = mcp_tool_prefix(namespace) + _model_safe_name(source_name)
         if len(self._name) > 64:
             raise ValueError(f"MCP tool name is too long: {self._name}")
 
@@ -58,7 +67,22 @@ class MCPToolWrapper(BaseTool):
     async def execute(
         self, context: ExecutionContext, arguments: dict[str, Any]
     ) -> ToolResult:
-        response = await self._client.call_tool(self._source_name, arguments)
+        if not self._client.is_running:
+            return ToolResult.failure(
+                {}, "MCP 服务未连接，本次工具请求未发送。", error_code="MCP_UNAVAILABLE",
+                user_hint="请在扩展页面恢复连接，再重新发起需要此工具的操作。",
+                action={"label": "查看扩展", "to": "/integrations"},
+            )
+        try:
+            response = await self._client.call_tool(self._source_name, arguments)
+        except MCPError:
+            # An SDK timeout/disconnect is not evidence that the remote action
+            # stopped. Return a tool failure, without retrying or leaking errors.
+            return ToolResult.failure(
+                {}, "MCP 请求未取得可靠回执，远端操作可能已经执行。", error_code="MCP_OUTCOME_UNKNOWN",
+                user_hint="先核实目标服务中的实际结果，不要自动重试；可继续处理不依赖此操作的任务。",
+                action={"label": "查看扩展", "to": "/integrations"},
+            )
         text = json.dumps(response, ensure_ascii=False, default=str)
         metadata = {"tool": self.name, "source": "mcp"}
         if not isinstance(response, dict):

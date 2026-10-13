@@ -41,11 +41,11 @@ def validate_subagent_model_ids(value: list[str]) -> list[str]:
     return value
 
 
-class ConversationBusyError(ValueError):
+class ConversationBusyError(UserFacingError):
     """A conversation with unfinished work cannot be moved or removed."""
 
 
-class MessageConflictError(ValueError):
+class MessageConflictError(UserFacingError):
     """A submission key was reused for a different request."""
 
 
@@ -163,6 +163,8 @@ class SQLiteRepository:
             );
             CREATE INDEX IF NOT EXISTS idx_task_events_conversation_sequence
               ON task_events(conversation_id, sequence);
+            CREATE INDEX IF NOT EXISTS idx_task_events_usage
+              ON task_events(workspace_id, event_type, occurred_at);
             CREATE TABLE IF NOT EXISTS tool_calls (
               id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
               task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, tool_name TEXT NOT NULL,
@@ -1085,6 +1087,29 @@ class SQLiteRepository:
             result.append(item)
         return result
 
+    async def usage_statistics(self, workspace_id: str, since: str, until: str) -> dict[str, Any]:
+        from agent.models.statistics import project_statistics
+
+        sql = """SELECT id,task_id,event_type,payload_json,occurred_at FROM task_events
+                 WHERE workspace_id=? AND occurred_at>=? AND occurred_at<=?
+                 AND event_type IN ('context.updated','model.call.started','model.call.failed','model.usage')
+                 ORDER BY occurred_at,conversation_id,sequence"""
+        values = (workspace_id, since, until)
+
+        def read() -> dict[str, Any]:
+            # A separate WAL read snapshot keeps analytics off the execution connection.
+            connection = sqlite3.connect(Path(self.path).as_uri() + "?mode=ro", uri=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return project_statistics(connection.execute(sql, values))
+            finally:
+                connection.close()
+
+        if self.path != ":memory:":
+            return await asyncio.to_thread(read)
+        async with self._lock:
+            return await asyncio.to_thread(lambda: project_statistics(self._db().execute(sql, values)))
+
     async def recover_interrupted_tasks(self) -> list[dict[str, Any]]:
         """Mark work without a safe continuation checkpoint as explicitly interrupted."""
         interrupted: list[dict[str, Any]] = []
@@ -1611,10 +1636,38 @@ class SQLiteRepository:
     async def list_authorizations(
         self, workspace_id: str, conversation_id: str, principal_id: str, task_id: str = "",
     ) -> list[dict[str, Any]]:
-        """Only product receipts; no new runtime/continuation state."""
+        """List unexpired scoped approvals for the user-facing authorization list."""
         async with self._lock:
-            rows = self._db().execute(
-                """SELECT a.* FROM approvals a JOIN tasks t ON t.id=a.task_id
+            return self._list_authorizations(workspace_id, conversation_id, principal_id, task_id)
+
+    async def execution_authority(
+        self, workspace_id: str, conversation_id: str, principal_id: str, task_id: str,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """Read the mode and its valid grants at one tool-admission boundary.
+
+        Mode changes revoke reusable grants under this same lock. Reading them
+        separately could combine a new read-only mode with a revoked write grant.
+        The snapshot authorizes one admission, not later calls in the tool batch.
+        """
+        async with self._lock:
+            row = self._db().execute(
+                "SELECT permission_mode,archived FROM conversations WHERE workspace_id=? AND id=?",
+                (workspace_id, conversation_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(conversation_id)
+            if row["archived"]:
+                raise PermissionError("archived conversations cannot execute tools")
+            return str(row["permission_mode"]), self._list_authorizations(
+                workspace_id, conversation_id, principal_id, task_id,
+            )
+
+    def _list_authorizations(
+        self, workspace_id: str, conversation_id: str, principal_id: str, task_id: str,
+    ) -> list[dict[str, Any]]:
+        """Query grants while the caller holds the Repository lock."""
+        rows = self._db().execute(
+            """SELECT a.* FROM approvals a JOIN tasks t ON t.id=a.task_id
                    JOIN conversations c ON c.id=a.conversation_id
                    WHERE a.workspace_id=? AND a.conversation_id=? AND a.principal_id=?
                    AND a.status='consumed' AND a.authorization_revoked_at=''
@@ -1623,8 +1676,8 @@ class SQLiteRepository:
                         (a.authorization_scope='task' AND (?='' OR a.task_id=?)
                          AND t.status IN ('running','waiting_approval','interrupted')))
                    ORDER BY a.created_at DESC LIMIT 200""",
-                (workspace_id, conversation_id, principal_id, _now(), task_id, task_id),
-            ).fetchall()
+            (workspace_id, conversation_id, principal_id, _now(), task_id, task_id),
+        ).fetchall()
         return [{"approval_id": row["id"], "conversation_id": row["conversation_id"],
                  "task_id": row["task_id"], "scope": row["authorization_scope"],
                  "expires_at": row["authorization_expires_at"],

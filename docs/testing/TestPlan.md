@@ -15,7 +15,7 @@
 
 ## 2. 现有入口
 
-下表列出维护者本地测试入口及历史名称。当前 `.gitignore` 排除了测试文件、Vitest 配置、`scripts/run_tests.sh` 和测试产物；这些内容不随 Git 分发，新克隆不能直接复现历史测试。只有实际取得对应测试、执行并记录结果后，才能报告通过；文档保留入口名称不代表仓库已包含它们。
+下表列出当前测试入口及历史名称。测试源码、fixtures、Vitest 配置和运行脚本由 Git 管理；本地生成的 `test-results/` 与 `playwright-report/` 不提交。新克隆后需先安装对应依赖。只有实际执行并记录结果，才能报告通过；文件存在不等于测试通过。
 
 | 位置 | 覆盖对象 |
 | --- | --- |
@@ -26,8 +26,34 @@
 | `test_langgraph_process_recovery.py` | 核心服务进程终止/恢复、文件崩溃点 |
 | `test_context_optimization.py` | 结构定义预算、配对、摘要保护/取消、用量和客户端轮换 |
 | `python/tests/spike` | 选型协议/真实服务验收验证，不代替真实生产入口 |
+| `scripts/acceptance` | 关闭清理、MCP 取消复用、事件分页及运行时收尾门禁；由 `scripts/run_tests.sh` 默认纳入 |
 
 完整批次 HITL 必须验证全部决定齐备前无写入，旧预期“首项批准立即写第一个文件”不再适用。多项文件批准与部分批准后重启已有定向记录，但不覆盖后续驳回语义调整；两者的验证范围须分开，不能删除失败测试后宣称通过。
+
+### GitHub Actions
+
+[CI 工作流](../../.github/workflows/ci.yml) 在所有 PR、`main`/`master` 推送及手动触发时运行。同一 PR/分支启动新运行时，会取消旧运行。
+
+Python 使用 3.14，通过 `uv sync --locked --extra dev` 安装开发依赖；Node 使用 24.x，通过 `npm ci` 安装依赖。不配置模型凭据或仓库 Secret。CI 和 `scripts/run_tests.sh` 显式排除 `test_runtime_spike_live.py`，其余模型测试使用测试替身或本机 HTTP/SSE 服务，不产生模型 API 费用。
+
+| 检查 | 范围 |
+| --- | --- |
+| Python checks and acceptance | Ruff、mypy、`python/tests` 与 `scripts/acceptance`；包含 HTTP/WS、Core 跨进程审批恢复和文件崩溃点 |
+| Frontend checks and tests | 不带 `--fix` 的 ESLint、全部 Vitest 用例 |
+| Source build（Linux / Windows） | 调用对应 Bash/PowerShell 构建脚本，检查 Web 生产 TypeScript、Web/Electron 编译、Python wheel/sdist |
+| CI gate | 仅当上述所有检查成功时通过；可在仓库分支保护或规则集中设为必需检查 |
+
+lint/类型检查失败后，仍继续执行测试并保留失败状态，不使用 `continue-on-error`。pytest/Vitest 的 JUnit 报告作为 Actions artifact 保存 7 天，不提交到 Git。
+
+测试步骤和作业均有超时限制。pytest 长时间无响应时输出线程栈，供排查阻塞位置。
+
+此工作流不发布制品、不启动桌面窗口，也不验证独立安装包或真实模型服务。浏览器测试使用替身，不能计为真实 Chromium 验收；Bubblewrap 用例因宿主限制跳过时，须查看 pytest 的跳过原因。
+
+Core 的命令/搜索契约用例在执行器边界使用替身，断言规范化目录、沙箱模式、网络权限与审批前不执行；另测沙箱不可用时返回结构化失败且不回退到宿主进程。真实 Bubblewrap 用例保留 `pwd`、工作区搜索、宿主读取隔离及工作区写入断言，只有实际探测可用时运行，跳过不计为隔离验收通过，不通过修改系统安全设置让测试通过。
+
+前端用例使用真实 router、i18n 和可交互的选择/确认组件，按页面实际请求提供 API fixtures。未 mock 的 `fetch` 会被阻止并使测试失败，即使组件捕获了异常；不得连接开发者正在运行的后端作为隐式测试依赖。
+
+工作流已配置不等于远程运行通过。通过、失败或跳过的结果，以对应提交的 Actions 记录为准。
 
 ## 3. 生产聊天纵向路径
 
@@ -54,6 +80,8 @@ Core 启动 → file_write interrupt → 文件未写
 → 终止 Core process → 新 Core 启动
 → 同 thread/run 审批恢复 → 写入 → 模型续答
 ```
+
+进程交互经当前 HTTP API 完成，实时事件经当前 WebSocket 完成；不再使用已移除的 gRPC 客户端或监听端口。
 
 检查检查点落盘、无旧进程内存、参数摘要值/版本、一次合法审批、UI/产品终态一致。额外测试部分批次批准后重启，不只重新实例化适配层。
 
@@ -82,4 +110,4 @@ OpenAI、Anthropic、Ollama、目标兼容服务各记录 text 流式输出 → 
 
 记录硬件、模型、代码版本、数据规模和并发，测长聊天渲染/输入、首词元/任务耗时、事件补拉、SQLite 锁、浏览器/MCP 常驻资源。只报“提升倍数”或页面不卡不够。
 
-发布须适用质量检查、契约、安全、恢复、备份和干净机器制品验收通过；缺陷影响与未验证项明确。手机配对/锁屏重连等仅在 [手机远程访问](../design/RemoteAccess.md) 的对应版本进入交付时增加，不为本地首版加入远程平台前提。
+发布前，适用的质量检查、契约、安全、恢复、备份和干净机器制品验收必须通过；已知缺陷及未验证项须明确列出。手机配对、锁屏重连等场景，仅在 [手机远程访问](../design/RemoteAccess.md) 的对应版本进入交付时增加，不作为本地首版的发布前提。

@@ -145,8 +145,9 @@ kbd {
 :global(.first-welcome) .workpaper-ink path {
   animation: workpaper-stroke var(--motion-arrive) var(--ease-out) both;
 }
-:global(.workpaper:focus-within) h1,
-:global(.workpaper:focus-within) .workpaper-epigraph {
+:global(.workpaper[data-welcome-settled='true']) h1,
+:global(.workpaper[data-welcome-settled='true']) .workpaper-epigraph,
+:global(.workpaper[data-welcome-settled='true']) .workpaper-ink path {
   animation: none;
 }
 @keyframes workpaper-stroke {
@@ -207,5 +208,9 @@ kbd {
   }
   :global(.first-welcome) .workpaper-ink path {
     animation: none;
+  }
+  :global(.workpaper[data-welcome-settled='true']) h1,
+  :global(.workpaper[data-welcome-settled='true']) .workpaper-epigraph {
+    animation: none !important;
   }
 }

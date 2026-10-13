@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useUIStore, type EnterBehavior } from '@/stores/ui'
+import InkSelect from '@/components/common/InkSelect.vue'
 const ui = useUIStore()
 const modifier = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
 function change(event: Event) {
@@ -10,13 +11,11 @@ function change(event: Event) {
   <div data-settings-field="enter-behavior">
     <label class="setting-row">
       <span>{{ $t('Enter 键行为') }}</span>
-      <select
+      <InkSelect
         :value="ui.appearance.enterBehavior || 'send'"
+        :options="[{ value: 'send', label: $t('发送消息') }, { value: 'newline', label: $t('换行') }]"
         @change="change"
-      >
-        <option value="send">{{ $t('发送消息') }}</option>
-        <option value="newline">{{ $t('换行') }}</option>
-      </select>
+      />
     </label>
     <p class="panel-copy">
       {{ ui.appearance.enterBehavior === 'newline'

@@ -94,14 +94,21 @@ def summary_target_tokens(input_budget: int) -> int:
     return max(1, min(int(input_budget * 0.10), 6000))
 
 
-def context_payload(model: Any, capacity: ContextCapacity, configured: int) -> dict[str, Any]:
-    """One capacity/budget projection for discovery and execution receipts."""
+def model_identity(model: Any) -> dict[str, Any]:
+    """Configuration identity for product receipts, without credentials or SDK state."""
     metadata = getattr(model, "metadata", None) or {}
-    budget = effective_input_budget(model, configured, capacity) if capacity.tokens else None
     return {
         "model_name": str(getattr(model, "model_name", None) or getattr(model, "model", "")),
         "model_id": metadata.get("maigokite_model_id", ""),
         "model_key": metadata.get("maigokite_model_key", ""),
+    }
+
+
+def context_payload(model: Any, capacity: ContextCapacity, configured: int) -> dict[str, Any]:
+    """One capacity/budget projection for discovery and execution receipts."""
+    budget = effective_input_budget(model, configured, capacity) if capacity.tokens else None
+    return {
+        **model_identity(model),
         "model_context_window": capacity.tokens,
         "capacity_source": capacity.source, "capacity_status": capacity.status,
         "capacity_checked_at": capacity.checked_at,
@@ -182,9 +189,10 @@ class _SummaryObservation(AsyncCallbackHandler):
         if any(count_tokens_approximately(batch, use_usage_metadata_scaling=False) > self.input_budget for batch in messages):
             raise ContextBudgetExceeded("摘要请求本身超过输入预算，原始历史未替换。请缩小工具返回或导入范围。")
         await _charge_call(self.context)
-        await _emit(self.context, "model.call.started", {"call_id": str(run_id), "purpose": "summary"})
+        await _emit(self.context, "model.call.started", {"call_id": str(run_id), "purpose": "summary", **model_identity(self.model)})
 
     async def on_llm_end(self, response: Any, *, run_id: Any, **kwargs: Any) -> None:
+        await _emit(self.context, "model.call.completed", {"call_id": str(run_id), "purpose": "summary"})
         for batch in response.generations:
             for generation in batch:
                 message = getattr(generation, "message", None)
@@ -194,6 +202,7 @@ class _SummaryObservation(AsyncCallbackHandler):
                 if usage := message_usage(message):
                     await _emit(self.context, "model.usage", {
                         "call_id": str(run_id), "purpose": "summary", "measurement": "provider", "usage": usage,
+                        **model_identity(self.model),
                     })
 
     async def on_llm_error(self, error: BaseException, *, run_id: Any, **kwargs: Any) -> None:
@@ -235,6 +244,11 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
             runtime.context.context_capacity = capacity
         try:
             return await self._compact(state, runtime, capacity)
+        except asyncio.CancelledError:
+            await _emit(runtime.context, "context.compaction.skipped", {
+                "reason": "cancelled", "message": "任务已停止，原始历史未替换。",
+            })
+            raise
         except Exception as exc:
             await _emit(runtime.context, "context.compaction.failed", {
                 "error_type": type(exc).__name__,
@@ -247,6 +261,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
     async def _compact(
         self, state: Any, runtime: Any, capacity: ContextCapacity, *, force: bool = False,
         system_message: SystemMessage | None = None, request_tools: list[Any] | None = None,
+        reason: str = "pressure",
     ) -> dict[str, Any] | None:
         messages = state["messages"]
         systems = [item for item in messages if isinstance(item, SystemMessage)]
@@ -287,7 +302,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         latest_index = next((i for i in range(len(conversation) - 1, -1, -1)
                              if isinstance(conversation[i], HumanMessage)), 0)
         protected_inputs: set[str] = set()
-        if force and getattr(context, "adapter", None) is not None:
+        if getattr(context, "adapter", None) is not None:
             pending = await context.adapter.repository.task_inputs(
                 context.request.workspace_id, context.request.task_id, pending=True,
             )
@@ -306,15 +321,19 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         else:
             callbacks = callbacks.copy()
             callbacks.add_handler(observer)
-        # Overflow recovery runs inside the model node. Use LangGraph's public
-        # no-stream tag so auxiliary summary text cannot become the UI answer.
-        options: dict[str, Any] = {"callbacks": callbacks, "tags": [*(self.model.tags or []), TAG_NOSTREAM]}
-        for field in ("max_tokens", "num_predict"):
-            if field in type(self.model).model_fields:
-                configured = getattr(self.model, field, None)
-                limit = min(upper, configured) if isinstance(configured, int) and configured > 0 else upper
-                options[field] = max(_minimum_output(self.model), limit)
-                break
+        # Summaries are internal, complete-response calls. TAG_NOSTREAM hides
+        # graph messages but does not disable SDK streaming callbacks by itself.
+        # Change only this copy; the main answer still streams normally.
+        options: dict[str, Any] = {
+            "callbacks": callbacks, "tags": [*(self.model.tags or []), TAG_NOSTREAM],
+            "disable_streaming": True,
+        }
+        if "streaming" in type(self.model).model_fields:
+            options["streaming"] = False
+        if field := _output_field(self.model):
+            configured = getattr(self.model, field, None)
+            limit = min(upper, configured) if isinstance(configured, int) and configured > 0 else upper
+            options[field] = max(_minimum_output(self.model), limit)
         # Public shallow model copy: only request options/callbacks change. HTTP
         # transports remain Core-owned and shared; no per-summary client creation.
         model = self.model.model_copy(update=options)
@@ -336,7 +355,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         await _emit(context, "context.compaction.started", {
             "before_tokens": before + overhead, "input_budget_tokens": input_budget,
             "model_context_window": capacity.tokens, "measurement": "estimate",
-            "reason": "provider_overflow" if force else "pressure",
+            "reason": reason,
         })
         update = await native.abefore_model(cast(AgentState[Any], summary_state), runtime)
         if observer.error is not None:
@@ -367,12 +386,17 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         after = count_tokens_approximately([summary, *retained], use_usage_metadata_scaling=False)
         if after + overhead > input_budget or after >= before:
             raise ContextBudgetExceeded("压缩后仍超过输入预算或未减少上下文，原始历史未替换。")
-        await _emit(context, "context.compacted", {
+        receipt = {
             "measurement": "estimate", "before_tokens": before, "after_tokens": after,
             "summary_tokens": count_tokens_approximately([HumanMessage(text)]),
             "summary_target_tokens": target, "summary_limit_tokens": upper,
             "model_context_window": capacity.tokens, "input_budget_tokens": input_budget,
-        })
+        }
+        # Generation is not a committed replacement. The runtime projects this
+        # receipt only after LangGraph's checkpoint contains the summary ID.
+        summary.id = summary.id or f"summary_{uuid.uuid4().hex}"
+        if context is not None and hasattr(context, "compaction_receipt"):
+            context.compaction_receipt = (summary.id, receipt)
         return {**update, "messages": [replacements[0], *systems, summary, *retained]}
 
 
@@ -405,6 +429,51 @@ class ContextBudgetMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse | ExtendedModelResponse:
         return await self._call(request, handler, allow_recovery=True)
+
+    async def _compact_request(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+        capacity: ContextCapacity, *, force: bool, reason: str,
+    ) -> ExtendedModelResponse | None:
+        """Use the same native summary and checkpoint update at the final request boundary.
+
+        Queued user inputs and middleware tools can increase the prompt after
+        before_model compaction. Keep those inputs verbatim and commit the
+        replacement only together with a successful model response.
+        """
+        if self.summarizer is None:
+            return None
+        try:
+            update = await self.summarizer._compact(
+                request.state, request.runtime, capacity, force=force, reason=reason,
+                system_message=request.system_message, request_tools=request.tools,
+            )
+            if update is None:
+                return None
+            retry_messages = [item for item in update["messages"][1:]
+                              if not isinstance(item, SystemMessage)]
+            response = cast(ModelResponse, await self._call(
+                request.override(messages=retry_messages), handler, allow_recovery=False,
+            ))
+            return ExtendedModelResponse(
+                model_response=response,
+                command=Command(update={**update, "messages": [*update["messages"], *response.result]}),
+            )
+        except asyncio.CancelledError:
+            if hasattr(request.runtime.context, "compaction_receipt"):
+                request.runtime.context.compaction_receipt = None
+            await _emit(request.runtime.context, "context.compaction.skipped", {
+                "reason": "cancelled", "message": "任务已停止，压缩结果未提交。",
+            })
+            raise
+        except Exception as exc:
+            if hasattr(request.runtime.context, "compaction_receipt"):
+                request.runtime.context.compaction_receipt = None
+            await _emit(request.runtime.context, "context.compaction.failed", {
+                "error_type": type(exc).__name__, "reason": getattr(exc, "reason", ""),
+                "message": str(exc) if isinstance(exc, ContextBudgetExceeded)
+                           else "上下文压缩或后续请求失败，原始历史未替换。",
+            })
+            raise
 
     async def _call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]], *,
@@ -446,6 +515,15 @@ class ContextBudgetMiddleware(AgentMiddleware):
             if context is not None:
                 context.context_capacity = capacity
         input_budget = effective_input_budget(request.model, self.max_tokens, capacity)
+        if (allow_recovery and self.summarizer is not None and capacity.tokens is not None
+                and estimated >= int(input_budget * 0.8)):
+            # Include queued inputs and the actual outgoing system/tool schema.
+            # A local budget overflow must not bypass available history compaction.
+            compacted = await self._compact_request(
+                request, handler, capacity, force=estimated > input_budget, reason="input_pressure",
+            )
+            if compacted is not None:
+                return compacted
         # Memory is optional reference material. Limit its share and use only
         # spare input room after compaction, so it cannot crowd out this turn.
         projected, memory = await project_memories(
@@ -477,7 +555,7 @@ class ContextBudgetMiddleware(AgentMiddleware):
                 "请缩小读取范围、减少工具，或增大模型服务的实际加载窗口。原始历史未丢弃。"
             )
         await _charge_call(context)
-        await _emit(context, "model.call.started", {"call_id": call_id, "purpose": "response"})
+        await _emit(context, "model.call.started", {"call_id": call_id, "purpose": "response", **model_identity(request.model)})
         clock = _TokenClock()
         callbacks = request.model.callbacks
         if callbacks is None or isinstance(callbacks, list):
@@ -519,27 +597,13 @@ class ContextBudgetMiddleware(AgentMiddleware):
                 # tokens. Native middleware selects safe pairs and creates the
                 # replacement; public Command commits it with the final result.
                 try:
-                    update = await self.summarizer._compact(
-                        request.state, request.runtime, getattr(context, "context_capacity", None) or capacity,
-                        force=True, system_message=request.system_message, request_tools=request.tools,
+                    compacted = await self._compact_request(
+                        request, handler, getattr(context, "context_capacity", None) or capacity,
+                        force=True, reason="provider_overflow",
                     )
-                    if update is not None:
-                        retry_messages = [item for item in update["messages"][1:]
-                                          if not isinstance(item, SystemMessage)]
-                        response = cast(ModelResponse, await self._call(
-                            request.override(messages=retry_messages), handler, allow_recovery=False,
-                        ))
-                        return ExtendedModelResponse(
-                            model_response=response,
-                            command=Command(update={**update, "messages": [*update["messages"], *response.result]}),
-                        )
+                    if compacted is not None:
+                        return compacted
                 except Exception as recovery_error:
-                    await _emit(context, "context.compaction.failed", {
-                        "error_type": type(recovery_error).__name__,
-                        "reason": getattr(recovery_error, "reason", ""),
-                        "message": str(recovery_error) if isinstance(recovery_error, ContextBudgetExceeded)
-                                   else "超限恢复失败，原始历史未替换。",
-                    })
                     raise exc from recovery_error
             raise
         ended_at = time.perf_counter()
@@ -553,6 +617,6 @@ class ContextBudgetMiddleware(AgentMiddleware):
             if isinstance(message, AIMessage) and (usage := message_usage(message)):
                 await _emit(context, "model.usage", {
                     "call_id": call_id, "purpose": "response", "measurement": "provider", "usage": usage,
-                    **timing,
+                    **timing, **model_identity(request.model),
                 })
         return response

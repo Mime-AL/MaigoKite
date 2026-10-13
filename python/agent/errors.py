@@ -6,16 +6,25 @@ Only explicitly authored product diagnostics may cross these boundaries intact.
 
 from __future__ import annotations
 
+import asyncio
+
 
 class UserFacingError(ValueError):
     """A product-authored diagnostic containing no third-party exception text."""
+
+
+class UserFacingCancellation(asyncio.CancelledError):
+    """Cancellation with a safe product warning, such as unconfirmed cleanup.
+
+    Remains a BaseException so recoverable tool-error handlers cannot swallow stop.
+    """
 
 
 def public_error(error: BaseException) -> str:
     """Preserve actionable product errors without exposing arbitrary exception text."""
     while isinstance(error, BaseExceptionGroup) and len(error.exceptions) == 1:
         error = error.exceptions[0]
-    if isinstance(error, UserFacingError):
+    if isinstance(error, (UserFacingError, UserFacingCancellation)):
         return str(error)
     status = getattr(error, "status_code", None)
     if type(status) is int and 400 <= status <= 599:

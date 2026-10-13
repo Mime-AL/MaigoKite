@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api, type AuditEvent } from '@/api/client'
 import InkLoader from '@/components/common/InkLoader.vue'
 import RailGlyph from '@/components/rail/RailGlyph.vue'
+import InkSelect from '@/components/common/InkSelect.vue'
 const events = ref<AuditEvent[]>([]),
   error = ref(''),
   loading = ref(true)
@@ -76,21 +77,11 @@ onMounted(() => {
         type="search"
         :placeholder="$t('搜索动作、目标或操作者')"
         :aria-label="$t('搜索审计记录')"
-      ><select
+      ><InkSelect
         v-model="result"
+        :options="[{ value: '', label: $t('全部结果') }, ...results.map(item => ({ value: item, label: $t(item) }))]"
         :aria-label="$t('筛选结果')"
-      >
-        <option value="">
-          {{ $t('全部结果') }}
-        </option>
-        <option
-          v-for="item in results"
-          :key="item"
-          :value="item"
-        >
-          {{ $t(item) }}
-        </option>
-      </select><span>{{ $t('{0} 项', [filtered.length]) }}</span>
+      /><span>{{ $t('{0} 项', [filtered.length]) }}</span>
     </div>
     <div
       v-if="loading"

@@ -16,11 +16,11 @@
 
 Electron packaged 分支会查找 `resources/bin/agent-core`，Windows 使用 `.exe` 后缀。尚未验证源码构建产物是否满足这些路径和跨平台执行要求。打包时不能假定用户机器上已经安装开发机使用的 Python、依赖或浏览器。
 
-Linux/Windows 的 `start desktop built` 仍从源码目录启动，不进入 Electron `app.isPackaged` 分支。它使用本地 Python 环境运行后端。Web `built` 由同一 Python 后端在 8080 提供静态页面和 API，仅支持本机 loopback，不是远程认证入口。
+Linux/Windows 的 `start desktop built` 从源码目录启动，使用本地 Python 环境运行后端，不进入 Electron `app.isPackaged` 分支。Web `built` 由同一 Python 后端在 8080 提供页面和 API，仅支持本机 loopback，不提供远程认证。
 
-脚本不会自动安装浏览器或运行软件测试。脚本调整仅做了静态检查，Windows 和 Linux 实机的整套启停仍未完成验收。
+构建和启动脚本不会自动安装浏览器或运行软件测试。脚本调整当时仅做了静态检查；Windows 和 Linux 实机的整套启停仍未完成验收。
 
-开发环境安装与命令以 [开发指南](../development/DevelopmentGuide.md) 为准。目前没有已核验的远程 CI workflow，不要把本文检查项当作已经运行的 CI 检查。
+环境安装与构建命令见 [开发指南](../development/DevelopmentGuide.md)。[GitHub Actions CI](../../.github/workflows/ci.yml) 已配置 Python/前端检查与 Linux/Windows 源码构建，结果以对应提交的 Actions 记录为准。具体覆盖范围见 [测试与验收](../testing/TestPlan.md#github-actions)；独立安装包、桌面启动和真实模型仍须按下述要求验收。
 
 Python 构建与安装统一读取根目录的 `pyproject.toml`，依赖锁定使用根目录的 `uv.lock`，不从 `python/` 安装另一套分发包。第一批轻量化只修改了入口和锁文件，当时没有执行构建或安装包验收，也没有完成 runtime bundling。
 
@@ -57,7 +57,7 @@ Python 构建与安装统一读取根目录的 `pyproject.toml`，依赖锁定�
 
 ## 3. 最小质量门
 
-验收场景见 [测试与验收](../testing/TestPlan.md)，执行命令见 DevelopmentGuide。至少覆盖适用的静态检查/type、Python/Vue 测试、协议兼容、授权安全、数据库升级、真实进程恢复和桌面 package-smoke。
+验收场景见 [测试与验收](../testing/TestPlan.md)，执行命令见 [开发指南](../development/DevelopmentGuide.md#4-质量与构建入口)。至少覆盖适用的静态检查与类型检查、Python/Vue 测试、协议兼容、授权安全、数据库升级、真实进程恢复和桌面 package-smoke。
 
 缺少工具、凭证或平台时，须标记未运行/跳过，不能标记通过。模型提供方验收分别记录 PROTOCOL、LIVE 和 UNVERIFIED；不能根据模拟服务推断真实缓存收益和成本。优先复用现成 CI，不为个人项目另建发布平台或值班系统。
 

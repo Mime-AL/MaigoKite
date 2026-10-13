@@ -45,7 +45,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command, interrupt
 
-from agent.errors import public_error
+from agent.errors import UserFacingCancellation, public_error
 from agent.models.context_capacity import ContextCapacity
 from agent.models.reasoning import ThinkTagStream, split_thinking, visible_reasoning
 from agent.repository import ConversationBusyError, SQLiteRepository
@@ -170,6 +170,8 @@ class _RunContext:
     # Current model request's input budget and fixed prompt/tool overhead.
     # Child results use these estimates without copying the parent's history.
     result_budget: tuple[int, int] | None = None
+    # Pending UI metrics only; the summary itself belongs to LangGraph state.
+    compaction_receipt: tuple[str, dict[str, Any]] | None = None
 
 
 class _ProductToolMiddleware(AgentMiddleware):
@@ -633,20 +635,20 @@ class LangGraphRuntime:
         return decision
 
     async def _refresh_execution_metadata(self, context: _RunContext) -> None:
-        context.authorizations = await self.repository.list_authorizations(
-            context.request.workspace_id, context.request.conversation_id,
-            context.request.principal_id, context.request.task_id,
-        )
-        if self._execution_metadata is None:
-            return
-        fresh = await self._execution_metadata(context.request)
+        fresh = (await self._execution_metadata(context.request) if self._execution_metadata
+                 else dict(context.execution_metadata))
         original = context.execution_metadata.get("enabled_tools", self._specs_by_name)
         # Tool discovery stays stable for this run; revocations still apply.
         fresh["enabled_tools"] = sorted(set(original) & set(fresh.get("enabled_tools", original)))
-        fresh["permission_mode"] = self.policy.normalize_mode(
-            str(fresh.get("permission_mode", context.request.permission_mode)),
+        # Fetch authority last, after configuration/credential lookups. Even a
+        # fixed-model runtime must read live permissions, not its initial request.
+        mode, grants = await self.repository.execution_authority(
+            context.request.workspace_id, context.request.conversation_id,
+            context.request.principal_id, context.request.task_id,
         )
+        fresh["permission_mode"] = self.policy.normalize_mode(mode)
         # Replace rather than mutate: an already-started tool keeps its snapshot.
+        context.authorizations = grants
         context.execution_metadata = fresh
 
     async def _emit_safety_result(self, context: _RunContext, result: Any) -> None:
@@ -1193,7 +1195,7 @@ class LangGraphRuntime:
                     graph_input,
                     config=config,
                     context=context,
-                    stream_mode=["messages", "updates"],
+                    stream_mode=["messages", "updates", "checkpoints"],
                     durability="sync",
                     version="v2",
                 )) as stream:
@@ -1219,6 +1221,7 @@ class LangGraphRuntime:
                 )
                 await self._emit(context, "task.succeeded", {})
         except asyncio.CancelledError:
+            await self._settle_compaction(graph, config, context, cancelled=True)
             task = await self.repository.cancel_task(
                 context.request.workspace_id, context.request.task_id
             )
@@ -1234,6 +1237,7 @@ class LangGraphRuntime:
             )
             raise
         except Exception as exc:
+            await self._settle_compaction(graph, config, context, cancelled=False)
             # Native TaskGroup groups a body error after draining children.
             # Keep a lone original error useful to users/inspection.
             while isinstance(exc, ExceptionGroup) and len(exc.exceptions) == 1:
@@ -1259,6 +1263,31 @@ class LangGraphRuntime:
                 )
         finally:
             await context.queue.put(_END)
+
+    async def _settle_compaction(
+        self, graph: Any, config: dict[str, Any], context: _RunContext, *, cancelled: bool,
+    ) -> None:
+        """Resolve an unprojected summary after graph cleanup, including commit/stop races."""
+        if context.compaction_receipt is None:
+            return
+        try:
+            snapshot = await graph.aget_state(config)
+            await self._project_compaction(snapshot.values.get("messages", []), context)
+        except Exception:
+            # A checkpoint failure cannot be reported as a successful compaction.
+            pass
+        if context.compaction_receipt is not None:
+            context.compaction_receipt = None
+            await self._emit(context, "context.compaction.skipped" if cancelled else "context.compaction.failed", {
+                "reason": "cancelled" if cancelled else "checkpoint_unconfirmed",
+                "message": "压缩提交未确认；原始聊天记录保留，恢复时以持久上下文为准。",
+            })
+
+    async def _project_compaction(self, messages: Any, context: _RunContext) -> None:
+        receipt = context.compaction_receipt
+        if receipt is not None and any(getattr(item, "id", None) == receipt[0] for item in messages):
+            await self._emit(context, "context.compacted", receipt[1])
+            context.compaction_receipt = None
 
     async def has_checkpoint(self, task_id: str) -> bool:
         checkpointer = self._require_open()
@@ -1304,6 +1333,11 @@ class LangGraphRuntime:
     async def _map_runtime_event(self, event: dict[str, Any], context: _RunContext) -> None:
         event_type = str(event.get("type") or "")
         data = event.get("data")
+        if event_type == "checkpoints" and isinstance(data, dict):
+            # sync durability commits the preceding step before this checkpoint
+            # event. Never expose checkpoint values or summaries to the UI.
+            await self._project_compaction(data.get("values", {}).get("messages", []), context)
+            return
         if event_type == "messages" and isinstance(data, tuple) and data:
             metadata = data[1] if len(data) > 1 and isinstance(data[1], dict) else {}
             # Native summarization makes a model call too; its tokens are not
@@ -1397,6 +1431,10 @@ class LangGraphRuntime:
             status = "failed" if failed else "succeeded"
             if failed and stored["status"] == "denied":
                 status = "denied"
+            error_code = product.get("error_code")
+            if status == "denied" and not error_code:
+                error_code = "APPROVAL_REJECTED"
+            policy_denied = status == "denied" and error_code == "TOOL_DENIED"
             await self.repository.update_tool_call(
                 call_id,
                 status,
@@ -1406,7 +1444,7 @@ class LangGraphRuntime:
             await self.repository.record_audit(
                 context.request.workspace_id,
                 context.request.principal_id,
-                "tool.failed" if failed else "tool.completed",
+                "tool.denied" if policy_denied else "tool.failed" if failed else "tool.completed",
                 tool_name,
                 "denied" if status == "denied" else "failed" if failed else "success",
                 {"tool_call_id": call_id, "risk": stored["risk_level"], "summary": summary},
@@ -1421,8 +1459,12 @@ class LangGraphRuntime:
                     "summary": summary,
                     "data": product.get("data", {"content": content}),
                     "result": product.get("data", {"content": content}),
-                    "error_code": "APPROVAL_REJECTED" if status == "denied" else product.get("error_code"),
-                    "user_hint": "该操作已驳回，未执行；继续处理任务的其他部分。" if status == "denied" else product.get("user_hint"),
+                    "error_code": error_code,
+                    **({"denied": True} if status == "denied" else {}),
+                    "user_hint": (
+                        "该操作已驳回，未执行；继续处理任务的其他部分。"
+                        if error_code == "APPROVAL_REJECTED" else product.get("user_hint")
+                    ),
                     "action": product.get("action"),
                 },
             )
@@ -1656,11 +1698,6 @@ class LangGraphRuntime:
         if not isinstance(context, _RunContext):
             raise RuntimeError("LangGraph runtime context is missing")
         tool_name = str(request.tool_call["name"])
-        await self._refresh_execution_metadata(context)
-        authority = replace(context, execution_metadata=dict(context.execution_metadata))
-        # Public dataclasses retain a per-operation snapshot, not a new runtime
-        # state. Other operations cannot mutate this tool's captured authority.
-        request = replace(request, runtime=replace(request.runtime, context=authority))
         task = await self.repository.get_task(context.request.workspace_id, context.request.task_id)
         if task["status"] == "cancelled":
             return ToolMessage(
@@ -1675,8 +1712,13 @@ class LangGraphRuntime:
                 content="New user input arrived. This proposed tool was not executed; reconsider it after reading the user's message.",
                 tool_call_id=str(request.tool_call["id"]), name=tool_name, status="error",
             )
-        decision = self._policy_decision(tool_name, arguments, authority)
         record = (await self._review_records(context)).get(str(request.tool_call["id"]))
+        await self._refresh_execution_metadata(context)
+        authority = replace(context, execution_metadata=dict(context.execution_metadata))
+        # Capture authority only after waiting for this tool's admission and
+        # reading pending input/approvals. Earlier tools retain their own copy.
+        request = replace(request, runtime=replace(request.runtime, context=authority))
+        decision = self._policy_decision(tool_name, arguments, authority)
         approved = record if record is not None and record["status"] == "consumed" else None
         rejected = record if record is not None and record["status"] == "rejected" else None
         if (request.tool_call["id"] in context.boundary_review_ids
@@ -1714,10 +1756,17 @@ class LangGraphRuntime:
                 )
         if decision.outcome != "allow":
             # ToolNode still projects the returned failure to the model and UI;
-            # a hidden/disabled call never reaches the actual tool body.
+            # persist denial so it cannot be mistaken for a failed execution
+            # or for the user's separate HITL rejection.
+            await self.repository.update_tool_call(
+                str(request.tool_call["id"]), "denied", risk_level=decision.risk.name,
+            )
             return ToolMessage(
                 content=decision.reason, tool_call_id=str(request.tool_call["id"]),
-                name=tool_name, status="error",
+                name=tool_name, status="error", artifact={
+                    "summary": decision.reason, "error_code": "TOOL_DENIED",
+                    "user_hint": "当前权限或工具设置不允许此操作，未执行。",
+                },
             )
         if decision.authorization_id:
             await self.repository.record_audit(
@@ -1757,6 +1806,18 @@ class LangGraphRuntime:
         except GraphInterrupt:
             # LangGraph owns the suspension; asking a question is not a failed tool.
             raise
+        except UserFacingCancellation as exc:
+            # A stopped local waiter is not proof that a remote action stopped.
+            # Project the authored cleanup warning, but keep root cancellation
+            # even if persisting/delivering that warning itself fails.
+            try:
+                hint = public_error(exc)
+                await self._map_message(ToolMessage(
+                    content=hint, tool_call_id=call_id, name=tool_name, status="error",
+                    artifact={"summary": hint, "user_hint": hint, "error_code": "TOOL_CLEANUP_PENDING"},
+                ), context)
+            finally:
+                raise exc from None
         except asyncio.CancelledError:
             raise
         except Exception as exc:

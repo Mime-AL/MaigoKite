@@ -14,6 +14,7 @@ from anyio import to_thread
 
 from agent.api.contracts import APIError
 from agent.models.native_model import normalize_base_url
+from agent.tools.mcp_wrapper import mcp_tool_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -223,18 +224,28 @@ class Credentials:
             key = os.getenv({"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(provider, ""), "")
         return key
 
-    async def extension_keys(self, workspace: str, config: dict[str, Any]) -> dict[str, dict[str, str]]:
+    async def extension_keys(
+        self, workspace: str, config: dict[str, Any], *,
+        namespaces: set[str] | None = None, strict: bool = True,
+    ) -> dict[str, dict[str, str]]:
         keys: dict[str, dict[str, str]] = {}
         for server in config.get("mcp_servers", []):
-            if not server.get("enabled"):
+            if not server.get("enabled") or (namespaces is not None and server["namespace"] not in namespaces):
                 continue
             namespace = server["namespace"]
             keys[namespace] = {}
-            for name in server.get("secret_env", []):
-                value = await self.get(workspace, f"mcp.{namespace}.{name}")
-                if not value:
-                    raise APIError(409, "MCP_CREDENTIAL_MISSING", "请在扩展设置中补齐 MCP 凭证；操作尚未提交。")
-                keys[namespace][name] = value
+            try:
+                for name in server.get("secret_env", []):
+                    value = await self.get(workspace, f"mcp.{namespace}.{name}")
+                    if not value:
+                        raise APIError(409, "MCP_CREDENTIAL_MISSING", "请在扩展设置中补齐 MCP 凭证；操作尚未提交。")
+                    keys[namespace][name] = value
+            except APIError:
+                if strict:
+                    raise
+                # Let Core report needs_credentials for this server while
+                # restoring the others. Never start it with a partial secret set.
+                keys[namespace] = {}
         return keys
 
     async def prepare(self, workspace: str, conversation_id: str, task_id: str = "", *,
@@ -256,19 +267,48 @@ class Credentials:
             except APIError:
                 key = ""
             await self.core.set_tool_credential(workspace, service, key)
+        if task_id and "__" not in tool_name:
+            # File recovery, question answers and native approvals do not need
+            # MCP startup. Their checkpoints and subsequent tool permissions
+            # are validated by Runtime; unrelated servers must not delay them.
+            return
         snapshot = await self.core.get_extensions(workspace)
         active = snapshot.get("active_config")
         if active is None:
             raise APIError(409, "EXTENSIONS_UNAVAILABLE", "无法读取已生效的扩展配置。")
+        target_namespace = ""
         if "__" in tool_name:
-            namespace = tool_name.split("__", 1)[0]
-            if not any(row["namespace"] == namespace and row["enabled"] for row in active.get("mcp_servers", [])):
+            target_namespace = next((row["namespace"] for row in active.get("mcp_servers", [])
+                                     if row["enabled"] and tool_name.startswith(mcp_tool_prefix(row["namespace"]))), "")
+            if not target_namespace:
                 raise APIError(409, "MCP_UNAVAILABLE", "审批对应的 MCP 已停用或移除，请取消此任务。")
         running = {row["namespace"] for row in snapshot["servers"] if row["status"] == "running"}
+        if tool_name and any(tool_name in row.get("tool_names", [])
+                             for row in snapshot["servers"] if row["status"] == "running"):
+            # This approval's server is already owned and connected. Failure of
+            # an unrelated integration must not prevent its decision.
+            return
+        if target_namespace in running:
+            raise APIError(409, "MCP_UNAVAILABLE", "审批对应的工具已不在服务目录中；操作尚未提交。")
         missing = {row["namespace"] for row in active.get("mcp_servers", []) if row["enabled"]} - running
         if missing:
-            keys = await self.extension_keys(workspace, active)
-            restored = await self.core.reload_extensions(workspace, active["revision"], keys, restore_only=True)
-            ready = {row["namespace"] for row in restored["servers"] if row["status"] == "running"}
-            if missing - ready:
-                raise APIError(409, "MCP_UNAVAILABLE", "MCP 连接尚未恢复，请检查扩展状态；操作尚未提交。")
+            try:
+                keys = await self.extension_keys(workspace, active, namespaces=missing, strict=False)
+                restored = await self.core.reload_extensions(workspace, active["revision"], keys, restore_only=True)
+                ready = {row["namespace"] for row in restored["servers"] if row["status"] == "running"}
+                if target_namespace and target_namespace not in ready:
+                    raise APIError(409, "MCP_UNAVAILABLE", "MCP 连接尚未恢复，请检查扩展状态；操作尚未提交。")
+                if target_namespace and not any(tool_name in row.get("tool_names", [])
+                                                for row in restored["servers"] if row["namespace"] == target_namespace):
+                    raise APIError(409, "MCP_UNAVAILABLE", "审批对应的工具已不在服务目录中；操作尚未提交。")
+            except ValueError as exc:
+                # New chat can continue without optional MCP tools. An explicit
+                # MCP approval must keep its decision pending until its server
+                # and exact tool are available.
+                if target_namespace:
+                    raise
+                logger.warning("Optional MCP restoration unavailable: %s", type(exc).__name__)
+                await self.core.repository.record_audit(
+                    workspace, "local-user", "extensions.restore", "extensions", "unavailable",
+                    {"namespaces": sorted(missing), "error_type": type(exc).__name__},
+                )

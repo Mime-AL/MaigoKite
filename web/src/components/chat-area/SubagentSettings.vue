@@ -3,6 +3,7 @@ import { t } from '@/i18n'
 import { computed, ref, watch } from 'vue'
 import type { ModelOption } from '@/config/model-groups'
 import IconSymbol from '@/components/common/IconSymbol.vue'
+import InkNumber from '@/components/common/InkNumber.vue'
 import StatPopover from '@/components/inkwell/StatPopover.vue'
 const props = withDefaults(
   defineProps<{
@@ -85,24 +86,24 @@ function apply() {
     </template>
     <div class="subagent-settings__body">
       <label>{{ $t('每次任务最多派发（0 关闭）')
-      }}<input
+      }}<InkNumber :disabled="disabled || saving"><input
         v-model.number="calls"
         type="number"
         min="0"
         max="32"
         step="1"
         :disabled="disabled || saving"
-      >
+      ></InkNumber>
       </label>
       <label>{{ $t('最多同时运行')
-      }}<input
+      }}<InkNumber :disabled="disabled || saving || calls === 0"><input
         v-model.number="concurrent"
         type="number"
         min="1"
         :max="calls ? Math.min(8, calls) : 8"
         step="1"
         :disabled="disabled || saving || calls === 0"
-      >
+      ></InkNumber>
       </label>
       <fieldset
         v-if="modelSelectionSupported"
@@ -167,14 +168,9 @@ label {
   min-width: 0;
   gap: var(--space-3);
 }
-input {
+.ink-number {
   flex: none;
-  width: var(--measure-58px);
-  padding: var(--space-2);
-  color: var(--ink);
-  background: var(--paper);
-  border: var(--hairline) solid var(--rule);
-  border-radius: var(--radius-sm);
+  width: calc(var(--measure-58px) + var(--size-28) * 2);
 }
 .subagent-settings__models {
   flex-basis: 100%;
@@ -192,7 +188,7 @@ input {
   overflow-wrap: anywhere;
 }
 .subagent-settings__models input {
-  width: auto;
+  width: var(--size-18);
 }
 p {
   flex-basis: 100%;

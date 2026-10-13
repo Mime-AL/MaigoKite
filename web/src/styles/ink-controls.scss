@@ -1,0 +1,118 @@
+@use './mixins' as mixins;
+.ink-select { display: inline-flex; min-width: 0; max-width: 100%; vertical-align: middle; }
+.ink-select-trigger {
+  @include mixins.interactive-row;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-3) var(--size-10);
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  text-align: start;
+  -webkit-app-region: no-drag;
+}
+.ink-select-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ink-select-trigger[aria-expanded='true'] { border-color: var(--accent); background: var(--accent-soft); }
+.ink-select-chevron { flex: none; rotate: var(--measure-90deg); }
+.ink-select-trigger[aria-expanded='true'] .ink-select-chevron { rotate: calc(-1 * var(--measure-90deg)); }
+.ink-select-menu {
+  @include mixins.floating;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: none;
+  padding: var(--space-2);
+  color: var(--ink);
+  background: var(--paper-raised, var(--paper));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: paper-fade var(--motion-fast) var(--ease-out) both;
+}
+.ink-select-menu::backdrop { background: var(--transparent); }
+.ink-select-menu [role='listbox']:focus-visible { outline: none; }
+.ink-select-option {
+  @include mixins.interactive-row;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  border: 0;
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--ink-2);
+  background: var(--transparent);
+}
+.ink-select-option > span { overflow-wrap: anywhere; }
+.ink-select-option [aria-hidden='true'] { flex: none; }
+:where(.ink-select-menu[data-keyboard-navigation='true']) .ink-select-option[data-active='true'] { background: var(--control-hover); }
+.ink-select-option[aria-selected='true'] { color: var(--accent); background: var(--accent-selected); font-weight: var(--weight-medium); }
+:where(.ink-select-menu[data-keyboard-navigation='true']) .ink-select-option[data-active='true'][aria-selected='true'] { box-shadow: inset var(--focus-width) 0 0 var(--accent); }
+.setting-row > .ink-select, .form-field > .ink-select { width: 100%; }
+.ink-number {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--paper);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius-sm);
+}
+.ink-number:focus-within { outline: var(--focus-width) solid var(--accent); outline-offset: var(--focus-offset); }
+.ink-number > input[type='number'] {
+  appearance: textfield;
+  order: 1;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: var(--space-2);
+  background: var(--transparent);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ink-number > input[type='number']:focus-visible { outline: none; }
+.ink-number > input::-webkit-inner-spin-button,
+.ink-number > input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.ink-number > button {
+  @include mixins.interactive-row;
+  order: 2;
+  display: grid;
+  place-content: center;
+  flex: none;
+  width: var(--size-28);
+  align-self: stretch;
+  min-height: var(--size-28);
+  border: 0;
+  padding: 0;
+  color: var(--ink-2);
+  background: var(--transparent);
+}
+.ink-number > .ink-number-decrease { order: 0; }
+.ink-number > button:focus-visible { outline-offset: calc(-1 * var(--focus-width)); }
+.setting-row .ink-number { width: 100%; }
+.ink-confirm {
+  @include mixins.floating;
+  padding: var(--space-7);
+  width: min(var(--session-dialog-width), calc(100vw - var(--space-7)));
+  max-height: calc(100vh - var(--space-7));
+  overflow: auto;
+  color: var(--ink);
+  animation: paper-fade var(--motion-panel) var(--ease-out) both;
+}
+.ink-confirm::backdrop { background: var(--backdrop); }
+.ink-confirm header { display: flex; align-items: center; gap: var(--space-3); }
+.ink-confirm h2 { margin: 0; font-size: var(--text-lg); }
+.ink-confirm p { margin-block: var(--space-5); font-size: var(--text-sm); line-height: var(--leading-normal); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ink-confirm .danger { color: var(--seal); }
+.ink-confirm footer { display: flex; justify-content: flex-end; gap: var(--space-3); }
+@media (prefers-reduced-motion: reduce) {
+  .ink-select-menu, .ink-confirm { animation-duration: var(--motion-reduced); }
+}

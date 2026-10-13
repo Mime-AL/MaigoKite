@@ -7,7 +7,7 @@ MaigoKite 是面向个人工作流的本地 Agent。本目录按读者和职责�
 - 了解产品：[产品愿景](project/Vision.md) → [需求与验收](requirements/RequirementList.md)
 - 了解架构：[系统设计](design/SystemDesign.md) → [智能体运行时设计](design/AgentRuntime.md)
 - 了解界面：[前端与桌面交互设计](design/FrontendDesign.md) → [墨线 UI 设计](design/agent-ui-design.md)
-- 开发运行：[开发指南](development/DevelopmentGuide.md)
+- 开发运行：[开发指南](development/DevelopmentGuide.md)；测试与 CI 范围见 [测试与验收](testing/TestPlan.md)
 - 当前进度：[交付路线与状态](project/Roadmap.md)
 - 用户配置：[安装与首次使用](user-guide/Installation.md) → [配置指南](user-guide/Configuration.md)
 

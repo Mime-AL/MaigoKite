@@ -27,7 +27,9 @@ Python 依赖在根目录的 `pyproject.toml` 中声明，解析结果保存在�
 uv sync --locked --no-default-groups --python 3.14
 ```
 
-只有需要 Python 开发工具时才追加 `--extra dev`。当前 `dev` 定义在 `project.optional-dependencies`，包含 pytest、Ruff、mypy、Black、pre-commit 与 Python 构建工具；不是自动安装的 dependency group。`--no-dev` 仅针对 dependency group，不能替代去掉 `--extra dev`。默认不添加 `--all-extras`。
+需要 Python 开发工具时追加 `--extra dev`。`dev` 定义在 `project.optional-dependencies`，包含 pytest、Ruff、mypy、Black、pre-commit 与 Python 构建工具，不是自动安装的 dependency group。
+
+`--no-dev` 仅针对 dependency group，不能替代去掉 `--extra dev`。默认不添加 `--all-extras`。
 
 `vectorstores` 只用于尚未接入聊天的实验适配器，默认不安装，也不表示知识库功能已经交付。维护者修改依赖后须运行 `uv lock` 更新锁文件；依赖锁定成功不代表运行或发布验收通过。
 
@@ -44,11 +46,15 @@ cd web
 npm ci --include=dev --foreground-scripts --ignore-scripts=false --engine-strict
 ```
 
-默认 `setup`（与 `setup all` 相同）和 `setup dev` 会执行以上 Web 安装步骤，`setup python` 只同步 Python 运行依赖，不触碰 `node_modules`、不要求 Electron 安装完整。npm 的 devDependencies 包含源码构建/启动所需的 Vite、TypeScript、Electron 等，与 Python 可选开发工具不是一回事。uv 和 pip 都使用根项目，默认环境目录为根 `.venv`。可用 `UV_PROJECT_ENVIRONMENT` 指定其他目录，相对路径以项目根为基准。
+默认 `setup`（与 `setup all` 相同）和 `setup dev` 会执行以上 Web 安装步骤。`setup python` 只同步 Python 运行依赖，不修改 `node_modules`，也不检查 Electron 是否安装完整。
+
+npm 的 devDependencies 包含源码构建/启动所需的 Vite、TypeScript、Electron 等，与 Python 可选开发工具不同。uv 和 pip 都使用根项目，默认环境目录为根 `.venv`。可用 `UV_PROJECT_ENVIRONMENT` 指定其他目录，相对路径以项目根为基准。
 
 脚本不使用 Poetry 或子项目清单，也不默认安装向量库或 Docker SDK。不要把项目依赖强行安装到全局解释器中。设置 `MAIGOKITE_PYTHON` 后，uv 安装和构建使用指定解释器；pip 用它创建项目环境，依赖仍安装在项目环境内。
 
-从旧 Python 环境升级前，先退出整套应用。setup 在修改依赖前检查成套服务的 8080/5173 端口，有占用则退出，不杀进程；手动启动在其他端口的实例仍须自行关闭。安装阶段允许 uv 获取 Python 3.14 并重建不兼容的项目虚拟环境；默认精确同步会移除不属于本次依赖选择的包，因此从 `setup dev` 切回默认 setup 或 `setup python` 会移除仅开发使用的 Python 包。不要在虚拟环境内存放业务数据。脚本不删除 uv 共享解释器、下载缓存、数据库或工作区。
+升级旧 Python 环境前，先退出整套应用。setup 修改依赖前会检查成套服务的 8080/5173 端口，有占用则退出，不结束进程；其他端口上的手动启动实例仍须自行关闭。
+
+安装时允许 uv 获取 Python 3.14，并重建不兼容的项目虚拟环境。默认精确同步会移除不属于本次依赖选择的包；从 `setup dev` 切回默认 setup 或 `setup python` 时，仅开发使用的 Python 包也会被移除。不要在虚拟环境内存放业务数据。脚本不删除 uv 共享解释器、下载缓存、数据库或工作区。
 
 没有 uv 时，先安装 Python 3.14，将旧 `.venv`（或 `UV_PROJECT_ENVIRONMENT` 指定的目录）重命名保留，再运行 setup。pip 分支不自动删除或重建不兼容环境；同版本环境中的多余包也不会由 pip 自动移除，需要精确清理时改用 uv。启动时发现旧环境会明确报错，不会偷偷切换到另一个缺少依赖的全局 Python，也不自动删除环境。
 
@@ -153,18 +159,19 @@ PowerShell 禁止执行脚本时，确认源码可信后可使用进程级 `powe
 
 ## 4. 质量与构建入口
 
-以下测试命令以本地已有测试文件为前提。当前 `.gitignore` 排除了 Python/Web 测试、Vitest 配置与 `scripts/run_tests.sh`，新克隆不包含这些入口或完整测试集；依赖安装不会补齐它们。不要把“未发现测试”或未执行记录写成通过。测试范围与证据口径见 [测试与验收](../testing/TestPlan.md)。
+测试源码、Vitest 配置和 `scripts/run_tests.sh` 随 Git 分发；生成的报告与缓存不提交。新克隆需先安装对应开发依赖，再执行下表中的测试入口。未执行或收集失败的测试不能记为通过，覆盖范围与证据口径见 [测试与验收](../testing/TestPlan.md)。
 
-生产构建使用 `vue-tsc --noEmit -p tsconfig.build.json`，保留应用、Electron 与 Vite 配置的严格类型检查，不纳入本地测试文件或 Vitest 配置。原 `tsconfig.json` 与测试断言不变；本地旧测试的 Gateway 契约仍需由测试维护者另行迁移，不能将生产构建成功记作测试通过。
+生产构建使用 `vue-tsc --noEmit -p tsconfig.build.json`，保留应用、Electron 与 Vite 配置的严格类型检查，不纳入测试文件或 Vitest 配置。生产构建成功不能替代测试通过。
 
 | 入口 | 范围 |
 | --- | --- |
-| 项目 Python 执行 `-m pytest python`（根目录） | 根环境的 Python 测试集 |
+| `.venv/bin/python -m pytest python/tests scripts/acceptance --ignore=python/tests/spike/test_runtime_spike_live.py`（根目录） | 无模型凭据的 Python 单元/集成测试与运行时验收门禁 |
 | `cd web` 后 `npm run test:run` | Vue/Vitest |
-| `scripts/run_tests.sh` | 维护者本地聚合测试入口，不随 Git 分发 |
+| `scripts/run_tests.sh` | 聚合运行 Python 测试、运行时验收和 Vue/Vitest；随 Git 分发 |
+| [GitHub Actions CI](../../.github/workflows/ci.yml) | PR 与主分支检查、Linux/Windows 源码构建；具体门禁见 [测试与验收](../testing/TestPlan.md#github-actions) |
 | `build.sh all` / `build.ps1 all` | Vue/Electron；Python 分发包另用 python 目标，不是完整桌面发布 |
 
-从根目录执行 `.venv/bin/ruff check python/` 和 `.venv/bin/mypy python/agent` 可检查 Python 代码。报告时写明实际检查范围和失败结果，不要将检查失败写成“工具缺失”或“跳过”。静态检查失败须保留非零退出码。平台限制和安装包验收要求见构建与发布指南。
+从根目录执行 `.venv/bin/ruff check python/` 和 `.venv/bin/mypy python/agent` 检查 Python 代码。报告须写明检查范围与实际结果；检查失败应保留非零退出码，不能记为“工具缺失”或“跳过”。平台限制和安装包验收要求见 [构建与发布指南](../deployment/ReleaseGuide.md)。
 
 HTTP 请求模型在 `python/agent/api/contracts.py`，FastAPI 提供 `/openapi.json`；不再维护 Proto 与跨语言生成代码。事件 DTO 继续见 [API 设计](../design/API.md)。新增持久字段仍须覆盖空库与旧库升级。
 

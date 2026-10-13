@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from agent.errors import UserFacingError, public_error
 from agent.models.context_capacity import ContextCapacity
+from agent.models.reasoning import split_thinking
 from agent.runtime.context import ContextBudgetMiddleware, summary_target_tokens
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
@@ -64,12 +65,18 @@ class _ReadOnlyTools(AgentMiddleware):
             if (fresh.get("workspace_root") != child.execution_metadata.get("workspace_root")
                     or "delegate" not in fresh.get("enabled_tools", [])):
                 raise PermissionError("父任务权限或工作区已改变，请重新发起任务。")
-            child.execution_metadata["enabled_tools"] = sorted(
-                set(child.execution_metadata["enabled_tools"]) & set(fresh.get("enabled_tools", [])),
-            )
+            child.execution_metadata = {
+                **child.execution_metadata,
+                "enabled_tools": sorted(set(child.execution_metadata["enabled_tools"]) & set(fresh.get("enabled_tools", []))),
+            }
         task = await adapter.repository.get_task(child.request.workspace_id, child.request.task_id)
-        if task["status"] != "running":
+        if task["status"] == "cancelled":
             raise asyncio.CancelledError()
+        # A sibling ToolNode can publish an approval interrupt while this
+        # already-admitted read-only investigation is still draining. That is
+        # not a user stop; propagating CancelledError would cancel the parent.
+        if task["status"] not in {"running", "waiting_approval"}:
+            raise DelegationError("父任务已结束或中断，子 Agent 不再执行。")
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
@@ -101,6 +108,13 @@ class _ReadOnlyTools(AgentMiddleware):
         decision = adapter._policy_decision(call["name"], dict(call.get("args") or {}), child)
         if call["name"] not in READ_TOOLS or decision.outcome != "allow":
             return ToolMessage(content=decision.reason, tool_call_id=call["id"], status="error")
+        # Parallel reads retain the authority captured for their own admission;
+        # another read's refresh must not mutate an already-running tool context.
+        authority = replace(child, execution_metadata={
+            **child.execution_metadata,
+            "sandbox_mode": decision.sandbox_mode, "allow_network": decision.allow_network,
+        })
+        request = replace(request, runtime=replace(request.runtime, context=authority))
         await adapter._emit(parent, "subagent.progress", {
             "subagent_id": child.subagent_id, "tool_name": call["name"], "arguments": decision.arguments,
             **child.model_info,
@@ -245,10 +259,13 @@ class DelegateTool(BaseTool):
                             {"messages": [HumanMessage(content=task)]}, config=config, context=child, durability="sync",
                         )
                 last = result["messages"][-1]
-                if not isinstance(last, AIMessage) or last.tool_calls or not last.text:
+                if not isinstance(last, AIMessage) or last.tool_calls:
+                    raise DelegationError("子 Agent 没有产出最终摘要。")
+                answer, _reasoning = split_thinking(last.text)
+                if not answer.strip():
                     raise DelegationError("子 Agent 没有产出最终摘要。")
                 reason = last.response_metadata.get("finish_reason") or last.response_metadata.get("stop_reason") or last.response_metadata.get("done_reason")
-                summary = _bounded_result(last.text, result_limit, incomplete=reason in {"length", "max_tokens", "max_output_tokens"})
+                summary = _bounded_result(answer, result_limit, incomplete=reason in {"length", "max_tokens", "max_output_tokens"})
                 await adapter._emit(parent, "subagent.completed", {"subagent_id": call_id, "summary": summary, **child.model_info})
                 return ToolMessage(content=summary, tool_call_id=call_id, name=self.name,
                                    artifact={"summary": summary, "data": {"content": summary, "subagent_id": call_id, **child.model_info}})

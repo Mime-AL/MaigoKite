@@ -110,8 +110,7 @@ const measurementLabel = computed(() => t(
         <dd>{{ context.usedTokens === null ? $t('未提供') : `${count(context.usedTokens)} Token` }}</dd>
       </div>
       <div>
-        <dt>{{ $t(context.capacitySource === 'route_default' ? '接入默认窗口' :
-          context.capacitySource === 'route_config' ? '配置容量' : '模型窗口') }}</dt>
+        <dt>{{ $t('模型窗口') }}</dt>
         <dd>
           {{
             context.windowTokens === null ? $t('窗口未知') : `${count(context.windowTokens)} Token`
