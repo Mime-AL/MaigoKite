@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from agent.safety.config import SAFETY_FORMATS
+from agent.safety.config import DEFAULT_JEV_LAYOUT, SAFETY_FORMATS
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,12 +27,16 @@ def build_review_request(
     state: str,
     decision_model: str,
     review: SafetyReviewInput,
+    layout: str = DEFAULT_JEV_LAYOUT,
 ) -> dict[str, Any]:
     if request_format not in SAFETY_FORMATS:
         raise SafetyFormatError(f"unsupported safety request format: {request_format}")
     if request_format == "jev_like":
         from agent.safety.formats.jev_like import build_request
-    elif request_format == "openai":
+        return build_request(
+            state=state, decision_model=decision_model, review=review, layout=layout,
+        )
+    if request_format == "openai":
         from agent.safety.formats.openai import build_request
     else:
         from agent.safety.formats.laya import build_request

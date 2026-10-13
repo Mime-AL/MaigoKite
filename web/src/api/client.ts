@@ -155,6 +155,12 @@ export interface PermissionSettings {
 export type SafetyRequestFormat = 'jev_like' | 'laya' | 'openai'
 
 /**
+ * `jev_like` wire layout: `message` puts the reviewed delta in `state.message`;
+ * `inline` embeds it in the question instructions. Ignored by other formats.
+ */
+export type SafetyJevLayout = 'inline' | 'message'
+
+/**
  * Prompt safety review settings (`GET/PATCH settings/safety`).
  * `api_key` is write-only and never returned; `credential_configured` is
  * read-only on write. This contract does not imply runtime enforcement.
@@ -162,6 +168,7 @@ export type SafetyRequestFormat = 'jev_like' | 'laya' | 'openai'
 export interface SafetySettings {
   enabled: boolean
   request_format: SafetyRequestFormat
+  jev_layout: SafetyJevLayout
   state: string
   decision_base_url: string
   decision_model: string

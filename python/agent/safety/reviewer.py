@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from agent.safety.config import DEFAULT_JEV_LAYOUT
 from agent.safety.formats.openai import degrade_to_json_object
 from agent.safety.request_builders import (
     SafetyFormatError,
@@ -126,12 +127,13 @@ class SafetyReviewer:
         decision_model: str,
         review: SafetyReviewInput,
         threshold: int,
+        layout: str = DEFAULT_JEV_LAYOUT,
     ) -> SafetyReviewResult:
         review_id = "safety_" + uuid.uuid4().hex
         try:
             payload = build_review_request(
                 request_format, state=state,
-                decision_model=decision_model, review=review,
+                decision_model=decision_model, review=review, layout=layout,
             )
         except SafetyFormatError as exc:
             raise SafetyReviewError("safety review request construction failed") from exc

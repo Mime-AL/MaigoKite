@@ -12,6 +12,10 @@ SAFETY_SETTING_KEY = "safety.policy"
 SAFETY_CREDENTIAL_REFERENCE = "safety.decision_model"
 # jev_like covers the jev request class and its open-source implementation kev.
 SAFETY_FORMATS = ("jev_like", "laya", "openai")
+# jev_like wire layouts: "message" puts the delta in state.message (best on the
+# 0.8B model); "inline" embeds it in the question instructions (best on the 4B).
+SAFETY_JEV_LAYOUTS = ("inline", "message")
+DEFAULT_JEV_LAYOUT = "message"
 MAX_TRUSTED_MODEL_IDS = 32
 MAX_STATE_LENGTH = 4000
 
@@ -20,6 +24,7 @@ def default_safety_settings() -> dict[str, Any]:
     return {
         "enabled": False,
         "request_format": "jev_like",
+        "jev_layout": DEFAULT_JEV_LAYOUT,
         "state": "",
         "decision_base_url": "",
         "decision_model": "",
@@ -37,6 +42,8 @@ def normalize_safety_settings(stored: Any) -> dict[str, Any]:
         value["enabled"] = stored["enabled"]
     if stored.get("request_format") in SAFETY_FORMATS:
         value["request_format"] = stored["request_format"]
+    if stored.get("jev_layout") in SAFETY_JEV_LAYOUTS:
+        value["jev_layout"] = stored["jev_layout"]
     for key in ("state", "decision_base_url", "decision_model"):
         item = stored.get(key)
         if isinstance(item, str):

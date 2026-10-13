@@ -324,6 +324,7 @@ class _PromptSafetyMiddleware(AgentMiddleware):
                         delta=delta, previous_model_id=str(context.execution_metadata.get("safety_model_id", "")),
                     ),
                     threshold=int(settings["risk_threshold"]),
+                    layout=str(settings["jev_layout"]),
                 )
             except SafetyReviewError as exc:
                 logger.warning(

@@ -13,7 +13,7 @@ from agent.api.sessions import owner
 from agent.errors import public_error
 from agent.models.discovery import discover_models
 from agent.models.native_model import normalize_base_url
-from agent.safety import SAFETY_CREDENTIAL_REFERENCE, SAFETY_FORMATS
+from agent.safety import SAFETY_CREDENTIAL_REFERENCE, SAFETY_FORMATS, SAFETY_JEV_LAYOUTS
 
 
 def routes(core, credentials) -> APIRouter:
@@ -205,6 +205,8 @@ def routes(core, credentials) -> APIRouter:
         if body.request_format not in SAFETY_FORMATS:
             # A distinct code, not generic VALIDATION, per the API contract.
             raise dto.APIError(400, "SAFETY_FORMAT_UNSUPPORTED", "不支持的决策模型请求格式。")
+        if body.jev_layout not in SAFETY_JEV_LAYOUTS:
+            raise dto.APIError(400, "SAFETY_LAYOUT_UNSUPPORTED", "不支持的 JEV 请求布局。")
         value = await core.update_safety_settings(
             workspace_id, body.model_dump(exclude={"api_key", "credential_configured"})
         )

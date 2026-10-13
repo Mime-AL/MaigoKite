@@ -1,6 +1,6 @@
 # Plan: Prompt Safety Review（提示词安全审查）
 
-> 状态：Phase A–D 已完成，Phase E 验收进行中。KEV 已完成本机 HTTP 联调和二分类概率接入；LAYA 已完成本机 HTTP 联调、请求契约修正与语言覆盖验证，完整端到端验收仍待执行，进度与证据见 [交付路线与状态](../project/Roadmap.md)。`openai` 结构化输出格式已实现请求构造、降级与解析，单测覆盖通过，并已用本机 LM Studio（`google/gemma-4-12b-qat`，`json_schema` 直连无需降级）完成真实联调：良性提示返回归一化概率 0.0、转换为 0 分并放行；注入提示返回 1.0、转换为 100 分并拦截。
+> 状态：Phase A–D 已完成，Phase E 验收进行中。KEV 已完成本机 HTTP 联调和二分类概率接入；`jev_like` 请求布局已按 A/B 实验改为可配置的 `jev_layout`（`message` 默认 / `inline`），0.8B 与 4B 的对比数据见验证结果与 [配置指南](configuration.md)；LAYA 已完成本机 HTTP 联调、请求契约修正与语言覆盖验证，完整端到端验收仍待执行，进度与证据见 [交付路线与状态](../project/Roadmap.md)。`openai` 结构化输出格式已实现请求构造、降级与解析，单测覆盖通过，并已用本机 LM Studio（`google/gemma-4-12b-qat`，`json_schema` 直连无需降级）完成真实联调：良性提示返回归一化概率 0.0、转换为 0 分并放行；注入提示返回 1.0、转换为 100 分并拦截。
 > 接口契约以 [API 设计](../design/API.md#36-设置模型和凭证引用) 为准，本文件只记录计划与边界。
 
 这是一个增量改造。目标是把安全检查接到模型调用前，先取当前步相对上一轮的提示词增量，再交给独立审查模型打分。分值超过阈值时，任务进入可人工接管的暂停态，前端复用现有继续和恢复交互，让用户决定是否放行。
@@ -103,15 +103,33 @@
 1. 先补一组最小单测或集成测试，覆盖三类场景：可信模型跳过、风险超阈值暂停、审查失败默认拦截。 ✅ 已完成
    - `openai` 格式已追加两组场景：结构化输出解析与 `response_format` 降级、非法结构化输出保守拦截。 ✅ 已完成（`python/tests/unit/test_safety_openai.py`，24 passed）。
 2. 跑后端相关测试，或至少目标模块的类型和单测，确认新配置和运行时逻辑能通过。 ✅ 已完成
-3. 跑前端类型检查或构建，确认设置页新增字段和 API 契约没有断裂。
+3. 跑前端类型检查或构建，确认设置页新增字段和 API 契约没有断裂。 ✅ 已完成（`vue-tsc --noEmit` exit 0，覆盖 `jev_layout` 新字段）
 4. 手工验证一次完整流程：保存安全配置 -> 触发模型调用 -> 命中审查 -> 人工继续或终止 -> 状态回到正常流转。
 
 当前后端验证结果：
 
-- `python/tests`：38 passed（`openai` 结构化输出、降级、保守拦截、`jev_like` 回归，以及 `laya` 契约/白名单/端点后缀/概率解析用例；按仓库约定测试文件仅本地保留）。
+- `python/tests`（当前工作区文件）：17 passed（安全配置与 `jev_layout` 默认/修复、
+  三格式请求构造、`jev_like` 双布局载荷与未知布局拒绝、reviewer 布局透传、
+  `laya` 检查点白名单、概率解析与保守拦截；`openai` 专项用例文件不在当前工作区，
+  未重跑）。
 - Python 编译检查和 `git diff --check` 通过。
 - 本机 KEV endpoint：`POST http://127.0.0.1:8009/v1/systemone`。
 - 已验证二分类响应中的 `probabilities` 可转换为 0–100 `risk_score`，并驱动阈值判断。
+- KEV-4B benchmark（2026-10-13，`http://127.0.0.1:9931` llama.cpp +
+  `Kev-4B-Q4_K_M.gguf`，`/v1/systemone` 契约一致；456 请求、重复间结果一致、
+  主套件均值 ~250ms）：两种布局 AUC 均 1.000；主套件 `inline` 隙差 +87.4、
+  阈值 75 零漏拦，`message` +49.9、4 漏拦；24 条汇总 `inline` 6.0/12.8/+6.9
+  （最佳阈值 6 零误差）、`message` 11.0/13.1/+2.1（阈值 12 零误差）。指令扩展在
+  4B 上收益显著：`message` 漏拦 7→3、`inline` 4→1（仅“翻译时附初始设定”27.3），
+  良性上界仅 +0.5；因需按决策模型取舍，未并入默认指令。
+- KEV 请求布局 A/B（2026-10-13；三布局 × 12 良性 + 12 注入（中英）× 每条 3 次
+  重复，重复间结果完全一致）：旧指令内嵌布局良性均分 40.9、上界 63.9，存在良性
+  反超注入的重叠（任意阈值至少 2 错）；`state.message` 布局良性均分 17.2、上界
+  41.9，经典越狱注入 97+，首轮 16 条完全分离（AUC 1.00、零误差阈值 24–38）。
+  隐蔽指令套取类注入在两种布局下都低于默认阈值 75，是 0.8B 模型的共同短板；
+  指令扩展（补充隐藏指令套取覆盖）实测注入均分 +4.0、良性 +2.1，收益边际，未采用。
+  新构造器经 `SafetyReviewer` 端到端联调：良性 14 分放行、注入 93 分拦截，
+  guidance 路径服务端接受。
 - 本机 LM Studio endpoint：`POST http://127.0.0.1:1234/v1/chat/completions`，模型为
   `google/gemma-4-12b-qat`；已验证 `risk_probability` 的 0–1 归一化输出可转换为
   0–100 `risk_score` 并驱动阈值判断。良性样例为 `0.0 → 0`，注入样例为 `1.0 → 100`；
@@ -142,6 +160,15 @@
 - 这次方案优先复用现有暂停和继续链路，不另造第二套审批系统。
 - KEV 风险值使用 `probabilities["dangerous"] * 100` 的归一化概率映射；不使用
   KEV 的 `score` 索引值。
+- JEV_LIKE/KEV 请求布局（2026-10-13 起，`jev_layout` 二选一）：默认 `message`
+  ——待审查增量放 `state.message`，短指令引用 `message`，`state` 设置留空不携带
+  附加字段、非空作为 `state.guidance` 附加（与 LAYA 一致）；`inline` 保留迁移前的
+  指令内嵌布局（Model/Task/Step 元数据与 `previous_model_id` 仅存在于该布局，
+  `state` 为静态分类指令）。依据是两轮本机 A/B（数据见验证结果与
+  [配置指南](configuration.md)）：0.8B 上 `message` 是解药（`inline` 存在良性反超
+  注入的重叠），4B 上 `inline` 反而最优（主套隙差 +87.4 vs +49.9）。设置页提供
+  「JEV 布局」选择；非法布局 PATCH 返回 `SAFETY_LAYOUT_UNSUPPORTED`，运行时构造
+  失败按审查失败保守拦截。
 - `openai` 格式要求决策模型输出包含 0–1 归一化 `risk_probability` 的结构化 JSON；解析失败不回退自由文本打分，沿用保守拦截。
 - LAYA 请求布局：待审查增量放 `state.message`，`questions.prompt_safety` 用 `score`
   类型与 `safe`/`dangerous` criteria；`state` 设置留空时不携带附加字段，非空时作为
