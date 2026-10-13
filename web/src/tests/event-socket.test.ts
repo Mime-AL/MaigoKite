@@ -30,12 +30,18 @@ describe('event acknowledgement and replay', () => {
     const h = harness()
     h.socket.onopen?.(new Event('open'))
     expect(h.history).not.toHaveBeenCalled()
-    h.receive(event(2)); h.receive(event(1))
-    h.history.mockResolvedValueOnce([event(1), event(2)])
+    let resolveHistory!: (events: AgentEvent[]) => void
+    h.history.mockImplementationOnce(() => new Promise(resolve => { resolveHistory = resolve }))
     h.receive(ready)
+    expect(h.history).toHaveBeenCalledTimes(1)
+    h.receive(event(2)); h.receive(event(1))
+    resolveHistory([event(1)])
     await flushPromises()
     expect(h.consume.mock.calls.map(call => call[0].sequence)).toEqual([1, 2])
-    expect(h.stream.lastSeq).toBe(2)
+    expect(h.consume.mock.calls.map(call => call[1])).toEqual([true, false])
+    // A live receipt is projected immediately but does not advance the HTTP
+    // replay cursor until a later history response confirms that sequence.
+    expect(h.stream.lastSeq).toBe(1)
     expect(h.connection).toHaveBeenLastCalledWith(true)
   })
 
@@ -72,9 +78,14 @@ describe('event acknowledgement and replay', () => {
 
   it('keeps a failing buffered live event recoverable without an unhandled promise', async () => {
     const h = harness()
+    let resolveHistory!: (events: AgentEvent[]) => void
+    h.history.mockImplementationOnce(() => new Promise(resolve => { resolveHistory = resolve }))
+    h.receive(ready)
+    expect(h.history).toHaveBeenCalledTimes(1)
     h.receive(event(1))
     h.consume.mockImplementationOnce(() => { throw new Error('buffered projection failed') })
-    h.receive(ready); await flushPromises()
+    resolveHistory([])
+    await flushPromises()
     expect(h.connection).toHaveBeenLastCalledWith(false)
     expect(h.socket.close).toHaveBeenCalledTimes(1)
     expect(h.stream.lastSeq).toBe(0)

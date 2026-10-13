@@ -153,15 +153,15 @@ PowerShell 禁止执行脚本时，确认源码可信后可使用进程级 `powe
 
 ## 4. 质量与构建入口
 
-以下测试命令以本地已有测试文件为前提。当前 `.gitignore` 排除了 Python/Web 测试、Vitest 配置与 `scripts/run_tests.sh`，新克隆不包含这些入口或完整测试集；依赖安装不会补齐它们。不要把“未发现测试”或未执行记录写成通过。测试范围与证据口径见 [测试与验收](../testing/TestPlan.md)。
+测试源码、Vitest 配置和 `scripts/run_tests.sh` 随 Git 分发；生成的测试报告与缓存仍由 `.gitignore` 排除。新克隆需先安装对应开发依赖。不要把未执行或收集失败写成通过。测试范围与证据口径见 [测试与验收](../testing/TestPlan.md)。
 
-生产构建使用 `vue-tsc --noEmit -p tsconfig.build.json`，保留应用、Electron 与 Vite 配置的严格类型检查，不纳入本地测试文件或 Vitest 配置。原 `tsconfig.json` 与测试断言不变；本地旧测试的 Gateway 契约仍需由测试维护者另行迁移，不能将生产构建成功记作测试通过。
+生产构建使用 `vue-tsc --noEmit -p tsconfig.build.json`，保留应用、Electron 与 Vite 配置的严格类型检查，不纳入测试文件或 Vitest 配置。生产构建成功不能替代测试通过。
 
 | 入口 | 范围 |
 | --- | --- |
-| 项目 Python 执行 `-m pytest python`（根目录） | 根环境的 Python 测试集 |
+| `.venv/bin/python -m pytest python/tests scripts/acceptance`（根目录） | Python 单元/集成测试与运行时验收门禁 |
 | `cd web` 后 `npm run test:run` | Vue/Vitest |
-| `scripts/run_tests.sh` | 维护者本地聚合测试入口，不随 Git 分发 |
+| `scripts/run_tests.sh` | 聚合运行 Python 测试、运行时验收和 Vue/Vitest；随 Git 分发 |
 | `build.sh all` / `build.ps1 all` | Vue/Electron；Python 分发包另用 python 目标，不是完整桌面发布 |
 
 从根目录执行 `.venv/bin/ruff check python/` 和 `.venv/bin/mypy python/agent` 可检查 Python 代码。报告时写明实际检查范围和失败结果，不要将检查失败写成“工具缺失”或“跳过”。静态检查失败须保留非零退出码。平台限制和安装包验收要求见构建与发布指南。

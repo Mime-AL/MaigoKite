@@ -483,7 +483,7 @@ def test_policy_matrix_and_hard_deny(tmp_path):
     assert read_only.evaluate("file_read",{"path":"../outside"}).risk==RiskLevel.L5
     workspace=PermissionManager("workspace",tmp_path)
     assert workspace.evaluate("file_write",{"path":"a.txt"}).outcome=="allow"
-    assert workspace.evaluate("bash",{"command":"git status"}).outcome=="allow"
+    assert workspace.evaluate("bash",{"command":"git status", "shell":"direct"}).outcome=="allow"
     assert workspace.evaluate("bash",{"command":"git diff --output=/tmp/leak"}).outcome=="deny"
     full_access=PermissionManager("full_access",tmp_path)
     assert full_access.evaluate("web_search",{"query":"test"}).outcome=="allow"
@@ -536,6 +536,32 @@ def test_legacy_permission_modes_migrate_conservatively(tmp_path):
     assert PermissionManager("manual",tmp_path).mode=="read_only"
     assert PermissionManager("accept_edits",tmp_path).mode=="workspace"
     assert PermissionManager("auto",tmp_path).mode=="full_access"
+
+def test_windows_auto_shell_selection_requires_approval(tmp_path, monkeypatch):
+    import agent.utils.command_shell as command_shell
+
+    with monkeypatch.context() as windows:
+        windows.setattr(command_shell.os, "name", "nt")
+        windows.setattr(command_shell, "powershell_executable", lambda _shell: "C:/PowerShell/7/pwsh.exe")
+        selected = command_shell.resolve_command_shell("auto")
+    assert selected == "pwsh"
+    decision = PermissionManager("workspace", tmp_path).evaluate(
+        "bash", {"command": "git status", "shell": selected},
+    )
+    assert decision.outcome == "approval_required"
+
+    with monkeypatch.context() as windows:
+        windows.setattr(command_shell.os, "name", "nt")
+        windows.setattr(
+            command_shell,
+            "powershell_executable",
+            lambda _shell: (_ for _ in ()).throw(FileNotFoundError()),
+        )
+        fallback = command_shell.resolve_command_shell("auto")
+    assert fallback == "powershell"
+    assert PermissionManager("workspace", tmp_path).evaluate(
+        "bash", {"command": "git status", "shell": fallback},
+    ).outcome == "approval_required"
 
 
 def test_filesystem_root_cannot_be_used_as_workspace():

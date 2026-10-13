@@ -26,6 +26,7 @@
 | `test_langgraph_process_recovery.py` | 核心服务进程终止/恢复、文件崩溃点 |
 | `test_context_optimization.py` | 结构定义预算、配对、摘要保护/取消、用量和客户端轮换 |
 | `python/tests/spike` | 选型协议/真实服务验收验证，不代替真实生产入口 |
+| `scripts/acceptance` | 关闭清理、MCP 取消复用、事件分页及运行时收尾门禁；由 `scripts/run_tests.sh` 默认纳入 |
 
 完整批次 HITL 必须验证全部决定齐备前无写入，旧预期“首项批准立即写第一个文件”不再适用。多项文件批准与部分批准后重启已有定向记录，但不覆盖后续驳回语义调整；两者的验证范围须分开，不能删除失败测试后宣称通过。
 
@@ -54,6 +55,8 @@ Core 启动 → file_write interrupt → 文件未写
 → 终止 Core process → 新 Core 启动
 → 同 thread/run 审批恢复 → 写入 → 模型续答
 ```
+
+进程交互经当前 HTTP API 完成，实时事件经当前 WebSocket 完成；不再使用已移除的 gRPC 客户端或监听端口。
 
 检查检查点落盘、无旧进程内存、参数摘要值/版本、一次合法审批、UI/产品终态一致。额外测试部分批次批准后重启，不只重新实例化适配层。
 

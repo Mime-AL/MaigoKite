@@ -2,42 +2,53 @@ from __future__ import annotations
 
 import asyncio
 
-import grpc
 import pytest
 
-from agent.event_bus import EventBus
-from agent.grpc_server import AgentServiceServicer
-from agent.observability import Observability
+from agent.api.execution import Execution
 
 
 @pytest.mark.asyncio
-async def test_rejected_resume_does_not_forward_another_runs_events() -> None:
-    bus = EventBus()
-    service = AgentServiceServicer(None, bus, Observability())
-    pending = {"conversation_id": "conversation", "task_id": "task"}
+async def test_websocket_stream_sends_ready_then_only_matching_conversation_events(core) -> None:
+    conversation = await core.create_conversation(title="websocket stream")
 
-    class Rejected(Exception):
-        pass
+    class Socket:
+        def __init__(self) -> None:
+            self.accepted = False
+            self.sent = []
+            self.closed_with = None
+            self.disconnect = asyncio.Event()
 
-    class Context:
-        async def abort(self, code, message):
-            assert code == grpc.StatusCode.FAILED_PRECONDITION
-            raise Rejected(message)
+        async def accept(self) -> None:
+            self.accepted = True
 
-    async def rejected_operation():
-        await bus.publish("task.resumed", {**pending, "trace_id": "accepted-request"})
-        await bus.publish("message.delta", {**pending, "content": "another run"})
-        await bus.publish("task.succeeded", pending)
-        raise ValueError("already resumed")
+        async def send_json(self, value) -> None:
+            self.sent.append(value)
+            if value["type"] == "stream.ready":
+                await core.event_bus.publish("message.delta", {
+                    "event_id": "event-other", "sequence": 1, "occurred_at": "2026-01-01T00:00:00Z",
+                    "conversation_id": "another-conversation", "task_id": "other-task", "content": "ignore",
+                })
+                await core.event_bus.publish("message.delta", {
+                    "event_id": "event-current", "sequence": 2, "occurred_at": "2026-01-01T00:00:01Z",
+                    "conversation_id": conversation["id"], "task_id": "current-task", "content": "forward",
+                })
+            else:
+                self.disconnect.set()
 
-    received = []
-    with pytest.raises(Rejected, match="already resumed"):
-        async for event in service._stream_interaction(
-            pending, rejected_operation(), Context(), resume_trace_id="rejected-request",
-        ):
-            received.append(event)
-    assert received == []
-    await asyncio.sleep(0)  # Release the detached operation's completion callback.
+        async def receive(self):
+            await self.disconnect.wait()
+            return {"type": "websocket.disconnect"}
+
+        async def close(self, code: int = 1000) -> None:
+            self.closed_with = code
+
+    socket = Socket()
+    await Execution(core).websocket(socket, "personal", conversation["id"])
+    assert socket.accepted
+    assert [value["type"] for value in socket.sent] == ["stream.ready", "message.delta"]
+    assert socket.sent[1]["event_id"] == "event-current"
+    assert socket.sent[1]["payload"]["content"] == "forward"
+    assert socket.closed_with == 1000
 
 
 @pytest.mark.asyncio

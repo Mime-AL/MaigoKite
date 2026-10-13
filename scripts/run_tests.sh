@@ -19,23 +19,23 @@ PASSED=0
 
 run_python_tests() {
   TOTAL=$((TOTAL + 1))
-  info "Running Python tests..."
-  if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
-    if (cd "$PROJECT_ROOT" && PYTHONPATH=python .venv/bin/python -m pytest python --tb=short 2>&1); then
+  info "Running Python tests and acceptance gates..."
+  if [ -x "$PROJECT_ROOT/.venv/bin/python" ] && "$PROJECT_ROOT/.venv/bin/python" -c 'import pytest' >/dev/null 2>&1; then
+    if (cd "$PROJECT_ROOT" && PYTHONPATH=python .venv/bin/python -m pytest python/tests scripts/acceptance --tb=short 2>&1); then
       PASSED=$((PASSED + 1))
     else
       FAILED=$((FAILED + 1))
       warn "Python tests failed"
     fi
   elif command -v uv &>/dev/null; then
-    if (cd "$PROJECT_ROOT/python" && uv run pytest --tb=short 2>&1); then
+    if (cd "$PROJECT_ROOT" && PYTHONPATH=python uv run --project "$PROJECT_ROOT" --extra dev --frozen pytest python/tests scripts/acceptance --tb=short 2>&1); then
       PASSED=$((PASSED + 1))
     else
       FAILED=$((FAILED + 1))
       warn "Python tests failed"
     fi
   elif command -v python3 &>/dev/null; then
-    if (cd "$PROJECT_ROOT" && PYTHONPATH=python python3 -m pytest python --tb=short 2>&1); then
+    if (cd "$PROJECT_ROOT" && PYTHONPATH=python python3 -m pytest python/tests scripts/acceptance --tb=short 2>&1); then
       PASSED=$((PASSED + 1))
     else
       FAILED=$((FAILED + 1))
