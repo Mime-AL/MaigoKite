@@ -166,11 +166,11 @@ PUT 完整替换 `config`（2 MiB 上限）：`revision / mcp_servers / skill_di
 
 apply 默认接受 `{"revision": <保存后的版本>}`，应用新配置。API 按 `secret_env` 从现有密钥链读取引用 `mcp.<namespace>.<ENV_NAME>`，在进程内传递凭证给 Core。Core 拒绝旧版本、重复应用或仍有运行/待审批/待回答的任务（409）；无效配置 400，非 owner 403。
 
-同一接口接受 `{"revision": <active_config.revision>, "restore_only": true}`，只恢复已生效配置的 MCP 连接、复用已加载 Skill；允许等待审批/回答，不允许活动运行，不应用尚未生效的编辑。新聊天、回答、任务恢复和批准入口均先准备已生效配置的凭证与连接；缺凭证或恢复失败时不准入本次执行，也不消费审批决定。批准 MCP 工具时还检查对应连接，成功后仍由 Core 校验审批 hash/version/策略。拒绝审批无需恢复 MCP 连接。
+同一接口接受 `{"revision": <active_config.revision>, "restore_only": true}`，只恢复已生效配置中缺失的 MCP 连接、复用健康连接及已加载 Skill；允许等待审批/回答，不允许活动运行，不应用尚未生效的编辑。缺凭证或连接失败按服务器报告，已恢复服务保留可用；返回 200 不代表全部恢复。新聊天可尝试恢复可选扩展，部分失败不阻断聊天；文件任务恢复、回答提问及原生工具批准不启动无关 MCP，也不以所有启用连接恢复为前置条件。MCP 批准仅要求目标服务与确切工具可用，失败不消费决定。checkpoint、审批 hash/version 和每次工具权限仍由 Runtime 校验，后续调用不可用工具不会因此被放行。拒绝审批无需恢复 MCP 连接。
 
-配置或进程异常有逐项状态，不能用 HTTP 200 推断全部连接成功；基础 Runtime 准备失败返回错误并保留原聊天入口，已断开的 MCP 另行恢复。Core 持有应用任务到清理完成，调用方断线不提前开放新运行；请求超时后先 GET 查看 reloading/结果，不盲目重发 apply。
+配置或进程异常有逐项状态，不能用 HTTP 200 推断全部连接成功；基础 Runtime 或新配置准备失败返回错误并保留原配置、聊天入口及健康连接，只关闭本次新建资源。准备成功再释放被替换的旧资源。Core 持有应用任务到清理完成，调用方断线不提前开放新运行；请求超时后先 GET 查看 reloading/结果，不盲目重发 apply。
 
-凭证沿用 3.6 的 POST/PUT/DELETE 接口；值不进入扩展配置/GET/审计。更新/删除凭证不改活动进程环境，下次 apply/恢复连接时生效。卸载配置不删除程序、目录或凭证。当前只支持本地 stdio 与 Markdown/目录技能，不是技能包安装、版本授权或 Grant 平台，扩展边界见 [技能](../agent-capabilities/skills/skill-lifecycle.md)。
+凭证沿用 3.6 的 POST/PUT/DELETE 接口；值不进入扩展配置/GET/审计。更新/删除凭证不改活动进程环境，下次显式 apply 或重建缺失连接时生效；restore_only 不替换健康连接的凭证。复用连接的内存凭证快照取自该 client 实际启动环境，不把并发请求读到的新密钥误记为已生效；显式 apply 同样按实际环境比较，凭证变化时准备替换连接。卸载配置不删除程序、目录或凭证。当前只支持本地 stdio 与 Markdown/目录技能，不是技能包安装、版本授权或 Grant 平台，扩展边界见 [技能](../agent-capabilities/skills/skill-lifecycle.md)。
 
 本次配置与管理接口是源码接入状态，未运行新增链路测试；只读列表或此前 MCP SDK 的验收不能代替它。
 
@@ -445,6 +445,12 @@ Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取
 用量汇总中，旧记录若缺少 `call_id` 或调用开始回执，`calls / failed_calls` 返回 null（未知），不能显示为“0 次调用”。已收到的 token 小计和 `reported_calls` 仍可查询，但不是完整账单或调用次数的估计。
 
 压缩触发的 `reason` 区分 `pressure`（模型步骤前）、`input_pressure`（补充输入后的最终请求）和 `provider_overflow`（服务端明确拒绝）。根任务取消时用既有 `context.compaction.skipped`、`reason=cancelled` 结束压缩展示，再发布任务终态；不把取消记作压缩成功。摘要调用也发布 `model.call.completed`、`purpose=summary`，即使服务未返回用量计数。
+
+`context.compacted` 只在 LangGraph 持久上下文确认包含该摘要后发布，摘要模型返回不等于压缩提交。取消恰好发生在提交后时，允许先报告已确认的压缩、再报告任务取消；无法确认提交时发布 skipped/failed（失败原因 `checkpoint_unconfirmed`），保留原始聊天记录。checkpoint 的完整内容不对外推送。
+
+MCP 失败沿用工具事件：`MCP_UNAVAILABLE` 表示本次请求未发送；`MCP_OUTCOME_UNKNOWN` 表示连接/超时后没有可靠回执，不能断言远端未执行，也不得自动重试。两者通过现有 `user_hint / action` 指向 `/integrations`，模型可继续其他获准操作，不将整个任务直接标为失败。
+
+浏览器取消后的关闭未确认时，沿用 `tool.failed` 的 `TOOL_CLEANUP_PENDING / user_hint` 提醒用户检查实际结果，随后任务仍按取消结束，不把取消转换成可继续执行的普通失败。该提示不表示 Chromium 已停止：对应页面已禁止继续调用，context/profile 所有权保留到公开 close 事件或 Core 关闭处理；禁止自动重试原动作。关闭等待上限 10 秒，后台回收可继续处理未确认资源。
 
 浏览器页面在重启、主动关闭或空闲回收后失效，工具返回 `BROWSER_SESSION_EXPIRED`，沿用 `tool.failed.error_code / user_hint` 提醒重新打开 URL、必要时复用原命名 profile；不自动重试旧句柄或重放上传、下载和点击。进程输入超时/断管仍通过原有错误响应告知“无法确认送达，不要自动重发”；已退出、未启用 stdin 与输入结果不确定分别使用经过筛选的产品提示，不返回第三方异常原文。
 

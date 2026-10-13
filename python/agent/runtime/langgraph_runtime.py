@@ -44,7 +44,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command, interrupt
 
-from agent.errors import public_error
+from agent.errors import UserFacingCancellation, public_error
 from agent.models.context_capacity import ContextCapacity
 from agent.models.reasoning import ThinkTagStream, split_thinking, visible_reasoning
 from agent.repository import ConversationBusyError, SQLiteRepository
@@ -166,6 +166,8 @@ class _RunContext:
     # Current model request's input budget and fixed prompt/tool overhead.
     # Child results use these estimates without copying the parent's history.
     result_budget: tuple[int, int] | None = None
+    # Pending UI metrics only; the summary itself belongs to LangGraph state.
+    compaction_receipt: tuple[str, dict[str, Any]] | None = None
 
 
 class _ProductToolMiddleware(AgentMiddleware):
@@ -1063,7 +1065,7 @@ class LangGraphRuntime:
                     graph_input,
                     config=config,
                     context=context,
-                    stream_mode=["messages", "updates"],
+                    stream_mode=["messages", "updates", "checkpoints"],
                     durability="sync",
                     version="v2",
                 )) as stream:
@@ -1089,6 +1091,7 @@ class LangGraphRuntime:
                 )
                 await self._emit(context, "task.succeeded", {})
         except asyncio.CancelledError:
+            await self._settle_compaction(graph, config, context, cancelled=True)
             task = await self.repository.cancel_task(
                 context.request.workspace_id, context.request.task_id
             )
@@ -1104,6 +1107,7 @@ class LangGraphRuntime:
             )
             raise
         except Exception as exc:
+            await self._settle_compaction(graph, config, context, cancelled=False)
             # Native TaskGroup groups a body error after draining children.
             # Keep a lone original error useful to users/inspection.
             while isinstance(exc, ExceptionGroup) and len(exc.exceptions) == 1:
@@ -1129,6 +1133,31 @@ class LangGraphRuntime:
                 )
         finally:
             await context.queue.put(_END)
+
+    async def _settle_compaction(
+        self, graph: Any, config: dict[str, Any], context: _RunContext, *, cancelled: bool,
+    ) -> None:
+        """Resolve an unprojected summary after graph cleanup, including commit/stop races."""
+        if context.compaction_receipt is None:
+            return
+        try:
+            snapshot = await graph.aget_state(config)
+            await self._project_compaction(snapshot.values.get("messages", []), context)
+        except Exception:
+            # A checkpoint failure cannot be reported as a successful compaction.
+            pass
+        if context.compaction_receipt is not None:
+            context.compaction_receipt = None
+            await self._emit(context, "context.compaction.skipped" if cancelled else "context.compaction.failed", {
+                "reason": "cancelled" if cancelled else "checkpoint_unconfirmed",
+                "message": "压缩提交未确认；原始聊天记录保留，恢复时以持久上下文为准。",
+            })
+
+    async def _project_compaction(self, messages: Any, context: _RunContext) -> None:
+        receipt = context.compaction_receipt
+        if receipt is not None and any(getattr(item, "id", None) == receipt[0] for item in messages):
+            await self._emit(context, "context.compacted", receipt[1])
+            context.compaction_receipt = None
 
     async def has_checkpoint(self, task_id: str) -> bool:
         checkpointer = self._require_open()
@@ -1174,6 +1203,11 @@ class LangGraphRuntime:
     async def _map_runtime_event(self, event: dict[str, Any], context: _RunContext) -> None:
         event_type = str(event.get("type") or "")
         data = event.get("data")
+        if event_type == "checkpoints" and isinstance(data, dict):
+            # sync durability commits the preceding step before this checkpoint
+            # event. Never expose checkpoint values or summaries to the UI.
+            await self._project_compaction(data.get("values", {}).get("messages", []), context)
+            return
         if event_type == "messages" and isinstance(data, tuple) and data:
             metadata = data[1] if len(data) > 1 and isinstance(data[1], dict) else {}
             # Native summarization makes a model call too; its tokens are not
@@ -1642,6 +1676,18 @@ class LangGraphRuntime:
         except GraphInterrupt:
             # LangGraph owns the suspension; asking a question is not a failed tool.
             raise
+        except UserFacingCancellation as exc:
+            # A stopped local waiter is not proof that a remote action stopped.
+            # Project the authored cleanup warning, but keep root cancellation
+            # even if persisting/delivering that warning itself fails.
+            try:
+                hint = public_error(exc)
+                await self._map_message(ToolMessage(
+                    content=hint, tool_call_id=call_id, name=tool_name, status="error",
+                    artifact={"summary": hint, "user_hint": hint, "error_code": "TOOL_CLEANUP_PENDING"},
+                ), context)
+            finally:
+                raise exc from None
         except asyncio.CancelledError:
             raise
         except Exception as exc:

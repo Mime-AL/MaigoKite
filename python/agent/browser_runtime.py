@@ -17,6 +17,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from agent.errors import UserFacingCancellation, UserFacingError
+
+
+_CLEANUP_PENDING = (
+    "浏览器页面清理未确认，已禁止继续操作该会话；外部动作可能尚未停止。"
+    "后台将继续尝试关闭；若提示持续出现，请重启应用。请检查实际结果，不要自动重试原操作。"
+)
+
 
 class BrowserRuntimeUnavailable(RuntimeError):
     """Raised when the optional browser runtime cannot be started."""
@@ -87,11 +95,11 @@ class BrowserRuntime:
             try:
                 async with asyncio.timeout(90):
                     yield
-            except (asyncio.CancelledError, TimeoutError):
+            except (asyncio.CancelledError, TimeoutError) as exc:
                 # Cancellation of the Python waiter alone does not stop Chromium.
                 # Only the caller holding this page's lock may close the context.
-                if session_id in self._pages:
-                    await self.close_session(session_id)
+                if session_id in self._contexts:
+                    await self._close_after_error(session_id, exc)
                 raise
             finally:
                 if session_id in self._pages:
@@ -101,10 +109,14 @@ class BrowserRuntime:
         now = asyncio.get_running_loop().time()
         for session_id, used in list(self._last_used.items()):
             lock = self._operations.get(session_id)
+            page = self._pages.get(session_id)
+            closed = page is None or page.is_closed()
             if (lock is None or lock.locked() or session_id in self._opening
-                    or now - used < self.idle_timeout_seconds):
+                    or (not closed and now - used < self.idle_timeout_seconds)):
                 continue
             async with lock:
+                # A user can close the visible page without closing its context.
+                # Reclaim that profile before another open, not thirty minutes later.
                 # Keep ownership if close fails; Core shutdown will retry it.
                 if session_id in self._contexts:
                     try:
@@ -150,6 +162,33 @@ class BrowserRuntime:
                 ) from exc
             return self._browser
 
+    async def _new_context(self, profile_key: str, visible: bool) -> Any:
+        """Create one context while the caller retains ownership of startup cleanup."""
+        if not profile_key:
+            browser = await self._ensure_browser()
+            return await browser.new_context(accept_downloads=True, service_workers="block")
+        driver = await self._ensure_playwright()
+        directory = self.profile_directory / profile_key
+        if directory.is_symlink():
+            raise ValueError("browser profile must not be a symbolic link")
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.profile_directory.chmod(0o700)
+        directory.chmod(0o700)
+        options: dict[str, Any] = {
+            "headless": False if visible else self.headless,
+            "chromium_sandbox": True,
+            "accept_downloads": True, "service_workers": "block",
+        }
+        if self.executable_path:
+            options["executable_path"] = self.executable_path
+        try:
+            return await driver.chromium.launch_persistent_context(str(directory), **options)
+        except Exception as exc:
+            raise BrowserRuntimeUnavailable(
+                "无法带原生沙箱打开独立浏览器配置；请使用受支持的非 root 环境并检查 Chromium、"
+                "配置目录是否被占用；可见登录还需要桌面显示环境。不会自动禁用沙箱。"
+            ) from exc
+
     async def open(
         self, url: str, *, owner: tuple[str, str, str] = ("personal", "", ""),
         profile: str = "", visible: bool = False,
@@ -162,9 +201,10 @@ class BrowserRuntime:
             raise BrowserRuntimeUnavailable("Browser runtime is shutting down")
         session_id = f"browser_{uuid.uuid4().hex}"
         context = None
+        context_registered = False
         profile_key = ""
         if visible and not profile:
-            raise ValueError("visible login requires an explicit browser profile")
+            raise UserFacingError("打开可见登录窗口需要指定命名 profile，以便保存并复用登录态。")
         if profile:
             if not re.fullmatch(r"[a-zA-Z0-9_-]{1,48}", profile):
                 raise ValueError("browser profile must be a short name, not a path")
@@ -172,42 +212,30 @@ class BrowserRuntime:
             # two conversations. No import of the user's everyday Chrome profile.
             profile_key = hashlib.sha256(f"{owner[0]}:{owner[2]}:{profile}".encode()).hexdigest()
             if profile_key in self._profiles:
-                raise ValueError("browser profile is already open; close its current session first")
+                raise UserFacingError("该浏览器配置仍被已有会话使用，请先关闭原会话，再打开新页面。")
             self._profiles[profile_key] = session_id
         # Reserve before the first launch await, including in-flight openings.
         if len(self._contexts.keys() | self._opening) >= self.max_sessions:
             self._forget(session_id)
-            raise ValueError("浏览器会话已达上限，请先关闭不再使用的页面。")
+            raise UserFacingError("浏览器会话已达上限，请先关闭不再使用的页面。")
         self._opening.add(session_id)
         try:
-            if profile_key:
-                driver = await self._ensure_playwright()
-                directory = self.profile_directory / profile_key
-                if directory.is_symlink():
-                    raise ValueError("browser profile must not be a symbolic link")
-                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-                self.profile_directory.chmod(0o700)
-                directory.chmod(0o700)
-                options: dict[str, Any] = {
-                    "headless": False if visible else self.headless,
-                    "chromium_sandbox": True,
-                    "accept_downloads": True, "service_workers": "block",
-                }
-                if self.executable_path:
-                    options["executable_path"] = self.executable_path
+            # Cancelling a Playwright waiter does not cancel a remote launch.
+            # Obtain its handle before propagating stop, so the outer cleanup
+            # can close the new context instead of abandoning it in Chromium.
+            opening = asyncio.create_task(self._new_context(profile_key, visible))
+            try:
+                context = await asyncio.shield(opening)
+            except asyncio.CancelledError:
                 try:
-                    context = await driver.chromium.launch_persistent_context(str(directory), **options)
-                except Exception as exc:
-                    raise BrowserRuntimeUnavailable(
-                        "无法带原生沙箱打开独立浏览器配置；请使用受支持的非 root 环境并检查 Chromium、"
-                        "配置目录是否被占用；可见登录还需要桌面显示环境。不会自动禁用沙箱。"
-                    ) from exc
-            else:
-                browser = await self._ensure_browser()
-                context = await browser.new_context(accept_downloads=True, service_workers="block")
+                    context = await asyncio.shield(opening)
+                except Exception:
+                    pass  # Preserve the explicit stop, not a late launch error.
+                raise
             # Own the context before navigation; a failed/cancelled opening must
             # remain reclaimable even if Playwright's first close attempt fails.
             self._contexts[session_id] = context
+            context_registered = True
             self._owners[session_id] = owner
             self._operations[session_id] = asyncio.Lock()
             self._last_used[session_id] = asyncio.get_running_loop().time()
@@ -217,13 +245,20 @@ class BrowserRuntime:
             await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             self._pages[session_id] = page
             self._last_used[session_id] = asyncio.get_running_loop().time()
-            if self._reaper is None or self._reaper.done():
-                self._reaper = asyncio.create_task(self._reap_loop(), name="browser-idle-cleanup")
+            self._ensure_reaper()
             return {**await self.snapshot(session_id), "profile": profile, "visible": visible,
                     "login_hint": "Complete login in the browser window, then ask the agent to continue." if visible else ""}
-        except BaseException:
+        except BaseException as exc:
             if context is not None:
-                await context.close()
+                # Startup may have been cancelled before normal registration.
+                # If close fails, keep a reclaimable owner for reap/shutdown.
+                if not context_registered:
+                    self._contexts[session_id] = context
+                    context.on("close", lambda: self._forget(session_id))
+                    self._operations.setdefault(session_id, asyncio.Lock())
+                    self._last_used.setdefault(session_id, 0)
+                if session_id in self._contexts:
+                    await self._close_after_error(session_id, exc)
             self._forget(session_id)
             raise
         finally:
@@ -255,20 +290,20 @@ class BrowserRuntime:
     async def upload(self, session_id: str, selector: str, path: str, *, expected_url: str, workspace_root: str | Path | None = None, unrestricted: bool = False) -> dict[str, Any]:
         page = self._require_page(session_id)
         if page.url != expected_url:
-            raise ValueError("browser page changed after approval; inspect it and request approval again")
+            raise UserFacingError("审批后页面地址已变化，未上传文件；请重新查看页面并申请审批。")
         target = self._workspace_path(path, workspace_root, unrestricted=unrestricted)
         if not target.is_file() or target.stat().st_size > 50 * 1024 * 1024:
-            raise ValueError("upload requires a regular workspace file no larger than 50 MiB")
+            raise UserFacingError("上传需要存在的普通文件，且文件不能超过 50 MiB；未上传文件。")
         await page.locator(selector).first.set_input_files(str(target), timeout=10_000)
         return {"session_id": session_id, "url": page.url, "path": str(target), "uploaded": True}
 
     async def download(self, session_id: str, selector: str, path: str, *, expected_url: str, workspace_root: str | Path | None = None, unrestricted: bool = False) -> dict[str, Any]:
         page = self._require_page(session_id)
         if page.url != expected_url:
-            raise ValueError("browser page changed after approval; inspect it and request approval again")
+            raise UserFacingError("审批后页面地址已变化，未触发下载；请重新查看页面并申请审批。")
         target = self._workspace_path(path, workspace_root, unrestricted=unrestricted)
         if target.exists():
-            raise ValueError("download destination already exists; choose a new filename")
+            raise UserFacingError("下载目标已经存在，请选择其他文件名；不会覆盖已有文件。")
         target.parent.mkdir(parents=True, exist_ok=True)
         download = None
         try:
@@ -280,10 +315,10 @@ class BrowserRuntime:
                     temporary = Path(staging) / "download"
                     await download.save_as(str(temporary))
                     if temporary.stat().st_size > 50 * 1024 * 1024:
-                        raise ValueError("download exceeds 50 MiB")
+                        raise UserFacingError("下载文件超过 50 MiB，未保存到目标文件。")
                     # Publish atomically without overwriting an existing file.
                     if self._workspace_path(str(target), workspace_root, unrestricted=unrestricted) != target:
-                        raise ValueError("download destination changed during execution")
+                        raise UserFacingError("下载目标路径在执行期间变化，未保存到目标文件；请重新确认路径。")
                     os.link(temporary, target)
             return {"session_id": session_id, "url": page.url, "path": str(target), "downloaded": True}
         finally:
@@ -336,10 +371,39 @@ class BrowserRuntime:
     async def close_session(self, session_id: str) -> dict[str, Any]:
         context = self._contexts.get(session_id)
         if context is None:
-            raise KeyError(f"browser session not found: {session_id}")
-        await context.close()
-        self._forget(session_id)
+            raise BrowserSessionUnavailable(session_id)
+        # Remove the callable page before the remote close. A failed close must
+        # not let queued/new callers reuse a page whose operation may still run.
+        # Keep the context and profile owned until Playwright confirms closure.
+        self._pages.pop(session_id, None)
+        self._ensure_reaper()
+        try:
+            async with asyncio.timeout(10):
+                await context.close()
+            # Playwright may return immediately on a repeated close after its
+            # first attempt failed. Only the public close event releases ownership.
+            if session_id in self._contexts:
+                raise UserFacingError(_CLEANUP_PENDING)
+        except Exception as exc:
+            if session_id in self._contexts:
+                logging.getLogger(__name__).warning("Browser context cleanup pending: %s", type(exc).__name__)
+                raise UserFacingError(_CLEANUP_PENDING) from None
         return {"session_id": session_id, "closed": True}
+
+    async def _close_after_error(self, session_id: str, error: BaseException) -> None:
+        """Keep stop as cancellation even if Chromium refuses context cleanup."""
+        try:
+            await self.close_session(session_id)
+        except Exception:
+            if isinstance(error, asyncio.CancelledError):
+                raise UserFacingCancellation(_CLEANUP_PENDING) from None
+            raise UserFacingError(_CLEANUP_PENDING) from None
+
+    def _ensure_reaper(self) -> None:
+        # Failed initial opens need an owner too, even before the first usable
+        # page exists. Closed/quarantined pages bypass the ordinary idle timeout.
+        if not self._closing and (self._reaper is None or self._reaper.done()):
+            self._reaper = asyncio.create_task(self._reap_loop(), name="browser-idle-cleanup")
 
     async def close(self) -> None:
         self._closing = True
@@ -392,6 +456,8 @@ class BrowserRuntime:
 
     def _require_page(self, session_id: str) -> Any:
         page = self._pages.get(session_id)
+        if page is None and session_id in self._contexts:
+            raise UserFacingError(_CLEANUP_PENDING)
         if page is None or page.is_closed():
             raise BrowserSessionUnavailable(session_id)
         return page

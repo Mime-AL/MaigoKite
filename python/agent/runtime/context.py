@@ -386,12 +386,17 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         after = count_tokens_approximately([summary, *retained], use_usage_metadata_scaling=False)
         if after + overhead > input_budget or after >= before:
             raise ContextBudgetExceeded("压缩后仍超过输入预算或未减少上下文，原始历史未替换。")
-        await _emit(context, "context.compacted", {
+        receipt = {
             "measurement": "estimate", "before_tokens": before, "after_tokens": after,
             "summary_tokens": count_tokens_approximately([HumanMessage(text)]),
             "summary_target_tokens": target, "summary_limit_tokens": upper,
             "model_context_window": capacity.tokens, "input_budget_tokens": input_budget,
-        })
+        }
+        # Generation is not a committed replacement. The runtime projects this
+        # receipt only after LangGraph's checkpoint contains the summary ID.
+        summary.id = summary.id or f"summary_{uuid.uuid4().hex}"
+        if context is not None and hasattr(context, "compaction_receipt"):
+            context.compaction_receipt = (summary.id, receipt)
         return {**update, "messages": [replacements[0], *systems, summary, *retained]}
 
 
@@ -454,11 +459,15 @@ class ContextBudgetMiddleware(AgentMiddleware):
                 command=Command(update={**update, "messages": [*update["messages"], *response.result]}),
             )
         except asyncio.CancelledError:
+            if hasattr(request.runtime.context, "compaction_receipt"):
+                request.runtime.context.compaction_receipt = None
             await _emit(request.runtime.context, "context.compaction.skipped", {
                 "reason": "cancelled", "message": "任务已停止，压缩结果未提交。",
             })
             raise
         except Exception as exc:
+            if hasattr(request.runtime.context, "compaction_receipt"):
+                request.runtime.context.compaction_receipt = None
             await _emit(request.runtime.context, "context.compaction.failed", {
                 "error_type": type(exc).__name__, "reason": getattr(exc, "reason", ""),
                 "message": str(exc) if isinstance(exc, ContextBudgetExceeded)

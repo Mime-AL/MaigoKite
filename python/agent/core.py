@@ -520,7 +520,12 @@ class AgentCore:
         return await self.get_tool_settings(workspace_id)
 
     async def _enabled_tool_names(self, workspace_id: str) -> list[str]:
-        return [item["name"] for item in (await self.get_tool_settings(workspace_id))["tools"] if item["enabled"]]
+        running = {name for item in await self.list_mcp_servers() if item["status"] == "running"
+                   for name in item["tool_names"]}
+        # Keep saved preferences intact, but never advertise a dead connection
+        # as executable. Admission rechecks this list before every tool call.
+        return [item["name"] for item in (await self.get_tool_settings(workspace_id))["tools"]
+                if item["enabled"] and (item["source"] != "mcp" or item["name"] in running)]
 
     async def _resolve_langgraph_model(
         self, workspace_id: str, model_id: str, thinking: str
@@ -1371,7 +1376,9 @@ class AgentCore:
                 # Secret values are transient; never persist them in config/checkpoints.
                 env: dict[str, dict[str, str]] = {}
                 for server in candidate.mcp_servers:
-                    values = credentials.get(server.namespace, {})
+                    # Restoring a missing connection must not erase credentials
+                    # owned by an unchanged, healthy connection we will reuse.
+                    values = credentials.get(server.namespace, self._extension_env.get(server.namespace, {}) if restore_only else {})
                     if not isinstance(values, dict):
                         raise ValueError("MCP credentials must be named environment values")
                     env[server.namespace] = {}
@@ -1389,9 +1396,12 @@ class AgentCore:
     async def _apply_extensions(
         self, candidate: ExtensionConfig, env: dict[str, dict[str, str]], *, restore_only: bool,
     ) -> None:
-        # Keep the last usable graph until its replacement opens successfully.
-        # Both are the same LangGraph implementation; no runs enter while staging.
+        # Stage replacements without stopping the live catalog. Admission is
+        # blocked by the caller; failed staging only releases newly owned clients.
         previous = self._langgraph_runtime
+        previous_clients = self._mcp_clients
+        previous_servers = {server.namespace: server for server in self._extension_config.mcp_servers}
+        previous_states = {state["namespace"]: state for state in self._mcp_runtime}
         clients: dict[str, MCPClient] = {}
         states: list[dict[str, Any]] = []
         runtime: LangGraphRuntime | None = None
@@ -1401,19 +1411,63 @@ class AgentCore:
             registry, skills, inventory, errors = await self._load_tool_registry(candidate, restore_only=restore_only)
             if errors and not restore_only:
                 raise ValueError("Skill 扫描有错误，未应用新配置：" + "; ".join(errors[:5]))
-            await self._stop_mcp_servers()
-            await self._initialize_mcp_servers(registry, candidate, env, clients, states)
-            if any(state["status"] not in {"running", "disabled"} for state in states):
+            pending = []
+            for server in candidate.mcp_servers:
+                namespace = server.namespace
+                client = previous_clients.get(namespace)
+                previous_server = previous_servers.get(namespace)
+                client_secrets = {
+                    name: client.env[name] for name in server.secret_env if name in client.env
+                } if client is not None else {}
+                # Tool visibility edits require discovery, not a new process.
+                # Command/cwd/environment or credential changes do require one.
+                selection_fields = {"enabled_tools", "disabled_tools"}
+                if (not server.enabled or client is None or not client.is_running
+                        or previous_server is None
+                        or previous_server.model_dump(exclude=selection_fields) != server.model_dump(exclude=selection_fields)
+                        or (not restore_only and client_secrets != env.get(namespace, {}))):
+                    pending.append(server)
+                    continue
+                clients[namespace] = client
+                # Reuse keeps the process environment, not newly read keychain
+                # values. Snapshot what this client actually received so a
+                # later explicit apply still detects and rotates changed keys.
+                env[namespace] = client_secrets
+                if restore_only:
+                    # Pending approvals retain the applied tool schemas; recovery
+                    # of another server must not rediscover or replace these tools.
+                    names = previous_states[namespace]["tool_names"]
+                    for name in names:
+                        tool = self._registry.get(name)
+                        if tool is None:
+                            raise ValueError("Applied MCP tool catalog is incomplete")
+                        registry.register(tool)
+                else:
+                    # Explicit reload refreshes discovery over the same healthy
+                    # SDK connection, without launching a duplicate server process.
+                    async with asyncio.timeout(30):
+                        tools = await registry.discover_mcp(client, namespace,
+                            enabled_tools=server.enabled_tools, disabled_tools=server.disabled_tools)
+                    names = [tool.name for tool in tools]
+                states.append({"namespace": namespace, "status": "running", "transport": "stdio", "tool_names": list(names)})
+            await self._initialize_mcp_servers(
+                registry, candidate.model_copy(update={"mcp_servers": pending}), env, clients, states,
+            )
+            order = {server.namespace: index for index, server in enumerate(candidate.mcp_servers)}
+            states.sort(key=lambda state: order[state["namespace"]])
+            unavailable = [state["namespace"] for state in states if state["status"] not in {"running", "disabled"}]
+            if unavailable and not restore_only:
                 raise ValueError("MCP 未全部连接，未应用新配置；请检查服务与凭证后重试。")
             runtime = await self._create_langgraph_runtime(registry, skills)
             # This is last-applied product configuration, NOT execution state.
             # Unapplied edits must not silently replace a pending approval's server after restart.
             await self.repository.save_workspace_setting("personal", "extensions.applied_config", candidate.model_dump())
         except BaseException:
-            self._extension_error = "扩展未能应用，仍保留原聊天入口；已断开的外部工具需恢复连接。"
+            self._extension_error = "扩展未能应用，保留原配置、聊天入口及已有连接；请检查失败服务后重试。"
             if runtime is not None:
                 self._retired_runtimes.append(runtime)
-            self._retired_mcp_clients.update(clients)
+            self._retired_mcp_clients.update({name: client for name, client in clients.items()
+                                             if client is not previous_clients.get(name)})
             try:
                 await self._close_retired_extensions()
             except Exception:
@@ -1426,13 +1480,18 @@ class AgentCore:
         self._extension_config, self._extension_env = candidate, env
         self._langgraph_runtime = runtime
         self._applied_extension_revision = candidate.revision
+        self._retired_mcp_clients.update({name: client for name, client in previous_clients.items()
+                                         if client is not clients.get(name)})
+        if unavailable:
+            self._extension_error = "部分 MCP 尚未恢复，其他已连接服务仍可使用；请检查扩展状态与凭证。"
         if previous is not None:
             self._retired_runtimes.append(previous)
         try:
             await self._close_retired_extensions()
         except Exception:
-            self._extension_error = "新配置已生效，旧资源清理未完成；请重新应用或重启服务。"
+            self._extension_error += " 新配置已生效，旧资源清理未完成；请重新应用或重启服务。"
         await self.repository.record_audit(
             "personal", "local-user", "extensions.restored" if restore_only else "extensions.applied",
-            "extensions", "success", {"revision": candidate.revision},
+            "extensions", "partial" if unavailable else "success",
+            {"revision": candidate.revision, "unavailable_namespaces": unavailable},
         )
