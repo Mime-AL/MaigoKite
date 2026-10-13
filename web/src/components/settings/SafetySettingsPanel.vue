@@ -20,7 +20,8 @@ let controller: AbortController | undefined
 const busy = computed(() => !!action.value || !!props.loading)
 function configuration(value: SafetySettings): SafetySettingsUpdate {
   return {
-    enabled: value.enabled, request_format: value.request_format, state: value.state,
+    enabled: value.enabled, request_format: value.request_format, jev_layout: value.jev_layout,
+    state: value.state,
     decision_base_url: value.decision_base_url.trim(), decision_model: value.decision_model.trim(),
     trusted_model_ids: [...new Set(value.trusted_model_ids.map(id => id.trim()).filter(Boolean))],
     risk_threshold: value.risk_threshold,

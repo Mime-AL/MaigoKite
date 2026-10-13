@@ -153,13 +153,15 @@ class SafetySettings(Input):
     """Prompt safety review settings; request/response share this shape.
 
     `credential_configured` is read-only on write. `api_key` is write-only and
-    stored in the credential store, never echoed back. `request_format` stays a
-    plain string so the endpoint can reject it with SAFETY_FORMAT_UNSUPPORTED
-    instead of a generic validation error; the endpoint checks the enum.
+    stored in the credential store, never echoed back. `request_format` and
+    `jev_layout` stay plain strings so the endpoint can reject them with
+    SAFETY_FORMAT_UNSUPPORTED / SAFETY_LAYOUT_UNSUPPORTED instead of a generic
+    validation error; the endpoint checks the enums.
     """
 
     enabled: StrictBool = False
     request_format: str = Field(default="jev_like", max_length=32)
+    jev_layout: str = Field(default="message", max_length=32)
     state: str = Field(default="", max_length=4000)
     decision_base_url: str = Field(default="", max_length=2048)
     decision_model: str = Field(default="", max_length=200)

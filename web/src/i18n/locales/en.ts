@@ -67,6 +67,11 @@ const en: Record<string, string> = {
   移除凭证: 'Remove credential',
   审查规则: 'Review rules',
   审查请求格式: 'Review request format',
+  'JEV 布局': 'JEV layout',
+  'Message 对象（0.8B 推荐）': 'Message object (recommended for 0.8B)',
+  '内嵌（4B 推荐）': 'Inline (recommended for 4B)',
+  'Message 把待审增量放进 state.message，内嵌放进问题指令；按决策模型实测选择。':
+    'Message puts the reviewed delta in state.message; inline embeds it in the question instructions. Choose based on measurements for your decision model.',
   审查状态文本: 'Review state text',
   留空使用默认值: 'Leave blank to use the default',
   风险阈值: 'Risk threshold',

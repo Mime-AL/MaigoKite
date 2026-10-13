@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { ChatModelProfile, SafetyRequestFormat, SafetySettings } from '@/api/client'
+import type { ChatModelProfile, SafetyJevLayout, SafetyRequestFormat, SafetySettings } from '@/api/client'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import InkSelect from '@/components/common/InkSelect.vue'
 import InkNumber from '@/components/common/InkNumber.vue'
@@ -13,13 +13,18 @@ const modelChoices = computed(() => [...new Map(props.models.map(model => [model
 }])).values()])
 const formats: { id: SafetyRequestFormat; label: string }[] = [
   { id: 'jev_like', label: 'JEV / KEV' }, { id: 'laya', label: 'LAYA' },
+  { id: 'openai', label: 'OpenAI 兼容' },
 ]
 const canAdd = computed(() => !props.disabled && newId.value.trim().length > 0 && newId.value.trim().length <= 100 &&
   props.modelValue.trusted_model_ids.length < 32 && !props.modelValue.trusted_model_ids.includes(newId.value.trim()))
 function update(patch: Partial<SafetySettings>) { emit('update:modelValue', { ...props.modelValue, ...patch }) }
 function setFormat(event: Event) {
   const value = (event.target as HTMLSelectElement).value
-  if (value === 'jev_like' || value === 'laya') update({ request_format: value })
+  if (value === 'jev_like' || value === 'laya' || value === 'openai') update({ request_format: value })
+}
+function setLayout(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  if (value === 'inline' || value === 'message') update({ jev_layout: value as SafetyJevLayout })
 }
 function add() {
   if (!canAdd.value) return
@@ -37,6 +42,16 @@ function remove(id: string) {
     <div class="setting-row" data-settings-field="safety-format">
       <label for="safety-format">{{ $t('审查请求格式') }}</label>
       <InkSelect id="safety-format" :value="modelValue.request_format" :options="formats.map(format => ({ value: format.id, label: format.label }))" :disabled="disabled" @change="setFormat" />
+    </div>
+    <div v-if="modelValue.request_format === 'jev_like'" class="setting-row" data-settings-field="safety-layout">
+      <label for="safety-layout">{{ $t('JEV 布局') }}</label>
+      <div>
+        <select id="safety-layout" :value="modelValue.jev_layout" :disabled="disabled" @change="setLayout">
+          <option value="message">{{ $t('Message 对象（0.8B 推荐）') }}</option>
+          <option value="inline">{{ $t('内嵌（4B 推荐）') }}</option>
+        </select>
+        <p class="panel-copy">{{ $t('Message 把待审增量放进 state.message，内嵌放进问题指令；按决策模型实测选择。') }}</p>
+      </div>
     </div>
     <div class="setting-row safety-text-row" data-settings-field="safety-state">
       <label for="safety-state">{{ $t('审查状态文本') }}</label>

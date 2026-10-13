@@ -213,6 +213,7 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 {
   "enabled": false,
   "request_format": "jev_like",
+  "jev_layout": "message",
   "state": "",
   "decision_base_url": "",
   "decision_model": "",
@@ -222,15 +223,53 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 }
 ```
 
-`request_format` 只接受 `jev_like`、`laya`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举 kev。审查请求由 `state` 和 `question` 两部分组成：`state` 使用设置中的自定义文本，留空时采用请求构造库的默认值；`question` 由该库根据审查输入生成，不在此处配置。
+`request_format` 只接受 `jev_like`、`laya`、`openai`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举 kev；`openai` 为 OpenAI 兼容 API 的结构化输出模式。`jev_layout` 只接受 `inline` 与 `message`（仅对 `jev_like` 生效，其余格式忽略该字段），非法值返回 `SAFETY_LAYOUT_UNSUPPORTED`，与 `SAFETY_FORMAT_UNSUPPORTED` 同为 400 专用错误码。审查请求由 `state` 和 `question` 两部分组成：`state` 使用设置中的自定义文本，留空时采用请求构造库的默认值（`jev_like` / `laya` 留空省略附加字段，见下；`jev_like` 的 `inline` 布局则用内置分类指令）；`question` 由该库根据审查输入生成，不在此处配置。
 
 `risk_threshold` 为 0–100 整数；`trusted_model_ids` 最多 32 个，匹配当前实际调用的模型 ID，不匹配默认模型设置。`enabled: true` 时必须提供 `decision_base_url` 与 `decision_model`。当前 PATCH 实现会补齐 DTO 默认值，前端须先读取、再提交完整配置，以保留其他字段；未知字段被拒绝。格式不在枚举内时返回 `SAFETY_FORMAT_UNSUPPORTED`，阈值或白名单越界返回 400 Validation 错误。
+
+对于 `jev_like`/KEV，请求布局由 `jev_layout` 决定：`message`（默认）把待审查增量
+放入 `state.message`，`state` 设置非空时作为 `state.guidance` 附加，instructions
+引用两者（与 `laya` 同布局，见下）；`inline` 把增量连同 Model/Task/Step 元数据内嵌
+`questions.prompt_safety.instructions`，`state` 作为静态分类指令（留空用库内置指令，
+自定义整体替换）。两种布局的审查请求都使用 `safe` 和 `dangerous` 两个分类。KEV 返回的
+`probabilities` 中与 `legend` 值 `dangerous` 对应的概率会乘以 100，作为事件和
+运行时使用的 `risk_score`；返回体中的 `score` 不作为风险值读取。因而
+`risk_threshold` 仍保持 0–100 配置语义，`risk_score > risk_threshold` 时拦截。
+布局选择依据（0.8B 与 4B 的实测对比）见
+[提示词安全审查配置指南](../Prompt-security/configuration.md#2-jev_like含开源实现-kev)。
+
+对于 `laya`，审查请求发送到 `{decision_base_url}/predict`（不以 `/predict` 结尾时
+自动补后缀）。待审查增量放入 `state.message`；`state` 设置非空时作为 `state.guidance`
+附加，instructions 引用两者。`questions.prompt_safety` 固定为 `score` 类型、criteria
+为 `safe`/`dangerous`，响应按 `legend` 对应的 `probabilities[dangerous]` 乘以 100 形成
+`risk_score`，阈值语义与 `jev_like` 相同。`decision_model` 只接受 `english` 与
+`typed-decisions`（留空默认 `typed-decisions`），其余值在请求构造时失败并按审查失败
+保守拦截；`multilingual` 因实测反向误判被排除，审查请求必须显式指定检查点，不使用
+服务端自动路由。语言覆盖矩阵与已知限制（JA 漏拦、AR 误拦、HI 触发服务端崩溃）见
+[提示词安全审查计划](../Prompt-security/plan.md)的验证结果。
+
+对于 `openai`，审查请求发送到 `{decision_base_url}/chat/completions`：`state` 作为
+system 消息、`question` 作为 user 消息，`response_format` 优先使用 `json_schema` 约束
+`{"risk_probability": <0–1 数值>, "reason": <字符串>}`。服务以 400/404/415/422 拒绝该模式时，
+自动降级为 `json_object` 并重试一次，schema 说明已写入 system 消息。响应读取
+`choices[0].message.content` 中的 JSON：`risk_probability` 缺失或不在 0–1、`reason`
+缺失、或内容不是可解析 JSON 时，按审查失败保守拦截；解析后的概率乘以 100 形成
+`risk_score`，再按 `risk_score > risk_threshold` 拦截。
+请求固定提供 `max_tokens: 1024`，为支持隐藏推理字段的模型预留推理与最终 JSON
+的共同输出空间；不能以 `reasoning_content` 替代最终 `content`，最终内容为空时仍按
+审查失败保守拦截。
+
+已用 LM Studio `http://127.0.0.1:1234/v1` 的
+`google/gemma-4-12b-qat` 完成真实联调：良性提示返回
+`risk_probability: 0.0` 并转换为 `risk_score: 0`、放行；请求读取并外发
+API 密钥的注入提示返回 `risk_probability: 1.0` 并转换为 `risk_score: 100`、
+拦截。两次请求均由 `json_schema` 直接返回，未触发 `json_object` 降级。
 
 `api_key` 只出现在 PATCH 请求中，按 `safety.decision_model` 凭证引用保存；GET 只返回 `credential_configured`，不回传密钥。密钥留空保留既有凭证，保存或离开面板后清除输入中的密钥。更换服务地址时须重新提供密钥或移除旧凭证，避免发送到其他服务。
 
 配置按工作区持久化，不随会话变化。设置页「安全」位于「权限」之后，支持配置读取、保存、审查凭证移除，以及 `?tab=safety` 和字段搜索定位。
 
-`capabilities.safety_review` 只表示配置接口可用。接口和 GUI 测试已完成（用户确认），运行时审查仍未接入；`enabled` 仅保存配置，不代表正在提供安全保护。验收记录见 [交付路线与状态](../project/Roadmap.md)。
+`capabilities.safety_review` 表示配置与运行时审查能力可用。启用后，主模型每次调用前审查新增的人类提示词；可信模型跳过审查，审查失败保守拦截，高于阈值时复用结构化提问/恢复链路等待人工决定。接口和 GUI 测试已完成，KEV 与 LAYA HTTP 联调已完成；完整端到端验收仍待执行。验收记录见 [交付路线与状态](../project/Roadmap.md)。
 
 读取凭证只返回引用和元数据，不返回敏感凭证值。
 
