@@ -11,7 +11,9 @@ by the runtime hook.
 from agent.safety.config import (
     SAFETY_CREDENTIAL_REFERENCE,
     SAFETY_FORMATS,
+    SAFETY_JEV_LAYOUTS,
     SAFETY_SETTING_KEY,
+    DEFAULT_JEV_LAYOUT,
     default_safety_settings,
     normalize_safety_settings,
 )
@@ -21,7 +23,9 @@ from agent.safety.reviewer import SafetyReviewError, SafetyReviewResult, SafetyR
 __all__ = [
     "SAFETY_CREDENTIAL_REFERENCE",
     "SAFETY_FORMATS",
+    "SAFETY_JEV_LAYOUTS",
     "SAFETY_SETTING_KEY",
+    "DEFAULT_JEV_LAYOUT",
     "default_safety_settings",
     "normalize_safety_settings",
     "SafetyFormatError",

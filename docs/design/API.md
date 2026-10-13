@@ -213,6 +213,7 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 {
   "enabled": false,
   "request_format": "jev_like",
+  "jev_layout": "message",
   "state": "",
   "decision_base_url": "",
   "decision_model": "",
@@ -222,14 +223,20 @@ enabled / configurable / default_enabled`；PATCH 请求为 `{"enabled":{"web_se
 }
 ```
 
-`request_format` 只接受 `jev_like`、`laya`、`openai`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举 kev；`openai` 为 OpenAI 兼容 API 的结构化输出模式。审查请求由 `state` 和 `question` 两部分组成：`state` 使用设置中的自定义文本，留空时采用请求构造库的默认值（`laya` 格式留空省略附加字段，见下）；`question` 由该库根据审查输入生成，不在此处配置。
+`request_format` 只接受 `jev_like`、`laya`、`openai`。`jev_like` 覆盖 jev 类格式及其开源实现 kev，不单独枚举 kev；`openai` 为 OpenAI 兼容 API 的结构化输出模式。`jev_layout` 只接受 `inline` 与 `message`（仅对 `jev_like` 生效，其余格式忽略该字段），非法值返回 `SAFETY_LAYOUT_UNSUPPORTED`，与 `SAFETY_FORMAT_UNSUPPORTED` 同为 400 专用错误码。审查请求由 `state` 和 `question` 两部分组成：`state` 使用设置中的自定义文本，留空时采用请求构造库的默认值（`jev_like` / `laya` 留空省略附加字段，见下；`jev_like` 的 `inline` 布局则用内置分类指令）；`question` 由该库根据审查输入生成，不在此处配置。
 
 `risk_threshold` 为 0–100 整数；`trusted_model_ids` 最多 32 个，匹配当前实际调用的模型 ID，不匹配默认模型设置。`enabled: true` 时必须提供 `decision_base_url` 与 `decision_model`。当前 PATCH 实现会补齐 DTO 默认值，前端须先读取、再提交完整配置，以保留其他字段；未知字段被拒绝。格式不在枚举内时返回 `SAFETY_FORMAT_UNSUPPORTED`，阈值或白名单越界返回 400 Validation 错误。
 
-对于 `jev_like`/KEV，审查请求使用 `safe` 和 `dangerous` 两个分类。KEV 返回的
+对于 `jev_like`/KEV，请求布局由 `jev_layout` 决定：`message`（默认）把待审查增量
+放入 `state.message`，`state` 设置非空时作为 `state.guidance` 附加，instructions
+引用两者（与 `laya` 同布局，见下）；`inline` 把增量连同 Model/Task/Step 元数据内嵌
+`questions.prompt_safety.instructions`，`state` 作为静态分类指令（留空用库内置指令，
+自定义整体替换）。两种布局的审查请求都使用 `safe` 和 `dangerous` 两个分类。KEV 返回的
 `probabilities` 中与 `legend` 值 `dangerous` 对应的概率会乘以 100，作为事件和
 运行时使用的 `risk_score`；返回体中的 `score` 不作为风险值读取。因而
 `risk_threshold` 仍保持 0–100 配置语义，`risk_score > risk_threshold` 时拦截。
+布局选择依据（0.8B 与 4B 的实测对比）见
+[提示词安全审查配置指南](../Prompt-security/configuration.md#2-jev_like含开源实现-kev)。
 
 对于 `laya`，审查请求发送到 `{decision_base_url}/predict`（不以 `/predict` 结尾时
 自动补后缀）。待审查增量放入 `state.message`；`state` 设置非空时作为 `state.guidance`

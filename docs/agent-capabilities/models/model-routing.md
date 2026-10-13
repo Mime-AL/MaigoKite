@@ -17,7 +17,7 @@
 - 子 Agent 默认跟随本回合父模型；会话可选择允许显式使用的其他配置项。主 Agent 按需用 `list_subagent_models` 发现 ID，再调用 `delegate(model_id=...)`，不新建 Registry、不接受模型自行提交端点/密钥。缺失/未授权/连接失败不静默替换，名称歧义须询问。此增量已接源码，尚未重新验收；具体边界见 [运行时设计](../../design/AgentRuntime.md#7-技能子任务与工作流边界)。
 - API 密钥按配置项 ID 保存在凭证存储，只回显存在状态，受控同步到核心服务内存。
 - 模型提供方/基础地址变化后不得把旧凭证发往新端点；本地模型提供方不借用云端环境密钥。
-- 安全审查的决策模型独立于聊天模型目录，按工作区保存在 `settings/safety`：端点与模型 ID 进配置，密钥走 `safety.decision_model` 凭证引用，只回显存在状态。请求格式为 `jev_like`（jev 类及开源实现 kev）、`laya` 或 `openai`（OpenAI 兼容 chat/completions 结构化输出），请求由 `state`（可自定义，留空用库内置默认值）和 `question`（由库生成）组成；`openai` 把两段映射为 system/user 消息，并用 `response_format` 约束结构化返回。`laya` 发往 `{decision_base_url}/predict`（缺失后缀自动补），`decision_model` 只接受 `english`/`typed-decisions`（留空默认 `typed-decisions`），`multilingual` 因实测反向误判禁用，且必须显式指定检查点、不用服务端自动路由。主模型调用前审查新增提示词，可信模型跳过，失败保守拦截。字段、错误码与 `safety.reviewed` 事件契约见 [API 设计](../../design/API.md#36-设置模型和凭证引用)。
+- 安全审查的决策模型独立于聊天模型目录，按工作区保存在 `settings/safety`：端点与模型 ID 进配置，密钥走 `safety.decision_model` 凭证引用，只回显存在状态。请求格式为 `jev_like`（jev 类及开源实现 kev）、`laya` 或 `openai`（OpenAI 兼容 chat/completions 结构化输出），请求由 `state`（可自定义；`jev_like`/`laya` 留空省略附加字段，`openai` 留空用内置默认指令）和 `question`（由库生成）组成；`jev_like` 按 `jev_layout` 选择布局（默认 `message`，增量放 `state.message`；`inline` 内嵌问题指令，0.8B 与 4B 实测对比见[配置指南](../../Prompt-security/configuration.md#2-jev_like含开源实现-kev)）、`laya` 把待审查增量放 `state.message`；`openai` 把两段映射为 system/user 消息，并用 `response_format` 约束结构化返回。`laya` 发往 `{decision_base_url}/predict`（缺失后缀自动补），`decision_model` 只接受 `english`/`typed-decisions`（留空默认 `typed-decisions`），`multilingual` 因实测反向误判禁用，且必须显式指定检查点、不用服务端自动路由。主模型调用前审查新增提示词，可信模型跳过，失败保守拦截。字段、错误码与 `safety.reviewed` 事件契约见 [API 设计](../../design/API.md#36-设置模型和凭证引用)。
 
 ## 2. 地址、目录与兼容
 

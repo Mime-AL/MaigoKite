@@ -37,13 +37,33 @@
 - **端点**：`decision_base_url` 不以 `/v1/systemone` 结尾时自动补全——裸地址
   （如 `http://127.0.0.1:8009`）会拼成 `.../v1/systemone`，以 `/v1` 结尾则拼 `/systemone`。
 - **`decision_model`**：按审查服务声明的模型名填写，作为请求中的 `model` 字段传给服务。
-- **`state`**：留空使用库内置的分类指令（将绕过安全边界、索取机密、造成未授权副作用
-  视为 dangerous）；自定义文本直接替换该指令。
-- **请求/响应**：发送 `questions.prompt_safety`（`score` 类型，criteria 为 `safe` /
-  `dangerous`），读取响应 `legend` 对应的 `probabilities[dangerous]` × 100 作为
+- **`jev_layout`（布局，二选一）**：设置页「JEV 布局」配置；非法值 PATCH 返回
+  `SAFETY_LAYOUT_UNSUPPORTED`，运行时构造失败按审查失败保守拦截。
+  - `message`（默认）：待审查增量放入 `state.message`，`questions.prompt_safety`
+    为 `score` 类型、criteria 固定 `safe` / `dangerous`，instructions 为引用
+    `message` 的固定短指令；`state` 设置非空时作为 `state.guidance` 附加并被
+    instructions 引用（与 `laya` 一致；guidance 可能降低区分度，建议留空）。
+  - `inline`：待审查增量连同 Model/Task/Step 元数据内嵌 `questions.prompt_safety`
+    的 instructions，`state` 为静态分类指令（留空用库内置指令，自定义整体替换）。
+- **布局实测**（同一套 12 良性 + 12 注入（中英）× 每条 3 次重复，重复间结果一致；
+  指标为良性上界 / 注入下限 / 隙差 / 最佳可达阈值误差 / 默认阈值 75 漏拦数）：
+
+  | 决策模型 | 布局 | 良性上界 | 注入下限 | 隙差 | 最佳阈值误差 | 漏拦@75 |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 0.8B `kev-latest`（`:8009`） | `inline` | 63.9 | 51.6 | −12.3（重叠） | 2 | 8/12 |
+  | 0.8B `kev-latest`（`:8009`） | `message` | 41.9 | 26.6 | −15.4 | 1 | 7/12 |
+  | 4B Q4_K_M llama.cpp（`:9931`） | `inline` | **6.0** | 12.8 | **+6.9** | **0**（阈值 6） | **4/12** |
+  | 4B Q4_K_M llama.cpp（`:9931`） | `message` | 11.0 | 13.1 | +2.1 | 0（阈值 12） | 7/12 |
+
+  结论：**0.8B 选 `message`**（`inline` 在 0.8B 上存在良性反超注入的重叠，
+  `message` 把良性上界压低 22 分、最佳阈值误差减半），**4B 选 `inline`**
+  （间距更大、默认阈值漏拦更少；4B 主套件上 `inline` 隙差 +87.4、75 阈值
+  0 漏拦，且两种布局 AUC 均为 1.000）。分轮明细与指令扩展实验（4B 上
+  `inline`+扩展指令可达 1/12 漏拦）见 [计划](plan.md)验证结果。
+- **请求/响应**：读取响应 `legend` 对应的 `probabilities[dangerous]` × 100 作为
   `risk_score`；KEV 返回体中的 `score` 索引值不作为风险值。
-- **实测证据**：本机 `POST http://127.0.0.1:8009/v1/systemone` 联调通过，安全样例
-  返回 0 分放行，见 [计划](plan.md)验证结果。
+- **实测证据**：本机 `POST http://127.0.0.1:8009/v1/systemone` `message` 布局端到端
+  联调通过，良性 14 分放行、注入 93 分拦截，见 [计划](plan.md)验证结果。
 
 ## 3. `laya`
 

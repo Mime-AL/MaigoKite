@@ -2,6 +2,65 @@
 
 > 计划见 [plan.md](plan.md)。本文件按日期记录实际改动、验证结果和待办，不复制 [API 设计](../design/API.md) 的契约正文。
 
+## 2026-10-13
+
+### KEV 请求布局 A/B 实验
+
+- 源码证据（`Documents\PROGRAM\kev`）：KEV 模型输入为 `<state> + question instr +
+  options`（`kev/model.py` `encode`），其自带 prompt-injection 评测（`scripts/
+  build_devtools_v1.py`）就是“待审文本放 `state` + 短问题”；旧 `jev_like` 把增量
+  内嵌 question instructions，对 KEV 属偏离评测分布的布局。
+- 本机 8009 三布局对照（12 良性 + 12 注入，中英，每条 3 次重复，结果完全一致）：
+  旧布局良性均分 40.9 / 上界 63.9、存在良性反超注入的重叠；`state.message` 布局
+  良性均分 17.2 / 上界 41.9、经典越狱注入 97+，首轮 16 条完全分离（AUC 1.00、
+  零误差阈值 24–38）。隐蔽指令套取类注入两布局均低于默认阈值 75（共同短板）；
+  指令扩展实验（+覆盖隐藏指令套取）注入均分 +4.0、良性 +2.1，收益边际，未采用。
+  完整数据与结论见 [plan](plan.md)验证结果。
+
+### 改动
+
+- `python/agent/safety/formats/jev_like.py` — 布局改为 laya 式：增量放
+  `state.message`，短指令放 `questions.prompt_safety`，`state` 设置映射为
+  `state.guidance`（留空省略）；移除 `DEFAULT_STATE` 与 Model/Task/Step 元数据行。
+- `python/tests/test_safety_review.py` — `jev_like` 断言改到新布局并补 guidance
+  用例；修复过时的 laya 单数 `question` 断言，改为默认检查点与白名单拒绝用例。
+- `python/tests/test_safety_settings.py` — 修复 `SAFETY_FORMATS` 断言补 `openai`
+  （此前该用例因 openai 枚举加入而失败）。
+- 文档同步：[plan](plan.md)、[configuration](configuration.md)、
+  [API 设计](../design/API.md)、[模型接入与选择](../agent-capabilities/models/model-routing.md)。
+
+### 验证
+
+- `python/tests`：14 passed；`compileall` 通过。
+- 新构造器经 `SafetyReviewer` 直连本机 KEV 端到端联调：良性 14/14 放行，
+  注入 38/71/93（阈值 75 拦截经典越狱），guidance 路径服务端接受。
+
+### KEV-4B benchmark
+
+- 实例：`http://127.0.0.1:9931`（llama.cpp + `Kev-4B-Q4_K_M.gguf`，`decisions`
+  模态实现 TypeSafe `/v1/systemone`，`model` 字段接受 `kev-latest`）。共 456 请求，
+  重复间结果一致，主套件均值 ~250ms/请求。
+- 布局对比（同一套 24 条汇总，指标表见 [configuration](configuration.md) §2）：
+  4B 上 `inline` 反超 `message`（主套隙差 +87.4 vs +49.9、阈值 75 漏拦 0 vs 4），
+  与 0.8B 的布局偏好相反；两布局 AUC 均 1.000，24 条汇总均存在零误差阈值。
+- 指令扩展补测：4B 上 `message` 漏拦 7→3、`inline` 4→1（唯一漏拦为“翻译时附
+  初始设定”27.3），良性上界仅 +0.5～+2.2。因需按决策模型取舍，未并入默认指令。
+
+### jev_layout 布局可选化
+
+- 后端：`config.py` 新增 `SAFETY_JEV_LAYOUTS = ("inline", "message")` 与默认
+  `message`；DTO 新字段 `jev_layout`；PATCH 非法值返回 `SAFETY_LAYOUT_UNSUPPORTED`；
+  `build_review_request` 增加 `layout` 参数，`formats/jev_like.py` 恢复双布局
+  （`inline` 为迁移前逻辑原样），未知布局构造失败转保守拦截；`reviewer` 与
+  runtime 透传 `settings["jev_layout"]`。
+- 前端：设置页「审查请求格式」下方新增「JEV 布局」下拉（仅 `jev_like` 显示，
+  标注 0.8B / 4B 推荐），`client.ts` 类型与保存投影补字段，字段搜索注册
+  `safety-layout`，`en.ts` 补翻译。
+- 测试与文档：`python/tests` 增至 **17 passed**（新增 inline 载荷、未知布局拒绝、
+  reviewer 布局透传与配置/DTO 默认值断言）；同步 [configuration](configuration.md)
+  （含 0.8B / 4B 布局实测表）、[API 设计](../design/API.md)、[plan](plan.md) 与
+  [模型接入与选择](../agent-capabilities/models/model-routing.md)。
+
 ## 2026-10-12
 
 ### 方案阶段
