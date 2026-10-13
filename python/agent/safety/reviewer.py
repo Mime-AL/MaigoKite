@@ -165,16 +165,26 @@ class SafetyReviewer:
         except (httpx.HTTPError, ValueError) as exc:
             raise SafetyReviewError("safety review service request failed") from exc
         model_reason = ""
-        if request_format == "openai":
-            probability, model_reason = _parse_openai_review(body)
-            score = probability * 100
-        else:
-            dangerous_probability = _find_danger_probability(body)
-            if dangerous_probability is None or not 0 <= dangerous_probability <= 1:
-                raise SafetyReviewError(
-                    "safety review response did not contain a dangerous probability from 0 to 1"
-                )
-            score = dangerous_probability * 100
+        try:
+            if request_format == "openai":
+                probability, model_reason = _parse_openai_review(body)
+                score = probability * 100
+            else:
+                dangerous_probability = _find_danger_probability(body)
+                if dangerous_probability is None or not 0 <= dangerous_probability <= 1:
+                    raise SafetyReviewError(
+                        "safety review response did not contain a dangerous probability from 0 to 1"
+                    )
+                score = dangerous_probability * 100
+        except SafetyReviewError as exc:
+            logger.warning(
+                "Safety review result invalid: review_id=%s model_id=%s format=%s error=%s",
+                review_id,
+                review.model_id,
+                request_format,
+                exc,
+            )
+            raise
         reason = "risk_threshold_exceeded" if score > threshold else "reviewed"
         logger.info(
             "Safety decision: review_id=%s model_id=%s format=%s risk_score=%.2f "

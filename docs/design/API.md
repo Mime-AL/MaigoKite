@@ -248,6 +248,9 @@ system 消息、`question` 作为 user 消息，`response_format` 优先使用 `
 `choices[0].message.content` 中的 JSON：`risk_probability` 缺失或不在 0–1、`reason`
 缺失、或内容不是可解析 JSON 时，按审查失败保守拦截；解析后的概率乘以 100 形成
 `risk_score`，再按 `risk_score > risk_threshold` 拦截。
+请求固定提供 `max_tokens: 1024`，为支持隐藏推理字段的模型预留推理与最终 JSON
+的共同输出空间；不能以 `reasoning_content` 替代最终 `content`，最终内容为空时仍按
+审查失败保守拦截。
 
 已用 LM Studio `http://127.0.0.1:1234/v1` 的
 `google/gemma-4-12b-qat` 完成真实联调：良性提示返回

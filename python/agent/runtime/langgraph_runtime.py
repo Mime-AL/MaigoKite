@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -55,6 +56,8 @@ from agent.tools.base import BaseTool
 from agent.tools.native.file_read import FileReadTool
 from agent.tools.native.file_write import FileWriteTool
 from agent.tools.permission_mgr import PermissionManager, PolicyDecision, RiskLevel
+
+logger = logging.getLogger("maigokite.agent.runtime")
 from agent.tools.validator import ToolValidator, ValidationError
 
 
@@ -322,7 +325,13 @@ class _PromptSafetyMiddleware(AgentMiddleware):
                     ),
                     threshold=int(settings["risk_threshold"]),
                 )
-            except SafetyReviewError:
+            except SafetyReviewError as exc:
+                logger.warning(
+                    "Prompt safety review failed closed: model_id=%s format=%s error=%s",
+                    model_id,
+                    settings["request_format"],
+                    exc,
+                )
                 result = SafetyReviewResult(
                     review_id="safety_" + uuid.uuid4().hex, model_id=model_id,
                     request_format=str(settings["request_format"]), risk_score=None,
