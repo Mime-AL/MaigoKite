@@ -147,7 +147,9 @@ Web `built` 地址为 `http://127.0.0.1:8080`，页面和 API 都由 Python 后�
 bash scripts/build.sh all
 ```
 
-开发环境和质量检查命令见 [开发指南](docs/development/DevelopmentGuide.md)。API 由 FastAPI 生成 OpenAPI，不再生成跨语言协议绑定。当前测试文件与聚合测试脚本仅保留在维护者本地，不随 Git 分发；新克隆不能直接复现历史测试结果，范围见 [测试与验收](docs/testing/TestPlan.md)。
+开发环境和质量检查命令见 [开发指南](docs/development/DevelopmentGuide.md)。API 由 FastAPI 生成 OpenAPI，不再生成跨语言协议绑定。测试源码、配置和运行脚本随 Git 分发，安装开发依赖后可运行 `bash scripts/run_tests.sh`。默认测试使用模拟模型与本地 HTTP/SSE 服务，不需要模型凭据，不调用付费模型。
+
+[GitHub Actions CI](.github/workflows/ci.yml) 在 PR、主分支推送和手动触发时执行 Python 检查与运行时验收、前端检查和 Linux/Windows 源码构建。具体覆盖范围及发布边界见 [测试与验收](docs/testing/TestPlan.md)。
 
 提交 Issue 或 PR 时，请附上复现步骤、实际行为、预期行为和必要的脱敏日志。不要提交 API Key、个人数据、运行数据库或构建产物。
 

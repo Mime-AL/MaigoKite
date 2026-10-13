@@ -20,7 +20,7 @@ Linux/Windows 的 `start desktop built` 仍从源码目录启动，不进入 Ele
 
 脚本不会自动安装浏览器或运行软件测试。脚本调整仅做了静态检查，Windows 和 Linux 实机的整套启停仍未完成验收。
 
-开发环境安装与命令以 [开发指南](../development/DevelopmentGuide.md) 为准。目前没有已核验的远程 CI workflow，不要把本文检查项当作已经运行的 CI 检查。
+开发环境安装与命令以 [开发指南](../development/DevelopmentGuide.md) 为准。[GitHub Actions CI](../../.github/workflows/ci.yml) 已配置 Python/前端检查与 Linux/Windows 源码构建；是否通过以对应提交的 Actions 记录为准。其构建检查不包含独立安装包、桌面启动和真实模型验收，发布仍须完成下述门禁。
 
 Python 构建与安装统一读取根目录的 `pyproject.toml`，依赖锁定使用根目录的 `uv.lock`，不从 `python/` 安装另一套分发包。第一批轻量化只修改了入口和锁文件，当时没有执行构建或安装包验收，也没有完成 runtime bundling。
 

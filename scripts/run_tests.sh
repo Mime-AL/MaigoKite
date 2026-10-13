@@ -17,25 +17,28 @@ FAILED=0
 TOTAL=0
 PASSED=0
 
+# Real provider calls are a separate, explicitly invoked acceptance operation.
+SUITE_PYTEST_ARGS=(python/tests scripts/acceptance --ignore=python/tests/spike/test_runtime_spike_live.py --tb=short)
+
 run_python_tests() {
   TOTAL=$((TOTAL + 1))
   info "Running Python tests and acceptance gates..."
   if [ -x "$PROJECT_ROOT/.venv/bin/python" ] && "$PROJECT_ROOT/.venv/bin/python" -c 'import pytest' >/dev/null 2>&1; then
-    if (cd "$PROJECT_ROOT" && PYTHONPATH=python .venv/bin/python -m pytest python/tests scripts/acceptance --tb=short 2>&1); then
+    if (cd "$PROJECT_ROOT" && PYTHONPATH=python .venv/bin/python -m pytest "${SUITE_PYTEST_ARGS[@]}" 2>&1); then
       PASSED=$((PASSED + 1))
     else
       FAILED=$((FAILED + 1))
       warn "Python tests failed"
     fi
   elif command -v uv &>/dev/null; then
-    if (cd "$PROJECT_ROOT" && PYTHONPATH=python uv run --project "$PROJECT_ROOT" --extra dev --frozen pytest python/tests scripts/acceptance --tb=short 2>&1); then
+    if (cd "$PROJECT_ROOT" && PYTHONPATH=python uv run --project "$PROJECT_ROOT" --extra dev --frozen pytest "${SUITE_PYTEST_ARGS[@]}" 2>&1); then
       PASSED=$((PASSED + 1))
     else
       FAILED=$((FAILED + 1))
       warn "Python tests failed"
     fi
   elif command -v python3 &>/dev/null; then
-    if (cd "$PROJECT_ROOT" && PYTHONPATH=python python3 -m pytest python/tests scripts/acceptance --tb=short 2>&1); then
+    if (cd "$PROJECT_ROOT" && PYTHONPATH=python python3 -m pytest "${SUITE_PYTEST_ARGS[@]}" 2>&1); then
       PASSED=$((PASSED + 1))
     else
       FAILED=$((FAILED + 1))

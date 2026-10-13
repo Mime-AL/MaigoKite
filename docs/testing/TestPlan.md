@@ -30,6 +30,21 @@
 
 完整批次 HITL 必须验证全部决定齐备前无写入，旧预期“首项批准立即写第一个文件”不再适用。多项文件批准与部分批准后重启已有定向记录，但不覆盖后续驳回语义调整；两者的验证范围须分开，不能删除失败测试后宣称通过。
 
+### GitHub Actions
+
+[CI 工作流](../../.github/workflows/ci.yml) 在所有 PR、`main`/`master` 推送及手动触发时运行，同一 PR/分支的新运行取消旧运行。Python 使用 3.14 和 `uv sync --locked --extra dev`，Node 使用 24.x 和 `npm ci`。不配置模型凭据或仓库 Secret；CI 和 `scripts/run_tests.sh` 显式排除 `test_runtime_spike_live.py`，其余模型测试使用测试替身或本机 HTTP/SSE 服务，不产生模型 API 费用。
+
+| 检查 | 范围 |
+| --- | --- |
+| Python checks and acceptance | Ruff、mypy、`python/tests` 与 `scripts/acceptance`；包含 HTTP/WS、Core 跨进程审批恢复和文件崩溃点 |
+| Frontend checks and tests | 不带 `--fix` 的 ESLint、全部 Vitest 用例 |
+| Source build（Linux / Windows） | 调用对应 Bash/PowerShell 构建脚本，检查 Web 生产 TypeScript、Web/Electron 编译、Python wheel/sdist |
+| CI gate | 仅当上述所有检查成功时通过；可在仓库分支保护或规则集中设为必需检查 |
+
+lint/类型检查失败后仍继续测试并保留失败状态，不使用 `continue-on-error`。pytest/Vitest 的 JUnit 报告作为 Actions artifact 保存 7 天，不提交到 Git。测试步骤和作业均有超时，pytest 长时间无响应时输出线程栈用于诊断。
+
+此工作流不发布制品，不启动桌面窗口，也不验证独立安装包或真实模型服务。当前浏览器测试使用替身，不能计为真实 Chromium 验收；Bubblewrap 若受宿主限制导致用例跳过，应查看 pytest 的跳过原因。工作流已经配置不等于已经远程运行通过，结果以对应提交的 Actions 记录为准。
+
 ## 3. 生产聊天纵向路径
 
 ```text
