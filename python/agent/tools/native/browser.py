@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.browser_runtime import BrowserRuntime, BrowserRuntimeUnavailable
+from agent.browser_runtime import BrowserRuntime, BrowserRuntimeUnavailable, BrowserSessionUnavailable
 from agent.errors import public_error
 from agent.tools.base import BaseTool, ExecutionContext, ToolResult
 
@@ -81,6 +81,15 @@ class BrowserTool(BaseTool):
                 "Browser runtime is unavailable.",
                 error_code="BROWSER_RUNTIME_UNAVAILABLE",
                 user_hint="请检查 Playwright、Chromium 和配置目录；打开登录窗口还需要可用的桌面显示环境。",
+            )
+        except BrowserSessionUnavailable:
+            # Page IDs are process-local; only a named profile's login data
+            # survives restart/idle cleanup. Give the model a recovery action,
+            # not an opaque KeyError it may retry with the same expired handle.
+            hint = "浏览器页面已关闭、过期或随服务重启失效。请重新打开目标 URL；需要保留登录态时使用原 profile，不要重试旧 session_id。"
+            return ToolResult.failure(
+                {"action": action}, hint,
+                error_code="BROWSER_SESSION_EXPIRED", user_hint=hint,
             )
         except (KeyError, ValueError) as exc:
             return ToolResult.failure(

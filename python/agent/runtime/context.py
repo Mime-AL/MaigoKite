@@ -192,6 +192,7 @@ class _SummaryObservation(AsyncCallbackHandler):
         await _emit(self.context, "model.call.started", {"call_id": str(run_id), "purpose": "summary", **model_identity(self.model)})
 
     async def on_llm_end(self, response: Any, *, run_id: Any, **kwargs: Any) -> None:
+        await _emit(self.context, "model.call.completed", {"call_id": str(run_id), "purpose": "summary"})
         for batch in response.generations:
             for generation in batch:
                 message = getattr(generation, "message", None)
@@ -243,6 +244,11 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
             runtime.context.context_capacity = capacity
         try:
             return await self._compact(state, runtime, capacity)
+        except asyncio.CancelledError:
+            await _emit(runtime.context, "context.compaction.skipped", {
+                "reason": "cancelled", "message": "任务已停止，原始历史未替换。",
+            })
+            raise
         except Exception as exc:
             await _emit(runtime.context, "context.compaction.failed", {
                 "error_type": type(exc).__name__,
@@ -255,6 +261,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
     async def _compact(
         self, state: Any, runtime: Any, capacity: ContextCapacity, *, force: bool = False,
         system_message: SystemMessage | None = None, request_tools: list[Any] | None = None,
+        reason: str = "pressure",
     ) -> dict[str, Any] | None:
         messages = state["messages"]
         systems = [item for item in messages if isinstance(item, SystemMessage)]
@@ -295,7 +302,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         latest_index = next((i for i in range(len(conversation) - 1, -1, -1)
                              if isinstance(conversation[i], HumanMessage)), 0)
         protected_inputs: set[str] = set()
-        if force and getattr(context, "adapter", None) is not None:
+        if getattr(context, "adapter", None) is not None:
             pending = await context.adapter.repository.task_inputs(
                 context.request.workspace_id, context.request.task_id, pending=True,
             )
@@ -314,15 +321,19 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         else:
             callbacks = callbacks.copy()
             callbacks.add_handler(observer)
-        # Overflow recovery runs inside the model node. Use LangGraph's public
-        # no-stream tag so auxiliary summary text cannot become the UI answer.
-        options: dict[str, Any] = {"callbacks": callbacks, "tags": [*(self.model.tags or []), TAG_NOSTREAM]}
-        for field in ("max_tokens", "num_predict"):
-            if field in type(self.model).model_fields:
-                configured = getattr(self.model, field, None)
-                limit = min(upper, configured) if isinstance(configured, int) and configured > 0 else upper
-                options[field] = max(_minimum_output(self.model), limit)
-                break
+        # Summaries are internal, complete-response calls. TAG_NOSTREAM hides
+        # graph messages but does not disable SDK streaming callbacks by itself.
+        # Change only this copy; the main answer still streams normally.
+        options: dict[str, Any] = {
+            "callbacks": callbacks, "tags": [*(self.model.tags or []), TAG_NOSTREAM],
+            "disable_streaming": True,
+        }
+        if "streaming" in type(self.model).model_fields:
+            options["streaming"] = False
+        if field := _output_field(self.model):
+            configured = getattr(self.model, field, None)
+            limit = min(upper, configured) if isinstance(configured, int) and configured > 0 else upper
+            options[field] = max(_minimum_output(self.model), limit)
         # Public shallow model copy: only request options/callbacks change. HTTP
         # transports remain Core-owned and shared; no per-summary client creation.
         model = self.model.model_copy(update=options)
@@ -344,7 +355,7 @@ class SafeSummarizationMiddleware(SummarizationMiddleware):
         await _emit(context, "context.compaction.started", {
             "before_tokens": before + overhead, "input_budget_tokens": input_budget,
             "model_context_window": capacity.tokens, "measurement": "estimate",
-            "reason": "provider_overflow" if force else "pressure",
+            "reason": reason,
         })
         update = await native.abefore_model(cast(AgentState[Any], summary_state), runtime)
         if observer.error is not None:
@@ -414,6 +425,47 @@ class ContextBudgetMiddleware(AgentMiddleware):
     ) -> ModelResponse | ExtendedModelResponse:
         return await self._call(request, handler, allow_recovery=True)
 
+    async def _compact_request(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+        capacity: ContextCapacity, *, force: bool, reason: str,
+    ) -> ExtendedModelResponse | None:
+        """Use the same native summary and checkpoint update at the final request boundary.
+
+        Queued user inputs and middleware tools can increase the prompt after
+        before_model compaction. Keep those inputs verbatim and commit the
+        replacement only together with a successful model response.
+        """
+        if self.summarizer is None:
+            return None
+        try:
+            update = await self.summarizer._compact(
+                request.state, request.runtime, capacity, force=force, reason=reason,
+                system_message=request.system_message, request_tools=request.tools,
+            )
+            if update is None:
+                return None
+            retry_messages = [item for item in update["messages"][1:]
+                              if not isinstance(item, SystemMessage)]
+            response = cast(ModelResponse, await self._call(
+                request.override(messages=retry_messages), handler, allow_recovery=False,
+            ))
+            return ExtendedModelResponse(
+                model_response=response,
+                command=Command(update={**update, "messages": [*update["messages"], *response.result]}),
+            )
+        except asyncio.CancelledError:
+            await _emit(request.runtime.context, "context.compaction.skipped", {
+                "reason": "cancelled", "message": "任务已停止，压缩结果未提交。",
+            })
+            raise
+        except Exception as exc:
+            await _emit(request.runtime.context, "context.compaction.failed", {
+                "error_type": type(exc).__name__, "reason": getattr(exc, "reason", ""),
+                "message": str(exc) if isinstance(exc, ContextBudgetExceeded)
+                           else "上下文压缩或后续请求失败，原始历史未替换。",
+            })
+            raise
+
     async def _call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]], *,
         allow_recovery: bool,
@@ -454,6 +506,15 @@ class ContextBudgetMiddleware(AgentMiddleware):
             if context is not None:
                 context.context_capacity = capacity
         input_budget = effective_input_budget(request.model, self.max_tokens, capacity)
+        if (allow_recovery and self.summarizer is not None and capacity.tokens is not None
+                and estimated >= int(input_budget * 0.8)):
+            # Include queued inputs and the actual outgoing system/tool schema.
+            # A local budget overflow must not bypass available history compaction.
+            compacted = await self._compact_request(
+                request, handler, capacity, force=estimated > input_budget, reason="input_pressure",
+            )
+            if compacted is not None:
+                return compacted
         # Memory is optional reference material. Limit its share and use only
         # spare input room after compaction, so it cannot crowd out this turn.
         projected, memory = await project_memories(
@@ -527,27 +588,13 @@ class ContextBudgetMiddleware(AgentMiddleware):
                 # tokens. Native middleware selects safe pairs and creates the
                 # replacement; public Command commits it with the final result.
                 try:
-                    update = await self.summarizer._compact(
-                        request.state, request.runtime, getattr(context, "context_capacity", None) or capacity,
-                        force=True, system_message=request.system_message, request_tools=request.tools,
+                    compacted = await self._compact_request(
+                        request, handler, getattr(context, "context_capacity", None) or capacity,
+                        force=True, reason="provider_overflow",
                     )
-                    if update is not None:
-                        retry_messages = [item for item in update["messages"][1:]
-                                          if not isinstance(item, SystemMessage)]
-                        response = cast(ModelResponse, await self._call(
-                            request.override(messages=retry_messages), handler, allow_recovery=False,
-                        ))
-                        return ExtendedModelResponse(
-                            model_response=response,
-                            command=Command(update={**update, "messages": [*update["messages"], *response.result]}),
-                        )
+                    if compacted is not None:
+                        return compacted
                 except Exception as recovery_error:
-                    await _emit(context, "context.compaction.failed", {
-                        "error_type": type(recovery_error).__name__,
-                        "reason": getattr(recovery_error, "reason", ""),
-                        "message": str(recovery_error) if isinstance(recovery_error, ContextBudgetExceeded)
-                                   else "超限恢复失败，原始历史未替换。",
-                    })
                     raise exc from recovery_error
             raise
         ended_at = time.perf_counter()

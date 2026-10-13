@@ -6,6 +6,7 @@ import { usageNumber } from '@/utils/usage-presentation'
 const props = defineProps<{ daily: UsageStatistics['daily']; startDate: string | null; endDate: string }>()
 const { t, locale } = useI18n()
 const selected = ref('')
+const hovered = ref(''), focused = ref('')
 const span = computed(() => {
   const start = props.startDate || props.daily[0]?.date || props.endDate
   return Math.round((Date.parse(`${props.endDate}T12:00:00Z`) - Date.parse(`${start}T12:00:00Z`)) / 86_400_000) + 1
@@ -26,7 +27,11 @@ const days = computed(() => {
   })
 })
 const max = computed(() => Math.max(1, ...days.value.map(day => day.tokens || 0)))
-const active = computed(() => days.value.find(day => day.date === selected.value) || days.value[days.value.length - 1])
+const active = computed(() => days.value.find(day => day.date === (hovered.value || focused.value || selected.value)) || days.value[days.value.length - 1])
+function focusDay(event: FocusEvent, date: string) {
+  focused.value = event.currentTarget instanceof HTMLElement && event.currentTarget.matches(':focus-visible') ? date : ''
+  if (focused.value) hovered.value = ''
+}
 function date(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString(locale.value, { month: 'short', day: 'numeric' })
 }
@@ -40,7 +45,8 @@ function description(day: typeof days.value[number]) {
     <header><h3>{{ $t('每日用量') }}</h3><span>{{ $t('已报告 Token') }}<small v-if="span > 30"> · {{ $t('最近 30 天') }}</small></span></header>
     <div class="usage-trend-bars">
       <button v-for="day in days" :key="day.date" type="button" :aria-label="description(day)" :title="description(day)"
-        :data-selected="active?.date === day.date" @mouseenter="selected = day.date" @focus="selected = day.date" @click="selected = day.date"
+        :data-selected="selected === day.date" :aria-pressed="selected === day.date"
+        @mouseenter="hovered = day.date" @mouseleave="hovered = ''" @focus="focusDay($event, day.date)" @blur="focused = ''" @click="selected = day.date"
         :style="{ '--usage-bar-height': `${(day.tokens || 0) / max * 100}%`, '--usage-input-share': `${day.tokens ? (day.input || 0) / day.tokens * 100 : 0}%` }">
         <span class="usage-bar"><i /><b /></span>
       </button>

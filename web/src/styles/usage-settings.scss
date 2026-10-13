@@ -64,7 +64,11 @@
     border-bottom: var(--hairline) solid var(--rule);
     border-radius: var(--radius-none);
     background: var(--transparent);
-    &:hover, &[data-selected='true'] { background: var(--accent-soft); border-bottom-color: var(--accent); }
+    &[data-selected='true'] { border-bottom-color: var(--accent); }
+    &:focus-visible { background: var(--accent-soft); border-bottom-color: var(--accent); }
+    @media (hover: hover) {
+      &:hover { background: var(--accent-soft); border-bottom-color: var(--accent); }
+    }
     &:active { transform: translateY(var(--press-shift)); }
   }
 }

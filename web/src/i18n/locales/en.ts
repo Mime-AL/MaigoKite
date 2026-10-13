@@ -1,4 +1,5 @@
 const en: Record<string, string> = {
+  '展开或收起 {0} 的模型': 'Expand or collapse models for {0}',
   统计: 'Statistics',
   用量统计: 'Usage statistics',
   本机用量: 'Saved local usage',

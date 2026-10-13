@@ -17,6 +17,7 @@ const id = `ink-select-${Array.from(crypto.getRandomValues(new Uint32Array(2)), 
 const trigger = ref<HTMLButtonElement | null>(null), native = ref<HTMLSelectElement | null>(null)
 const dialog = ref<HTMLDialogElement | null>(null), list = ref<HTMLElement | null>(null)
 const open = ref(false), active = ref('')
+const keyboardNavigation = ref(false)
 const position = ref<CSSProperties>({})
 const selected = computed(() => props.modelValue ?? props.value ?? '')
 const current = computed(() => props.options.find(option => option.value === selected.value))
@@ -45,8 +46,9 @@ function place() {
   }
 }
 function follow() { list.value?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' }) }
-async function show(last = false) {
+async function show(last = false, keyboard = false) {
   if (props.disabled || trigger.value?.matches(':disabled') || !enabled.value.length) return
+  keyboardNavigation.value = keyboard
   active.value = enabled.value.find(option => option.value === selected.value)?.value ??
     enabled.value[last ? enabled.value.length - 1 : 0].value
   open.value = true
@@ -69,6 +71,7 @@ function choose(value: string) {
 function keydown(event: KeyboardEvent) {
   if (event.key === 'Escape') { event.preventDefault(); close(); return }
   if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
+  keyboardNavigation.value = true
   const index = menuSelectionIndex(event.key, enabled.value.findIndex(option => option.value === active.value), enabled.value.length)
   if (index !== null) {
     event.preventDefault()
@@ -84,7 +87,7 @@ function keydown(event: KeyboardEvent) {
     if (match) active.value = match.value
   }
 }
-watch(active, () => { void nextTick(follow) })
+watch(active, () => { if (keyboardNavigation.value) void nextTick(follow) })
 watch(() => props.disabled, disabled => { if (disabled) close() })
 watch(() => props.options, () => {
   if (!open.value) return
@@ -109,8 +112,8 @@ onScopeDispose(() => {
       v-bind="$attrs" ref="trigger" class="ink-select-trigger" type="button"
       :disabled="disabled || !enabled.length" role="combobox" aria-haspopup="listbox"
       :aria-expanded="open" :aria-controls="open ? id : undefined"
-      @click="open ? close() : show()"
-      @keydown.down.prevent="show()" @keydown.up.prevent="show(true)"
+      @click="open ? close() : show(false, $event.detail === 0)"
+      @keydown.down.prevent="show(false, true)" @keydown.up.prevent="show(true, true)"
     >
       <span>{{ current?.label || $t('请选择') }}</span>
       <IconSymbol name="chevron" :size="14" class="ink-select-chevron" />
@@ -121,7 +124,9 @@ onScopeDispose(() => {
     <Teleport to="body">
       <dialog
         ref="dialog" class="ink-select-menu inkline-shell" :style="position" :aria-label="String($attrs['aria-label'] || current?.label || $t('请选择'))"
+        :data-keyboard-navigation="keyboardNavigation"
         @cancel.prevent="close" @close="closed" @click.self="close" @keydown.stop="keydown"
+        @pointermove="keyboardNavigation = false" @pointerdown="keyboardNavigation = false" @pointerleave="keyboardNavigation = false"
       >
         <div :id="id" ref="list" role="listbox" tabindex="0" :aria-label="String($attrs['aria-label'] || current?.label || $t('请选择'))"
           :aria-activedescendant="`${id}-${options.findIndex(option => option.value === active)}`">

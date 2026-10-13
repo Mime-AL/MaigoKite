@@ -22,6 +22,10 @@ class BrowserRuntimeUnavailable(RuntimeError):
     """Raised when the optional browser runtime cannot be started."""
 
 
+class BrowserSessionUnavailable(KeyError):
+    """A page handle expired or belonged to a previous Core process."""
+
+
 async def _require_public_http_url(url: str) -> None:
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -389,5 +393,5 @@ class BrowserRuntime:
     def _require_page(self, session_id: str) -> Any:
         page = self._pages.get(session_id)
         if page is None or page.is_closed():
-            raise KeyError(f"browser session not found: {session_id}")
+            raise BrowserSessionUnavailable(session_id)
         return page

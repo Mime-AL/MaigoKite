@@ -444,6 +444,10 @@ Runtime 使用 Core 已拥有的官方 SDK 查询当前服务 `/models`，读取
 
 用量汇总中，旧记录若缺少 `call_id` 或调用开始回执，`calls / failed_calls` 返回 null（未知），不能显示为“0 次调用”。已收到的 token 小计和 `reported_calls` 仍可查询，但不是完整账单或调用次数的估计。
 
+压缩触发的 `reason` 区分 `pressure`（模型步骤前）、`input_pressure`（补充输入后的最终请求）和 `provider_overflow`（服务端明确拒绝）。根任务取消时用既有 `context.compaction.skipped`、`reason=cancelled` 结束压缩展示，再发布任务终态；不把取消记作压缩成功。摘要调用也发布 `model.call.completed`、`purpose=summary`，即使服务未返回用量计数。
+
+浏览器页面在重启、主动关闭或空闲回收后失效，工具返回 `BROWSER_SESSION_EXPIRED`，沿用 `tool.failed.error_code / user_hint` 提醒重新打开 URL、必要时复用原命名 profile；不自动重试旧句柄或重放上传、下载和点击。进程输入超时/断管仍通过原有错误响应告知“无法确认送达，不要自动重发”；已退出、未启用 stdin 与输入结果不确定分别使用经过筛选的产品提示，不返回第三方异常原文。
+
 **文件变更。** `file_write / file_edit` 成功后发出任务归属的 `file.changed`：`path / tool_call_id / diff / diff_truncated / added / removed / before_hash / after_hash`。Diff 是单次工具操作前后的证据，不是整个回合净变化，不应将同文件多次修改的行数相加冒充净变化。前后内容各最多读取 256 KB，差异文本最多 64000 字符；二进制、无法读取或行数过多时 `diff_truncated: true`，无法计算的行数/hash 为 null。命令、MCP 或外部程序修改文件不在此事件覆盖内，仍使用现有工作区 Git Diff。发生写入后、事件提交前的崩溃可能缺少该投影；重放已满足内容的写入不会伪造原始 before image。同字节核对成功的 `file_write` 仍通过标准工具投影返回结果：`tool.completed.data` 含 `reconciled: true / bytes_written: 0 / size_bytes`，`file.changed` 含可选 `reconciled: true`，并以 `before_hash: null / diff_truncated: true` 表示原始差异不可恢复，不表示产生了新的磁盘写入。本批不提供文件回滚快照。
 
 **进程。** job ID 使用真实命令的 tool_call ID，只允许停止当前 Core 持有且属于该工作区的句柄，客户端不能提交任意 PID。日志通过 GET 轮询，不是新增日志 WebSocket 协议；`log_tail` 为 stdout/stderr 各约 4000 的尾部片段。POSIX 使用不移动子进程文件偏移的 `pread` 读取；无 `pread` 的平台 `live_logs_available: false`，只提供已有完成输出。仍沿用现有执行超时、进程组终止及平台限制；这不是 detached background scheduler，不保证跨 Core 重启接管进程。

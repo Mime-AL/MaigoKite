@@ -4,6 +4,7 @@ import { useModelSettings } from '@/composables/useModelSettings'
 import { providerChoices, choiceGroups } from '@/config/model-provider-choices'
 import IconSymbol from '@/components/common/IconSymbol.vue'
 import ModelProfileEditor from './ModelProfileEditor.vue'
+import ModelServiceCard from './ModelServiceCard.vue'
 import InkLoader from '@/components/common/InkLoader.vue'
 import { t } from '@/i18n'
 const editor = reactive(useModelSettings())
@@ -20,6 +21,11 @@ const {
   beginAdd,
 } = toRefs(editor)
 const providerSearch = ref('')
+const collapsedGroups = ref(new Set<string>())
+function setGroupExpanded(id: string, expanded: boolean) {
+  if (expanded) collapsedGroups.value.delete(id)
+  else collapsedGroups.value.add(id)
+}
 const feedback = ref(''),
   feedbackError = ref('')
 function result(ok: boolean, message: string) {
@@ -84,66 +90,17 @@ watch(mode, () => {
       v-else-if="mode === 'list'"
       class="profile-list"
     >
-      <article
+      <ModelServiceCard
         v-for="group in modelGroups"
         :key="group.id"
-        class="service-group"
-      >
-        <header class="service-heading">
-          <button
-            type="button"
-            class="profile-main"
-            :disabled="settings.saving"
-            :aria-label="$t('编辑服务 {0}', [group.name])"
-            @click="selectProfile(group.models[0].id)"
-          >
-            <span class="provider-mark">{{ group.monogram }}</span>
-            <span class="profile-copy">
-              <strong>{{ group.name }}</strong>
-              <small>{{ $t(group.providerName)
-              }}<template v-if="group.location"> · {{ group.location }}</template></small>
-            </span>
-          </button>
-          <span class="service-count">{{ $t('{0} 个模型', [group.models.length]) }}</span>
-          <button
-            type="button"
-            class="default-action"
-            :disabled="settings.saving"
-            :aria-label="$t('管理 {0} 的模型', [group.name])"
-            @click="selectProfile(group.models[0].id)"
-          >
-            {{ $t('管理模型 ›') }}
-          </button>
-        </header>
-        <ul
-          class="service-models"
-          :aria-label="$t('{0} 的模型', [group.name])"
-        >
-          <li
-            v-for="item in group.models"
-            :key="item.id"
-            class="profile-row"
-          >
-            <span class="profile-copy">
-              <span><strong>{{ item.model }}</strong><i v-if="item.isDefault">{{ $t('默认') }}</i></span>
-            </span>
-            <span
-              class="credential-state"
-              :class="profileCredential(item).tone"
-            ><i />{{ profileCredential(item).label }}</span>
-            <button
-              v-if="!item.isDefault"
-              type="button"
-              class="default-action"
-              :disabled="settings.saving"
-              :aria-label="$t('将 {0} 设为默认', [item.model])"
-              @click="setDefault(item.id)"
-            >
-              {{ $t('设为默认') }}
-            </button>
-          </li>
-        </ul>
-      </article>
+        :group="group"
+        :expanded="!collapsedGroups.has(group.id)"
+        :saving="settings.saving"
+        :profile-credential="profileCredential"
+        @expanded="setGroupExpanded(group.id, $event)"
+        @edit="selectProfile"
+        @default="setDefault"
+      />
 
       <div
         v-if="!settings.modelProfiles.length"

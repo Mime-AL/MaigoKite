@@ -516,20 +516,20 @@ class LangGraphRuntime:
         return decision
 
     async def _refresh_execution_metadata(self, context: _RunContext) -> None:
-        context.authorizations = await self.repository.list_authorizations(
-            context.request.workspace_id, context.request.conversation_id,
-            context.request.principal_id, context.request.task_id,
-        )
-        if self._execution_metadata is None:
-            return
-        fresh = await self._execution_metadata(context.request)
+        fresh = (await self._execution_metadata(context.request) if self._execution_metadata
+                 else dict(context.execution_metadata))
         original = context.execution_metadata.get("enabled_tools", self._specs_by_name)
         # Tool discovery stays stable for this run; revocations still apply.
         fresh["enabled_tools"] = sorted(set(original) & set(fresh.get("enabled_tools", original)))
-        fresh["permission_mode"] = self.policy.normalize_mode(
-            str(fresh.get("permission_mode", context.request.permission_mode)),
+        # Fetch authority last, after configuration/credential lookups. Even a
+        # fixed-model runtime must read live permissions, not its initial request.
+        mode, grants = await self.repository.execution_authority(
+            context.request.workspace_id, context.request.conversation_id,
+            context.request.principal_id, context.request.task_id,
         )
+        fresh["permission_mode"] = self.policy.normalize_mode(mode)
         # Replace rather than mutate: an already-started tool keeps its snapshot.
+        context.authorizations = grants
         context.execution_metadata = fresh
 
     def _should_interrupt(self, tool_request: Any) -> bool:
@@ -1534,11 +1534,6 @@ class LangGraphRuntime:
         if not isinstance(context, _RunContext):
             raise RuntimeError("LangGraph runtime context is missing")
         tool_name = str(request.tool_call["name"])
-        await self._refresh_execution_metadata(context)
-        authority = replace(context, execution_metadata=dict(context.execution_metadata))
-        # Public dataclasses retain a per-operation snapshot, not a new runtime
-        # state. Other operations cannot mutate this tool's captured authority.
-        request = replace(request, runtime=replace(request.runtime, context=authority))
         task = await self.repository.get_task(context.request.workspace_id, context.request.task_id)
         if task["status"] == "cancelled":
             return ToolMessage(
@@ -1553,8 +1548,13 @@ class LangGraphRuntime:
                 content="New user input arrived. This proposed tool was not executed; reconsider it after reading the user's message.",
                 tool_call_id=str(request.tool_call["id"]), name=tool_name, status="error",
             )
-        decision = self._policy_decision(tool_name, arguments, authority)
         record = (await self._review_records(context)).get(str(request.tool_call["id"]))
+        await self._refresh_execution_metadata(context)
+        authority = replace(context, execution_metadata=dict(context.execution_metadata))
+        # Capture authority only after waiting for this tool's admission and
+        # reading pending input/approvals. Earlier tools retain their own copy.
+        request = replace(request, runtime=replace(request.runtime, context=authority))
+        decision = self._policy_decision(tool_name, arguments, authority)
         approved = record if record is not None and record["status"] == "consumed" else None
         rejected = record if record is not None and record["status"] == "rejected" else None
         if (request.tool_call["id"] in context.boundary_review_ids

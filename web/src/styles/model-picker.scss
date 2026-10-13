@@ -75,54 +75,6 @@
   overscroll-behavior: contain;
   padding: var(--space-2) 0;
 }
-.model-group header {
-  position: sticky;
-  top: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--size-10) var(--size-14) var(--size-6);
-  background: var(--paper);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-}
-.model-group strong {
-  font-weight: var(--weight-medium);
-  overflow-wrap: anywhere;
-}
-.model-group small {
-  font-size: var(--text-xs);
-}
-.model-option {
-  @include mixins.interactive-row;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  width: calc(100% - var(--space-4));
-  margin-inline: var(--size-6);
-  padding: var(--space-3) var(--space-3);
-  border: 0;
-  background: var(--transparent);
-  text-align: left;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-}
-.model-option > span {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.model-option[data-highlighted='true'] {
-  background: var(--control-hover);
-}
-.model-option[aria-selected='true'] {
-  color: var(--accent);
-}
-.model-option small {
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-}
 .model-empty {
   margin: 0;
   padding: var(--space-7) var(--size-14);
