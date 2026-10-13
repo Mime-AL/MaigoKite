@@ -13,6 +13,7 @@ const verdict = computed<Verdict | undefined>(() => {
   const status = props.record?.status
   if (status === 'approved' || status === 'consumed') return 'allow'
   if (status === 'rejected' || status === 'denied') return 'deny'
+  return undefined
 })
 const status = computed(() => {
   if (props.item.mode === 'question')

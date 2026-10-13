@@ -70,7 +70,7 @@ if ($LASTEXITCODE -eq 0) { .\scripts\start.ps1 desktop built }
 if ($LASTEXITCODE -eq 0) { .\scripts\start.ps1 web built }
 ```
 
-Windows 命令工具支持 PowerShell 7 / 5.1。原生受限执行已接入可选的 SRT 后端（alpha，默认关闭、尚未 Windows 实机验收），不依赖 WSL；未启用时拒绝受限命令，不自动改为完全访问。首次安装会涉及系统账户与防火墙，须按 [Windows 沙箱配置](docs/user-guide/Configuration.md#windows-原生命令沙箱) 单独确认；普通 setup/start 不做这些系统更改。编码差异见 [PowerShell 说明](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
+Windows 命令工具支持 PowerShell 7 / 5.1。可选的 SRT 原生沙箱仍处于 alpha，默认关闭，尚未完成 Windows 实机验收；未启用时拒绝受限命令，不自动切换为完全访问。它不依赖 WSL，首次安装需确认系统账户和防火墙更改，普通 setup/start 不做这些更改。步骤见 [Windows 沙箱配置](docs/user-guide/Configuration.md#windows-原生命令沙箱)，编码差异见 [PowerShell 说明](docs/user-guide/Configuration.md#windows-powershell-命令工具)。
 
 `setup` 安装 Python 运行依赖及 Web/Electron 工具。执行前先退出应用；仅更新后端或安装开发工具的选项见 [开发指南](docs/development/DevelopmentGuide.md#2-初始化)。
 
@@ -147,9 +147,9 @@ Web `built` 地址为 `http://127.0.0.1:8080`，页面和 API 都由 Python 后�
 bash scripts/build.sh all
 ```
 
-开发环境和质量检查命令见 [开发指南](docs/development/DevelopmentGuide.md)。API 由 FastAPI 生成 OpenAPI，不再生成跨语言协议绑定。测试源码、配置和运行脚本随 Git 分发，安装开发依赖后可运行 `bash scripts/run_tests.sh`。默认测试使用模拟模型与本地 HTTP/SSE 服务，不需要模型凭据，不调用付费模型。
+开发环境和质量检查命令见 [开发指南](docs/development/DevelopmentGuide.md)。测试源码、配置和运行脚本随仓库分发，安装开发依赖后可运行 `bash scripts/run_tests.sh`。默认使用模拟模型与本地 HTTP/SSE 服务，不需要模型凭据，也不调用付费模型。
 
-[GitHub Actions CI](.github/workflows/ci.yml) 在 PR、主分支推送和手动触发时执行 Python 检查与运行时验收、前端检查和 Linux/Windows 源码构建。具体覆盖范围及发布边界见 [测试与验收](docs/testing/TestPlan.md)。
+[GitHub Actions CI](.github/workflows/ci.yml) 在 PR、主分支推送和手动触发时检查 Python、前端及 Linux/Windows 源码构建。测试覆盖范围和安装包验收要求见 [测试与验收](docs/testing/TestPlan.md)。
 
 提交 Issue 或 PR 时，请附上复现步骤、实际行为、预期行为和必要的脱敏日志。不要提交 API Key、个人数据、运行数据库或构建产物。
 

@@ -15,7 +15,7 @@
 
 ## 2. 现有入口
 
-下表列出仓库内测试入口。测试源码、fixtures、Vitest 配置和运行脚本由 Git 管理；本地生成的 `test-results/` 与 `playwright-report/` 仍由 `.gitignore` 排除。新克隆后需先安装对应依赖才能运行。只有实际执行并记录结果后，才能报告通过；测试文件存在不代表测试已经通过。
+下表列出当前测试入口及历史名称。测试源码、fixtures、Vitest 配置和运行脚本由 Git 管理；本地生成的 `test-results/` 与 `playwright-report/` 不提交。新克隆后需先安装对应依赖。只有实际执行并记录结果，才能报告通过；文件存在不等于测试通过。
 
 | 位置 | 覆盖对象 |
 | --- | --- |
@@ -32,7 +32,9 @@
 
 ### GitHub Actions
 
-[CI 工作流](../../.github/workflows/ci.yml) 在所有 PR、`main`/`master` 推送及手动触发时运行，同一 PR/分支的新运行取消旧运行。Python 使用 3.14 和 `uv sync --locked --extra dev`，Node 使用 24.x 和 `npm ci`。不配置模型凭据或仓库 Secret；CI 和 `scripts/run_tests.sh` 显式排除 `test_runtime_spike_live.py`，其余模型测试使用测试替身或本机 HTTP/SSE 服务，不产生模型 API 费用。
+[CI 工作流](../../.github/workflows/ci.yml) 在所有 PR、`main`/`master` 推送及手动触发时运行。同一 PR/分支启动新运行时，会取消旧运行。
+
+Python 使用 3.14，通过 `uv sync --locked --extra dev` 安装开发依赖；Node 使用 24.x，通过 `npm ci` 安装依赖。不配置模型凭据或仓库 Secret。CI 和 `scripts/run_tests.sh` 显式排除 `test_runtime_spike_live.py`，其余模型测试使用测试替身或本机 HTTP/SSE 服务，不产生模型 API 费用。
 
 | 检查 | 范围 |
 | --- | --- |
@@ -41,9 +43,13 @@
 | Source build（Linux / Windows） | 调用对应 Bash/PowerShell 构建脚本，检查 Web 生产 TypeScript、Web/Electron 编译、Python wheel/sdist |
 | CI gate | 仅当上述所有检查成功时通过；可在仓库分支保护或规则集中设为必需检查 |
 
-lint/类型检查失败后仍继续测试并保留失败状态，不使用 `continue-on-error`。pytest/Vitest 的 JUnit 报告作为 Actions artifact 保存 7 天，不提交到 Git。测试步骤和作业均有超时，pytest 长时间无响应时输出线程栈用于诊断。
+lint/类型检查失败后，仍继续执行测试并保留失败状态，不使用 `continue-on-error`。pytest/Vitest 的 JUnit 报告作为 Actions artifact 保存 7 天，不提交到 Git。
 
-此工作流不发布制品，不启动桌面窗口，也不验证独立安装包或真实模型服务。当前浏览器测试使用替身，不能计为真实 Chromium 验收；Bubblewrap 若受宿主限制导致用例跳过，应查看 pytest 的跳过原因。工作流已经配置不等于已经远程运行通过，结果以对应提交的 Actions 记录为准。
+测试步骤和作业均有超时限制。pytest 长时间无响应时输出线程栈，供排查阻塞位置。
+
+此工作流不发布制品、不启动桌面窗口，也不验证独立安装包或真实模型服务。浏览器测试使用替身，不能计为真实 Chromium 验收；Bubblewrap 用例因宿主限制跳过时，须查看 pytest 的跳过原因。
+
+工作流已配置不等于远程运行通过。通过、失败或跳过的结果，以对应提交的 Actions 记录为准。
 
 ## 3. 生产聊天纵向路径
 
@@ -100,4 +106,4 @@ OpenAI、Anthropic、Ollama、目标兼容服务各记录 text 流式输出 → 
 
 记录硬件、模型、代码版本、数据规模和并发，测长聊天渲染/输入、首词元/任务耗时、事件补拉、SQLite 锁、浏览器/MCP 常驻资源。只报“提升倍数”或页面不卡不够。
 
-发布须适用质量检查、契约、安全、恢复、备份和干净机器制品验收通过；缺陷影响与未验证项明确。手机配对/锁屏重连等仅在 [手机远程访问](../design/RemoteAccess.md) 的对应版本进入交付时增加，不为本地首版加入远程平台前提。
+发布前，适用的质量检查、契约、安全、恢复、备份和干净机器制品验收必须通过；已知缺陷及未验证项须明确列出。手机配对、锁屏重连等场景，仅在 [手机远程访问](../design/RemoteAccess.md) 的对应版本进入交付时增加，不作为本地首版的发布前提。
